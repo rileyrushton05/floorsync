@@ -47,6 +47,27 @@ project/
 
 ## Getting Started
 
+### FloorSync local foundation
+
+This project uses a small service layout that mirrors the planned system: Next.js frontend, FastAPI API, Redis-backed Celery workers and PostgreSQL. The database schema, migrations and persistence implementation are intentionally owned by the database workstream under `src/database/`.
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Open the frontend at <http://localhost:3000>, API health at <http://localhost:8000/health>, and FastAPI docs at <http://localhost:8000/docs>.
+
+Dependencies are managed with [uv](https://docs.astral.sh/uv/). Docker uses the committed `uv.lock` file with a frozen install; use the same commands locally:
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy src/backend
+```
+
+See [the technical foundation](docs/architecture.md) for component boundaries and tooling decisions.
+
 This repository has already been created for your team, with all team members and teaching staff added.
 
 Use this repository for all of your team's project work. Update this `README.md` to match your project, and start using issues, branches, commits, pull requests, and GitHub Projects from the beginning of the semester.
