@@ -75,4 +75,4 @@ docker compose up --build
 - **Pytest** begins with service health and grows with each feature.
 - **TypeScript strict** applies to the Next.js frontend from the start.
 
-Run all backend checks with `make check` after installing `uv`.
+Run the full backend and frontend quality suite with `make check` after running `make bootstrap`.
