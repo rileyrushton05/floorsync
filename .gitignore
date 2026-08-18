@@ -29,6 +29,13 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Next.js
+.next/
+coverage/
 
 # Java
 *.class
