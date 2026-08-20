@@ -1,0 +1,1 @@
+"""Generic Celery worker package."""

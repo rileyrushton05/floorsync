@@ -47,6 +47,31 @@ project/
 
 ## Getting Started
 
+### FloorSync local foundation
+
+This project uses a small service layout that mirrors the planned system: Next.js frontend, FastAPI API, Redis-backed Celery workers and PostgreSQL. The database schema, migrations and persistence implementation are intentionally owned by the database workstream under `src/database/`.
+
+Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), and Node.js 22 or later (Corepack provides the pinned pnpm version).
+
+```bash
+cp .env.example .env
+make bootstrap
+make install-hooks # optional: run the full check suite before each push
+docker compose up --build
+```
+
+Open the frontend at <http://localhost:3000>, API health at <http://localhost:8000/health>, and FastAPI docs at <http://localhost:8000/docs>.
+
+Dependencies are managed with `uv` and pnpm. Docker uses committed lockfiles with frozen installs. Run the complete local quality gate before opening a PR:
+
+```bash
+make check
+```
+
+`make check` runs Python formatting, linting, typing and tests, then frontend linting, type checking and a production build. The optional Git hook installed by `make install-hooks` runs the same suite before every push; use `git push --no-verify` only when a failing check is clearly understood and noted in the PR.
+
+See [the technical foundation](docs/architecture.md) for component boundaries and tooling decisions.
+
 This repository has already been created for your team, with all team members and teaching staff added.
 
 Use this repository for all of your team's project work. Update this `README.md` to match your project, and start using issues, branches, commits, pull requests, and GitHub Projects from the beginning of the semester.
