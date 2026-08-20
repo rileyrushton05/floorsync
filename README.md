@@ -49,7 +49,7 @@ project/
 
 ### FloorSync local foundation
 
-This project uses a small service layout that mirrors the planned system: Next.js frontend, FastAPI API, Redis-backed Celery workers and PostgreSQL. The database schema, migrations and persistence implementation are intentionally owned by the database workstream under `src/database/`.
+This project uses a small service layout that mirrors the planned system: Next.js frontend, FastAPI API, Redis-backed Celery workers and PostgreSQL. Database migrations are owned by the database workstream under `src/database/`; shared SQLAlchemy models and session infrastructure live in `src/backend/common/` so both the API and workers can use them.
 
 Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), and Node.js 22 or later (Corepack provides the pinned pnpm version).
 
@@ -57,7 +57,8 @@ Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), and Node.js 22 
 cp .env.example .env
 make bootstrap
 make install-hooks # optional: run the full check suite before each push
-docker compose up --build
+docker compose up --build -d
+make db-upgrade
 ```
 
 Open the frontend at <http://localhost:3000>, API health at <http://localhost:8000/health>, and FastAPI docs at <http://localhost:8000/docs>.

@@ -1,6 +1,6 @@
 PNPM := corepack pnpm --dir src/frontend
 
-.PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks
+.PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks db-upgrade db-revision
 
 bootstrap:
 	uv sync
@@ -27,3 +27,9 @@ frontend-build:
 
 install-hooks:
 	git config core.hooksPath .githooks
+
+db-upgrade:
+	docker compose run --rm api alembic upgrade head
+
+db-revision:
+	docker compose run --rm api alembic revision --autogenerate -m "$(name)"
