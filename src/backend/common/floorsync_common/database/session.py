@@ -6,12 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from floorsync_common.settings import settings
 
 engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-session_factory = async_sessionmaker(engine, expire_on_commit=False)
+session_factory = async_sessionmaker(
+    engine,
+    expire_on_commit=False,
+    autobegin=False,
+)
 
 
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
-    """Provide a session for workers and other non-request code."""
+    """Provide one atomic transaction for non-request async code."""
 
-    async with session_factory() as session:
+    async with session_factory() as session, session.begin():
         yield session
