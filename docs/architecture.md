@@ -20,8 +20,8 @@ flowchart TB
     ws --- api
     api --> redis
     worker --> redis
-    api -. "future persistence" .-> postgres
-    worker -. "future persistence" .-> postgres
+    api -->|"SQLAlchemy async sessions"| postgres
+    worker -->|"SQLAlchemy async sessions"| postgres
 ```
 
 ## Component responsibilities
@@ -30,9 +30,9 @@ flowchart TB
 | --- | --- |
 | `src/frontend/` | Next.js/TypeScript UI. Add application routes, reusable components and API/WebSocket clients here. |
 | `src/backend/api/` | FastAPI HTTP and WebSocket transport. Add request validation, API routes and connection handling here. |
-| `src/backend/common/` | Code shared by API and workers: settings, typed contracts and domain utilities. |
+| `src/backend/common/` | Code shared by API and workers: settings, SQLAlchemy models and sessions, typed contracts and domain utilities. |
 | `src/backend/workers/` | Celery application and asynchronous task modules. Workers consume jobs from Redis. |
-| `src/database/` | Database schema, migrations and seed data. This is the database workstream’s ownership area. |
+| `src/database/` | Alembic migrations and seed data. This is the database workstream’s ownership area. |
 | Redis | Celery broker and result backend. It can also support event publication for live updates. |
 | PostgreSQL | Relational data store for application data. |
 
@@ -43,6 +43,7 @@ flowchart TB
 | `GET /health` | Confirms that the FastAPI service is running. |
 | `WS /ws` | Accepts a client, sends `{"type":"connected"}`, and keeps the connection open. |
 | Celery worker | Runs asynchronous task modules with Redis connectivity. |
+| SQLAlchemy session | Provides async, unit-of-work database access to API routes and workers. |
 
 ## Dependency rule
 
@@ -51,7 +52,7 @@ flowchart TB
 ```text
 frontend → API → common
 worker   → common
-database workstream → common (only when a shared contract is agreed)
+migrations → common database models
 ```
 
 ## Local development
@@ -59,13 +60,20 @@ database workstream → common (only when a shared contract is agreed)
 Docker Compose starts frontend, API, worker, Redis and PostgreSQL together. Copy `.env.example` to `.env`, then run:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
+make db-upgrade
 ```
 
 - Frontend: <http://localhost:3000>
 - API health: <http://localhost:8000/health>
 - API documentation: <http://localhost:8000/docs>
 - WebSocket endpoint: `ws://localhost:8000/ws`
+
+Schema changes are managed with Alembic. Add ORM models under
+`floorsync_common.database.models`, import each module from that package, then run
+`make db-revision name="describe the schema change"` and review the generated migration. Apply
+migrations with `make db-upgrade`; application startup deliberately does not create or mutate the
+schema.
 
 ## Quality gates
 
