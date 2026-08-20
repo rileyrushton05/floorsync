@@ -20,8 +20,8 @@ flowchart TB
     ws --- api
     api --> redis
     worker --> redis
-    api -->|"SQLAlchemy async sessions"| postgres
-    worker -->|"SQLAlchemy async sessions"| postgres
+    api -->|"SQLAlchemy asyncpg sessions"| postgres
+    worker -->|"SQLAlchemy psycopg sessions"| postgres
 ```
 
 ## Component responsibilities
@@ -30,7 +30,7 @@ flowchart TB
 | --- | --- |
 | `src/frontend/` | Next.js/TypeScript UI. Add application routes, reusable components and API/WebSocket clients here. |
 | `src/backend/api/` | FastAPI HTTP and WebSocket transport. Add request validation, API routes and connection handling here. |
-| `src/backend/common/` | Code shared by API and workers: settings, SQLAlchemy models and sessions, typed contracts and domain utilities. |
+| `src/backend/common/` | Code shared by API and workers: settings, SQLAlchemy models, async sessions, typed contracts and domain utilities. |
 | `src/backend/workers/` | Celery application and asynchronous task modules. Workers consume jobs from Redis. |
 | `src/database/` | Alembic migrations and seed data. This is the database workstream’s ownership area. |
 | Redis | Celery broker and result backend. It can also support event publication for live updates. |
@@ -43,7 +43,8 @@ flowchart TB
 | `GET /health` | Confirms that the FastAPI service is running. |
 | `WS /ws` | Accepts a client, sends `{"type":"connected"}`, and keeps the connection open. |
 | Celery worker | Runs asynchronous task modules with Redis connectivity. |
-| SQLAlchemy session | Provides async, unit-of-work database access to API routes and workers. |
+| API database session | Provides request-scoped async database access to API routes. |
+| Worker database scope | Provides a synchronous, process-local transaction for Celery tasks. |
 
 ## Dependency rule
 
@@ -74,6 +75,10 @@ Schema changes are managed with Alembic. Add ORM models under
 `make db-revision name="describe the schema change"` and review the generated migration. Apply
 migrations with `make db-upgrade`; application startup deliberately does not create or mutate the
 schema.
+
+Celery workers use a separate synchronous driver and create their pool after each worker process
+starts. See the
+[Celery database decision](decisions/0001-celery-database-access.md).
 
 ## Quality gates
 
