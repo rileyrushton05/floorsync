@@ -1,0 +1,10 @@
+.main { max-width: 980px; margin: 0 auto; padding: 88px 24px; }
+.eyebrow { color: #43c5ff; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.hero { font-size: clamp(2.5rem, 6vw, 4.6rem); line-height: 1.05; max-width: 850px; margin: 16px 0; }
+.intro { color: #b3d2e3; font-size: 1.15rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 48px; }
+.card { border: 1px solid #1d6687; border-radius: 14px; background: #0b2940; padding: 24px; }
+.cardTitle { margin-top: 0; color: #56cbff; }
+.cardLink { text-decoration: none; }
+.cardLink:hover .cardTitle { text-decoration: underline; }
+.cardTag { color: #8dd9ff; font-size: .85rem; }
