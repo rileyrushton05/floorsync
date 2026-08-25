@@ -66,9 +66,9 @@ make db-upgrade
 ```
 
 - Frontend: <http://localhost:3000>
-- API health: <http://localhost:8000/health>
-- API documentation: <http://localhost:8000/docs>
-- WebSocket endpoint: `ws://localhost:8000/ws`
+- API health: <http://localhost:8002/health>
+- API documentation: <http://localhost:8002/docs>
+- WebSocket endpoint: `ws://localhost:8002/ws`
 
 Schema changes are managed with Alembic. Add ORM models under
 `floorsync_common.database.models`, import each module from that package, then run

@@ -61,7 +61,10 @@ docker compose up --build -d
 make db-upgrade
 ```
 
-Open the frontend at <http://localhost:3000>, API health at <http://localhost:8000/health>, and FastAPI docs at <http://localhost:8000/docs>.
+Open the frontend at <http://localhost:3000>, API health at <http://localhost:8002/health>, and FastAPI docs at <http://localhost:8002/docs>.
+The PostgreSQL and API host ports default to `5433` and `8002`; override
+`POSTGRES_HOST_PORT`, `API_HOST_PORT`, and the matching `NEXT_PUBLIC_API_URL` in `.env`
+when those ports are unavailable.
 
 Dependencies are managed with `uv` and pnpm. Docker uses committed lockfiles with frozen installs. Run the complete local quality gate before opening a PR:
 
