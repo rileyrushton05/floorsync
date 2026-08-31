@@ -1,71 +1,209 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Wordmark } from "../_components/Logo";
-import { Badge, priorityTone, statusTone } from "../_components/Badge";
-import { DonutChart } from "../_components/DonutChart";
-import { RadialGauge } from "../_components/RadialGauge";
-import { UtilizationAreaChart, type UtilizationPoint } from "../_components/AreaChart";
-import { IconBars, IconGauge, IconTruck, IconUsers, IconClipboard, IconBell, IconWarning, IconBulb } from "./icons";
+import { Badge, statusTone } from "../_components/Badge";
+import {
+  IconClipboard, IconCheckCircle, IconClock, IconUsers, IconBell, IconDownload,
+  IconCalendar, IconChevronDown, IconChevronRight, IconBriefcase, IconGear, IconInfo, IconUser,
+} from "./icons";
 import styles from "./manager.module.css";
 
-const navItems = ["Overview", "Production", "Machines", "Jobs", "Operators", "Analytics", "Reports", "Alerts", "Settings"];
+interface JobStep { index: number; total: number; name: string; }
 
-const utilizationPoints: UtilizationPoint[] = [
-  { label: "08:00 AM", active: 18, capacity: 40 },
-  { label: "10:00 AM", active: 34, capacity: 44 },
-  { label: "12:00 PM", active: 46, capacity: 48 },
-  { label: "02:00 PM", active: 54, capacity: 48 },
-  { label: "04:00 PM", active: 40, capacity: 46 },
-  { label: "06:00 PM", active: 22, capacity: 40 },
-];
-
-const jobTypeSegments = [
-  { label: "Assembly", value: 16, color: "#22c55e" },
-  { label: "CNC Milling", value: 12, color: "#2563eb" },
-  { label: "Quality Check", value: 8, color: "#f59e0b" },
-  { label: "Maintenance", value: 6, color: "#7c3aed" },
-  { label: "Inspection", value: 4, color: "#ec4899" },
-  { label: "Other", value: 2, color: "#94a3b8" },
-];
-
-interface CurrentJob {
+interface ManagerJob {
   id: string;
-  priority: "High" | "Normal" | "Low";
-  machine: string;
-  type: string;
-  status: string;
-  eta: string;
+  name: string;
   progress: number;
+  status: "In Progress" | "Pending" | "Completed";
+  machine: string | null;
+  opNames: string[];
+  currentOp: (JobStep & { startedAt: string }) | null;
+  nextOp: (JobStep & { estStart: string; machine: string }) | null;
 }
 
-const currentJobs: CurrentJob[] = [
-  { id: "#254", priority: "High", machine: "Machine B", type: "Repair", status: "Running", eta: "02:00 PM", progress: 62 },
-  { id: "#255", priority: "Normal", machine: "Machine A", type: "Maintenance", status: "Queued", eta: "01:00 PM", progress: 0 },
-  { id: "#256", priority: "High", machine: "Machine D", type: "Repair", status: "Delayed", eta: "03:30 PM", progress: 70 },
-  { id: "#257", priority: "Normal", machine: "Machine B", type: "Assembly", status: "Queued", eta: "04:00 PM", progress: 0 },
-  { id: "#258", priority: "Low", machine: "Machine C", type: "Inspection", status: "Running", eta: "11:30 AM", progress: 48 },
-];
-
-interface Anomaly {
-  machine: string;
-  issue: string;
-  duration: string;
-  detected: string;
-  actionLabel: string;
-  tone: "red" | "amber";
+interface WeekData {
+  id: string;
+  label: string;
+  totalJobs: number;
+  completed: number;
+  inProgress: number;
+  pending: number;
+  onTimePct: number;
+  delayedJobs: number;
+  utilizationPct: number;
+  activeOperators: number;
+  totalOperators: number;
+  machinesRunning: number;
+  machinesIdle: number;
+  machinesDown: number;
+  machinesOffline: number;
+  notifications: string[];
+  jobs: ManagerJob[];
 }
 
-const anomalies: Anomaly[] = [
-  { machine: "Machine C", issue: "Waiting for Material", duration: "2h 15m", detected: "08:09 AM", actionLabel: "Reschedule", tone: "amber" },
-  { machine: "Machine F", issue: "Machine Fault Detected", duration: "0h 45m", detected: "09:39 AM", actionLabel: "Dispatch Tech", tone: "red" },
-  { machine: "Machine A", issue: "Maintenance Required", duration: "1h 00m", detected: "09:10 AM", actionLabel: "View Log", tone: "amber" },
-  { machine: "Machine D", issue: "Operator Unavailable", duration: "0h 30m", detected: "09:50 AM", actionLabel: "Reassign", tone: "amber" },
-  { machine: "Machine E", issue: "Waiting for Approval", duration: "0h 20m", detected: "10:05 AM", actionLabel: "Review", tone: "amber" },
+const weeks: WeekData[] = [
+  {
+    id: "w47",
+    label: "Week 47 (Nov 18 - Nov 24)",
+    totalJobs: 48,
+    completed: 36,
+    inProgress: 8,
+    pending: 4,
+    onTimePct: 96,
+    delayedJobs: 4,
+    utilizationPct: 87,
+    activeOperators: 24,
+    totalOperators: 30,
+    machinesRunning: 12,
+    machinesIdle: 6,
+    machinesDown: 2,
+    machinesOffline: 10,
+    notifications: [
+      "Job #256 is delayed by 15 minutes",
+      "Machine F reported a fault",
+      "3 operators clocked in late",
+    ],
+    jobs: [
+      {
+        id: "#254", name: "Dryer not working", progress: 60, status: "In Progress", machine: "Machine B",
+        opNames: ["Load Material", "Adjusting Tension", "Quality Check", "Final Test", "Unload & Clean"],
+        currentOp: { index: 2, total: 5, name: "Adjusting Tension", startedAt: "09:58 AM" },
+        nextOp: { index: 3, total: 5, name: "Quality Check", estStart: "11:02 AM", machine: "Machine B" },
+      },
+      {
+        id: "#255", name: "Washing Machine Issue", progress: 40, status: "In Progress", machine: "Machine A",
+        opNames: ["Diagnose Fault", "Replace Belt", "Test Cycle", "Final Inspection"],
+        currentOp: { index: 2, total: 4, name: "Replace Belt", startedAt: "09:20 AM" },
+        nextOp: { index: 3, total: 4, name: "Test Cycle", estStart: "10:40 AM", machine: "Machine A" },
+      },
+      {
+        id: "#256", name: "Forklift Maintenance", progress: 20, status: "Pending", machine: null,
+        opNames: ["Safety Check", "Repair Hydraulics", "Test Drive"],
+        currentOp: null,
+        nextOp: { index: 1, total: 3, name: "Safety Check", estStart: "11:00 AM", machine: "Machine C" },
+      },
+      {
+        id: "#257", name: "Conveyor Belt Check", progress: 80, status: "In Progress", machine: "Machine D",
+        opNames: ["Safety Lockout", "Inspect Rollers", "Lubricate Chain", "Test Run", "Sign Off"],
+        currentOp: { index: 4, total: 5, name: "Test Run", startedAt: "09:50 AM" },
+        nextOp: { index: 5, total: 5, name: "Sign Off", estStart: "10:30 AM", machine: "Machine D" },
+      },
+      {
+        id: "#258", name: "Tool Replacement", progress: 0, status: "Pending", machine: null,
+        opNames: ["Remove Old Tool", "Install New Tool"],
+        currentOp: null,
+        nextOp: { index: 1, total: 2, name: "Remove Old Tool", estStart: "02:05 PM", machine: "Machine E" },
+      },
+      {
+        id: "#259", name: "Quality Inspection", progress: 100, status: "Completed", machine: "Machine C",
+        opNames: ["Prep Samples", "Run Tests", "Record Results"],
+        currentOp: null,
+        nextOp: null,
+      },
+      {
+        id: "#260", name: "Packaging Line Repair", progress: 0, status: "Pending", machine: null,
+        opNames: ["Diagnose", "Replace Part", "Test", "Sign Off"],
+        currentOp: null,
+        nextOp: { index: 1, total: 4, name: "Diagnose", estStart: "03:00 PM", machine: "Machine F" },
+      },
+    ],
+  },
+  {
+    id: "w46",
+    label: "Week 46 (Nov 11 - Nov 17)",
+    totalJobs: 44,
+    completed: 39,
+    inProgress: 3,
+    pending: 2,
+    onTimePct: 91,
+    delayedJobs: 6,
+    utilizationPct: 82,
+    activeOperators: 22,
+    totalOperators: 30,
+    machinesRunning: 10,
+    machinesIdle: 8,
+    machinesDown: 3,
+    machinesOffline: 9,
+    notifications: [
+      "Job #244 is awaiting parts",
+      "Machine C utilization below target",
+    ],
+    jobs: [
+      {
+        id: "#240", name: "Dryer Belt Snapped", progress: 100, status: "Completed", machine: "Machine B",
+        opNames: ["Diagnose", "Replace Belt", "Test"],
+        currentOp: null,
+        nextOp: null,
+      },
+      {
+        id: "#241", name: "Oven Door Hinge", progress: 55, status: "In Progress", machine: "Machine A",
+        opNames: ["Diagnose", "Replace Hinge", "Test & Close"],
+        currentOp: { index: 2, total: 3, name: "Replace Hinge", startedAt: "08:40 AM" },
+        nextOp: { index: 3, total: 3, name: "Test & Close", estStart: "09:30 AM", machine: "Machine A" },
+      },
+      {
+        id: "#242", name: "Ice Maker Jam", progress: 100, status: "Completed", machine: "Machine C",
+        opNames: ["Diagnose", "Clear Jam", "Test"],
+        currentOp: null,
+        nextOp: null,
+      },
+      {
+        id: "#243", name: "Dishwasher Pump", progress: 30, status: "In Progress", machine: "Machine D",
+        opNames: ["Diagnose Pump", "Replace Pump", "Test Cycle", "Final Check"],
+        currentOp: { index: 1, total: 4, name: "Diagnose Pump", startedAt: "09:00 AM" },
+        nextOp: { index: 2, total: 4, name: "Replace Pump", estStart: "10:15 AM", machine: "Machine D" },
+      },
+      {
+        id: "#244", name: "Fridge Compressor", progress: 0, status: "Pending", machine: null,
+        opNames: ["Diagnose", "Replace Compressor", "Test"],
+        currentOp: null,
+        nextOp: { index: 1, total: 3, name: "Diagnose", estStart: "01:00 PM", machine: "Machine E" },
+      },
+      {
+        id: "#245", name: "Vent Cleaning", progress: 100, status: "Completed", machine: "Machine F",
+        opNames: ["Inspect", "Clean Vent"],
+        currentOp: null,
+        nextOp: null,
+      },
+      {
+        id: "#246", name: "Panel Rewire", progress: 10, status: "Pending", machine: null,
+        opNames: ["Safety Lockout", "Rewire Panel"],
+        currentOp: null,
+        nextOp: { index: 1, total: 2, name: "Safety Lockout", estStart: "02:30 PM", machine: "Machine C" },
+      },
+    ],
+  },
 ];
 
 export default function ManagerDashboard() {
-  const [activeNav, setActiveNav] = useState("Overview");
+  const [weekId, setWeekId] = useState(weeks[0].id);
+  const week = useMemo(() => weeks.find((w) => w.id === weekId)!, [weekId]);
+
+  const [selectedJobId, setSelectedJobId] = useState(week.jobs[0].id);
+  const [sequenceExpanded, setSequenceExpanded] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [exportedAt, setExportedAt] = useState<string | null>(null);
+
+  const selectedJob = week.jobs.find((j) => j.id === selectedJobId) ?? week.jobs[0];
+
+  function handleWeekChange(id: string) {
+    setWeekId(id);
+    const newWeek = weeks.find((w) => w.id === id)!;
+    setSelectedJobId(newWeek.jobs[0].id);
+    setSequenceExpanded(false);
+  }
+
+  function handleSelectJob(id: string) {
+    setSelectedJobId(id);
+    setSequenceExpanded(false);
+  }
+
+  const machineTotal = week.machinesRunning + week.machinesIdle + week.machinesDown + week.machinesOffline;
+  const completedPct = Math.round((week.completed / week.totalJobs) * 100);
+  const inProgressPct = Math.round((week.inProgress / week.totalJobs) * 100);
+  const pendingPct = Math.round((week.pending / week.totalJobs) * 100);
+  const operatorDots = Array.from({ length: 10 }, (_, i) => i < Math.round((week.activeOperators / week.totalOperators) * 10));
 
   return (
     <div className={styles.shell}>
@@ -74,273 +212,245 @@ export default function ManagerDashboard() {
           <Wordmark />
           <span className={styles.viewLabel}>Manager View</span>
         </div>
-        <select className={styles.selectPill} defaultValue="All Locations">
-          <option>All Locations</option>
-          <option>North Plant</option>
-          <option>South Plant</option>
-        </select>
-        <button className={styles.weekPill}>
-          Week 47 (Nov 18 - Nov 24)
-          <span className={styles.weekDelta}>↑ 8.6%</span>
-        </button>
+
+        <div className={styles.weekPillWrap}>
+          <IconCalendar />
+          <select className={styles.weekSelect} value={week.id} onChange={(e) => handleWeekChange(e.target.value)}>
+            {weeks.map((w) => (
+              <option key={w.id} value={w.id}>{w.label}</option>
+            ))}
+          </select>
+          <IconChevronDown />
+        </div>
+
         <div className={styles.topbarSpacer} />
-        <button className={styles.exportBtn}>⬇ Export Report</button>
-        <button className={styles.bellBtn} aria-label="Notifications">
-          <IconBell />
-          <span className={styles.bellBadge}>6</span>
+
+        <div className={styles.notifWrap}>
+          <button className={styles.bellBtn} aria-label="Notifications" onClick={() => setNotifOpen((v) => !v)}>
+            <IconBell />
+            {week.notifications.length > 0 && <span className={styles.bellBadge}>{week.notifications.length}</span>}
+          </button>
+          {notifOpen && (
+            <div className={styles.notifDropdown}>
+              <div className={styles.notifHead}>Notifications</div>
+              {week.notifications.length === 0 && <div className={styles.notifEmpty}>No new notifications.</div>}
+              {week.notifications.map((n, i) => (
+                <div key={i} className={styles.notifItem}>{n}</div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button
+          className={styles.exportBtn}
+          onClick={() => setExportedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}
+        >
+          <IconDownload /> Export Report
         </button>
-        <div className={styles.profile}>
-          <span className={styles.avatar}>PM</span>
-          <div>
-            <div className={styles.profileName}>Plant Manager</div>
-          </div>
+
+        <div className={styles.userBlock}>
+          <IconUser />
+          <span className={styles.userName}>Manager</span>
         </div>
       </header>
 
-      <div className={styles.body}>
-        <aside className={styles.sidebar}>
-          <nav className={styles.nav}>
-            {navItems.map((item) => (
-              <button
-                key={item}
-                className={`${styles.navItem} ${activeNav === item ? styles.navItemActive : ""}`}
-                onClick={() => setActiveNav(item)}
-              >
-                {item}
-                {item === "Alerts" && <span className={styles.navBadge}>6</span>}
-              </button>
-            ))}
-          </nav>
+      {exportedAt && (
+        <div className={styles.exportToast}>
+          Report for {week.label} exported at {exportedAt}.
+          <button onClick={() => setExportedAt(null)}>Dismiss</button>
+        </div>
+      )}
 
-          <div className={styles.filters}>
-            <div className={styles.filtersHead}>
-              <span>FILTERS</span>
-              <button className={styles.clearAll}>Clear All</button>
-            </div>
-            {["Location", "Shift", "Job Type", "Priority"].map((f) => (
-              <label key={f} className={styles.filterField}>
-                {f}
-                <select className={styles.select} defaultValue={`All ${f}s`}>
-                  <option>{`All ${f}s`}</option>
-                </select>
-              </label>
-            ))}
-          </div>
-
-          <div className={styles.refreshNote}>
-            <div>Data refreshed:</div>
-            <div className={styles.refreshTime}>10:24 AM, Nov 20, 2024 <span className={styles.liveTag}>Live</span></div>
-          </div>
-        </aside>
-
-        <main className={styles.main}>
-          <div className={styles.statRow}>
-            <div className={styles.statCard}>
-              <div className={styles.statHead}><IconBars /><span>Production Status</span></div>
-              <div className={styles.statBig}>48 <span className={styles.statBigUnit}>Total Jobs</span></div>
-              <div className={styles.statSub}>12 Running / Active</div>
-              <div className={styles.stackedBar}>
-                <span style={{ width: "67%", background: "#2563eb" }} />
-                <span style={{ width: "33%", background: "#cbd5e1" }} />
-              </div>
-              <div className={styles.statLegend}>
-                <span><i style={{ background: "#2563eb" }} /> Completed 32 (67%)</span>
-                <span><i style={{ background: "#cbd5e1" }} /> Pending 16 (33%)</span>
-              </div>
-              <button className={styles.statLink}>View all jobs →</button>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHead}><IconGauge /><span>Efficiency &amp; Downtime</span></div>
-              <div className={styles.statDonutRow}>
-                <DonutChart
-                  size={78}
-                  thickness={12}
-                  centerTop="87%"
-                  segments={[
-                    { label: "Utilization", value: 87, color: "#16a34a" },
-                    { label: "Downtime", value: 13, color: "#f59e0b" },
-                  ]}
-                />
-                <div className={styles.statLegend}>
-                  <span><i style={{ background: "#16a34a" }} /> Utilization 87% (31h 45m)</span>
-                  <span><i style={{ background: "#f59e0b" }} /> Downtime 13% (4h 45m)</span>
-                </div>
-              </div>
-              <button className={styles.statLink}>View utilization →</button>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHead}><IconTruck /><span>On-Time Delivery</span></div>
-              <div className={styles.statBig}>96%</div>
-              <div className={styles.statSub}>Completed on Schedule</div>
-              <div className={styles.statSub}><span className={styles.dangerText}>4</span> Delayed Jobs</div>
-              <div className={styles.stackedBar}>
-                <span style={{ width: "96%", background: "#7c3aed" }} />
-                <span style={{ width: "4%", background: "#fca5a5" }} />
-              </div>
-              <button className={styles.statLink}>View delays →</button>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHead}><IconUsers /><span>Active Workforce</span></div>
-              <div className={styles.statDonutRow}>
-                <div>
-                  <div className={styles.statBig}>30 <span className={styles.statBigUnit}>Total Operators</span></div>
-                  <div className={styles.statSub}>24 Currently Active</div>
-                </div>
-                <RadialGauge percent={80} size={64} thickness={8} color="#0891b2" />
-              </div>
-              <div className={styles.statLegend}>
-                <span><i style={{ background: "#0891b2" }} /> Active 24 (80%)</span>
-                <span><i style={{ background: "#cbd5e1" }} /> Inactive 6 (20%)</span>
-              </div>
-              <button className={styles.statLink}>View operators →</button>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHead}><IconClipboard /><span>Pending Approvals</span></div>
-              <div className={styles.statBig}>5 <span className={styles.statBigUnit}>Jobs Awaiting Review</span></div>
-              <div className={styles.stackedBar}>
-                <span style={{ width: "42%", background: "#f59e0b" }} />
-                <span style={{ width: "58%", background: "#cbd5e1" }} />
-              </div>
-              <div className={styles.statLegend}>
-                <span><i style={{ background: "#f59e0b" }} /> Awaiting Review 5 (42%)</span>
-                <span><i style={{ background: "#cbd5e1" }} /> Approved 7 (58%)</span>
-              </div>
-              <button className={styles.statLink}>Review now →</button>
+      <main className={styles.main}>
+        <div className={styles.statRow}>
+          <div className={styles.statCard}>
+            <div className={styles.statHead}><IconClipboard /><span>Total Jobs</span></div>
+            <div className={styles.statBig}>{week.totalJobs}</div>
+            <div className={styles.statLegend}>
+              <span><i style={{ background: "#16a34a" }} /> Completed {week.completed} ({completedPct}%)</span>
+              <span><i style={{ background: "#2563eb" }} /> In Progress {week.inProgress} ({inProgressPct}%)</span>
+              <span><i style={{ background: "#94a3b8" }} /> Pending {week.pending} ({pendingPct}%)</span>
             </div>
           </div>
 
-          <div className={styles.chartRow}>
-            <div className={styles.chartCard}>
-              <div className={styles.cardHeadRow}>
-                <h3 className={styles.cardTitle}>Facility Utilization Over Time</h3>
-                <select className={styles.selectSmall} defaultValue="Today">
-                  <option>Today</option>
-                  <option>This Week</option>
-                </select>
-              </div>
-              <div className={styles.chartLegendRow}>
-                <span><i style={{ background: "#2563eb" }} /> Machines Active</span>
-                <span><i className={styles.dashedSwatch} /> Capacity (Available)</span>
-                <span><i style={{ background: "#fecaca" }} /> Bottleneck (Over Capacity)</span>
-              </div>
-              <UtilizationAreaChart points={utilizationPoints} bottleneckRange={[2, 4]} markerIndex={3} />
-              <div className={styles.bottleneckBar}>
-                <IconWarning size={15} />
-                <span>Bottleneck detected between 01:30 PM - 03:30 PM</span>
-                <button className={styles.statLink}>View bottleneck analysis →</button>
-              </div>
-            </div>
-
-            <div className={styles.chartCard}>
-              <div className={styles.cardHeadRow}>
-                <h3 className={styles.cardTitle}>Job Distribution by Type</h3>
-                <select className={styles.selectSmall} defaultValue="By Job Type">
-                  <option>By Job Type</option>
-                  <option>By Machine</option>
-                </select>
-              </div>
-              <div className={styles.donutRow}>
-                <DonutChart size={130} thickness={20} centerTop="48" centerBottom="Total Jobs" segments={jobTypeSegments} />
-                <div className={styles.donutLegend}>
-                  {jobTypeSegments.map((s) => {
-                    const total = jobTypeSegments.reduce((a, b) => a + b.value, 0);
-                    return (
-                      <span key={s.label}>
-                        <i style={{ background: s.color }} /> {s.label}
-                        <b>{s.value} ({Math.round((s.value / total) * 100)}%)</b>
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
+          <div className={styles.statCard}>
+            <div className={styles.statHead}><IconCheckCircle /><span>On-Time Completion</span></div>
+            <div className={styles.statBig}>{week.onTimePct}%</div>
+            <div className={styles.statSub}>Completed on schedule</div>
+            <div className={styles.statDangerRow}>
+              <span className={styles.dangerNum}>{week.delayedJobs}</span> Delayed jobs
             </div>
           </div>
 
-          <div className={styles.tableRow}>
-            <div className={styles.tableCard}>
-              <div className={styles.cardHeadRow}>
-                <h3 className={styles.cardTitle}>Current Jobs Overview</h3>
-                <select className={styles.selectSmall} defaultValue="All Jobs">
-                  <option>All Jobs</option>
-                </select>
-              </div>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Job ID</th><th>Priority</th><th>Machine</th><th>Job Type</th>
-                    <th>Status</th><th>Est. End Time</th><th>Progress</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentJobs.map((j) => (
-                    <tr key={j.id}>
-                      <td className={styles.jobIdCell}>{j.id}</td>
-                      <td><Badge tone={priorityTone(j.priority)}>{j.priority}</Badge></td>
-                      <td>{j.machine}</td>
-                      <td>{j.type}</td>
-                      <td><Badge tone={statusTone(j.status)}>{j.status}</Badge></td>
-                      <td>{j.eta}</td>
-                      <td>
-                        <div className={styles.rowProgress}>
-                          <div className={styles.rowProgressTrack}>
-                            <div
-                              className={styles.rowProgressFill}
-                              style={{ width: `${j.progress}%`, background: j.status === "Delayed" ? "#dc2626" : "#2563eb" }}
-                            />
-                          </div>
-                          <span>{j.progress}%</span>
+          <div className={styles.statCard}>
+            <div className={styles.statHead}><IconClock /><span>Machine Utilization</span></div>
+            <div className={styles.statBig}>{week.utilizationPct}%</div>
+            <div className={styles.statSub}>Average utilization</div>
+            <div className={styles.progressTrack}>
+              <div className={styles.progressFillAmber} style={{ width: `${week.utilizationPct}%` }} />
+            </div>
+          </div>
+
+          <div className={styles.statCard}>
+            <div className={styles.statHead}><IconUsers /><span>Active Operators</span></div>
+            <div className={styles.statBig}>{week.activeOperators} <span className={styles.statBigUnit}>/ {week.totalOperators}</span></div>
+            <div className={styles.statSub}>Operators online</div>
+            <div className={styles.dotsRow}>
+              {operatorDots.map((filled, i) => (
+                <span key={i} className={`${styles.opDot} ${filled ? styles.opDotFilled : ""}`} />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.bodyRow}>
+          <section className={styles.jobListPanel}>
+            <div className={styles.panelHead}>
+              <h2 className={styles.panelTitle}>Job List</h2>
+            </div>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Job ID</th>
+                  <th>Job Name</th>
+                  <th>Progress</th>
+                  <th>Status</th>
+                  <th>Current Machine</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {week.jobs.map((job) => (
+                  <tr
+                    key={job.id}
+                    className={`${styles.jobRow} ${selectedJobId === job.id ? styles.jobRowActive : ""}`}
+                    onClick={() => handleSelectJob(job.id)}
+                  >
+                    <td className={styles.jobIdCell}>{job.id}</td>
+                    <td>{job.name}</td>
+                    <td>
+                      <div className={styles.rowProgress}>
+                        <div className={styles.rowProgressTrack}>
+                          <div className={styles.rowProgressFill} style={{ width: `${job.progress}%` }} />
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <button className={styles.statLink}>View all →</button>
-            </div>
+                        <span>{job.progress}%</span>
+                      </div>
+                    </td>
+                    <td><Badge tone={statusTone(job.status)}>{job.status}</Badge></td>
+                    <td>{job.machine ?? "–"}</td>
+                    <td><IconChevronRight /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button className={styles.viewAllLink}>View all jobs →</button>
+          </section>
 
-            <div className={styles.tableCard}>
-              <div className={styles.cardHeadRow}>
-                <h3 className={styles.cardTitle}>Anomalies &amp; Exceptions</h3>
-                <select className={styles.selectSmall} defaultValue="All Types">
-                  <option>All Types</option>
-                </select>
+          <aside className={styles.detailPanel}>
+            <div className={styles.detailHead}>
+              <div>
+                <div className={styles.detailEyebrow}>Job {selectedJob.id}</div>
+                <h2 className={styles.detailTitle}>{selectedJob.name}</h2>
               </div>
-              <table className={styles.table}>
-                <thead>
-                  <tr><th>Machine</th><th>Issue Type</th><th>Duration</th><th>Detected</th><th>Action</th></tr>
-                </thead>
-                <tbody>
-                  {anomalies.map((a, i) => (
-                    <tr key={i}>
-                      <td className={styles.jobIdCell}>
-                        <span className={`${styles.anomalyDot} ${a.tone === "red" ? styles.dotRed : styles.dotAmber}`} />
-                        {a.machine}
-                      </td>
-                      <td>{a.issue}</td>
-                      <td>{a.duration}</td>
-                      <td>{a.detected}</td>
-                      <td><button className={styles.actionBtn}>{a.actionLabel}</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <button className={styles.statLink}>View all anomalies →</button>
+              <Badge tone={statusTone(selectedJob.status)}>{selectedJob.status}</Badge>
             </div>
-          </div>
 
-          <div className={styles.insightBar}>
-            <IconBulb />
-            <span>
-              <b>Insight Summary</b> Overall performance is up 8.6% compared to last week. 2 bottlenecks detected. 4 delayed jobs require attention.
-            </span>
-            <button className={styles.exportBtn}>View Full Analytics Report →</button>
-          </div>
-        </main>
-      </div>
+            <div className={styles.progressBlock}>
+              <div className={styles.progressLabelRow}>
+                <span>Progress</span>
+                <span className={styles.progressPct}>{selectedJob.progress}%</span>
+              </div>
+              <div className={styles.progressTrackLg}>
+                <div className={styles.progressFillBlue} style={{ width: `${selectedJob.progress}%` }} />
+              </div>
+            </div>
+
+            <div className={styles.miniCards}>
+              <div className={styles.miniCard}>
+                <div className={styles.miniCardHead}><IconBriefcase /><span>Currently On</span></div>
+                {selectedJob.currentOp && selectedJob.machine ? (
+                  <>
+                    <div className={styles.miniCardMain}>{selectedJob.machine}</div>
+                    <div className={styles.miniCardSub}>Op {selectedJob.currentOp.index} of {selectedJob.currentOp.total} • {selectedJob.currentOp.name}</div>
+                    <div className={styles.miniCardMeta}>Started: {selectedJob.currentOp.startedAt}</div>
+                  </>
+                ) : (
+                  <div className={styles.miniCardEmpty}>
+                    {selectedJob.status === "Completed" ? "Job complete." : "Not yet started."}
+                  </div>
+                )}
+              </div>
+
+              <div className={styles.miniCard}>
+                <div className={styles.miniCardHeadAmber}><IconGear /><span>Next Scheduled Step</span></div>
+                {selectedJob.nextOp ? (
+                  <>
+                    <div className={styles.miniCardMain}>Op {selectedJob.nextOp.index} of {selectedJob.nextOp.total} • {selectedJob.nextOp.name}</div>
+                    <div className={styles.miniCardSub}>Est. Start: {selectedJob.nextOp.estStart}</div>
+                    <div className={styles.miniCardMeta}>Machine: {selectedJob.nextOp.machine}</div>
+                  </>
+                ) : (
+                  <div className={styles.miniCardEmpty}>No further steps.</div>
+                )}
+              </div>
+            </div>
+
+            <button className={styles.sequenceLink} onClick={() => setSequenceExpanded((v) => !v)}>
+              {sequenceExpanded ? "Hide full job sequence" : "View full job sequence"} →
+            </button>
+
+            {sequenceExpanded && (
+              <ol className={styles.sequenceList}>
+                {selectedJob.opNames.map((name, i) => {
+                  const idx = i + 1;
+                  const state =
+                    selectedJob.status === "Completed" ? "done"
+                    : selectedJob.currentOp && idx < selectedJob.currentOp.index ? "done"
+                    : selectedJob.currentOp && idx === selectedJob.currentOp.index ? "current"
+                    : "pending";
+                  return (
+                    <li key={idx} className={`${styles.sequenceItem} ${styles[`sequence_${state}`]}`}>
+                      <span className={styles.sequenceIndex}>{state === "done" ? "✓" : idx}</span>
+                      <span>{name}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+
+            <div className={styles.machinesOverview}>
+              <h3 className={styles.machinesTitle}>Machines Overview</h3>
+              <div className={styles.machinesGrid}>
+                <div className={`${styles.machineTile} ${styles.machineTileGreen}`}>
+                  <div className={styles.machineTileNum}>{week.machinesRunning}</div>
+                  <div className={styles.machineTileLabel}>Running</div>
+                </div>
+                <div className={`${styles.machineTile} ${styles.machineTileAmber}`}>
+                  <div className={styles.machineTileNum}>{week.machinesIdle}</div>
+                  <div className={styles.machineTileLabel}>Idle</div>
+                </div>
+                <div className={`${styles.machineTile} ${styles.machineTileRed}`}>
+                  <div className={styles.machineTileNum}>{week.machinesDown}</div>
+                  <div className={styles.machineTileLabel}>Down</div>
+                </div>
+                <div className={`${styles.machineTile} ${styles.machineTileGray}`}>
+                  <div className={styles.machineTileNum}>{week.machinesOffline}</div>
+                  <div className={styles.machineTileLabel}>Offline</div>
+                </div>
+              </div>
+              <div className={styles.machinesTotal}>{machineTotal} machines total</div>
+            </div>
+          </aside>
+        </div>
+      </main>
+
+      <footer className={styles.footer}>
+        <div className={styles.footerInfo}>
+          <IconInfo />
+          <span>Click any job to view details or drill into the machine&rsquo;s operator view.</span>
+        </div>
+        <button className={styles.viewAllMachinesBtn}>View All Machines →</button>
+      </footer>
     </div>
   );
 }

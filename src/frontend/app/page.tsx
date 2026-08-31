@@ -13,11 +13,6 @@ export default function HomePage() {
       </section>
       <section className={styles.grid}>
         <article className={styles.card}>
-          <Link className={styles.cardLink} href="/coordinator"><h2 className={styles.cardTitle}>Coordinator dashboard</h2></Link>
-          <p>Schedule builder, timeline grid and simulation controls.</p>
-          <span className={styles.cardTag}>Mock UI · frontend only</span>
-        </article>
-        <article className={styles.card}>
           <Link className={styles.cardLink} href="/manager"><h2 className={styles.cardTitle}>Manager dashboard</h2></Link>
           <p>Facility overview, utilisation, job progress and anomalies.</p>
           <span className={styles.cardTag}>Mock UI · frontend only</span>
