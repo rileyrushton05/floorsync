@@ -36,6 +36,11 @@ flowchart TB
 | Redis | Celery broker and result backend. It can also support event publication for live updates. |
 | PostgreSQL | Relational data store for application data. |
 
+Product API code is organised by feature, while shared database infrastructure and ORM models remain
+centralised. The mandatory implementation rules are defined in the
+[backend conventions](backend-conventions.md) and
+[observability conventions](observability-conventions.md).
+
 ## Interfaces available today
 
 | Interface | Purpose |
