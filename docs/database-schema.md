@@ -8,6 +8,8 @@ one model file under `floorsync_common/database/models/`.
 All tables get `id` (UUID v4, `UUIDPrimaryKeyMixin`) and `created_at` / `updated_at`
 (`TimestampMixin`) unless noted. Omitted below for brevity.
 
+![Physical schema diagram: all 13 tables, columns, types and keys, generated from this document](diagrams/database-schema.png)
+
 ## categories
 
 Lookup table for machine categories (cutting, polishing, metal cutting, ...), so the platform stays
