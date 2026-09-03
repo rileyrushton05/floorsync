@@ -1,11 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Wordmark } from "../_components/Logo";
 import { Badge, statusTone } from "../_components/Badge";
+import { Wordmark } from "../_components/Logo";
 import {
-  IconClipboard, IconCheckCircle, IconClock, IconUsers, IconBell, IconDownload,
-  IconCalendar, IconChevronDown, IconChevronRight, IconBriefcase, IconGear, IconInfo, IconUser,
+  IconBell,
+  IconBriefcase,
+  IconCalendar,
+  IconCheckCircle,
+  IconChevronDown, IconChevronRight,
+  IconClipboard,
+  IconClock,
+  IconDownload,
+  IconGear, IconInfo, IconUser,
+  IconUsers,
 } from "./icons";
 import styles from "./manager.module.css";
 
@@ -343,7 +352,9 @@ export default function ManagerDashboard() {
                 ))}
               </tbody>
             </table>
-            <button className={styles.viewAllLink}>View all jobs →</button>
+            <Link href="/manager/scheduler">
+              <button className={styles.viewAllLink}>View all jobs →</button>
+            </Link>
           </section>
 
           <aside className={styles.detailPanel}>
