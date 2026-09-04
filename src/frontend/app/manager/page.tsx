@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, statusTone } from "../_components/Badge";
 import { Wordmark } from "../_components/Logo";
 import {
@@ -193,8 +193,27 @@ export default function ManagerDashboard() {
   const [sequenceExpanded, setSequenceExpanded] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [exportedAt, setExportedAt] = useState<string | null>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   const selectedJob = week.jobs.find((j) => j.id === selectedJobId) ?? week.jobs[0];
+
+  // A popover that only closes by clicking its own trigger is a trap on
+  // touch and for keyboard users, so dismiss on Escape and outside clicks.
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!notifRef.current?.contains(event.target as Node)) setNotifOpen(false);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNotifOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [notifOpen]);
 
   function handleWeekChange(id: string) {
     setWeekId(id);
@@ -224,7 +243,12 @@ export default function ManagerDashboard() {
 
         <div className={styles.weekPillWrap}>
           <IconCalendar />
-          <select className={styles.weekSelect} value={week.id} onChange={(e) => handleWeekChange(e.target.value)}>
+          <select
+            className={styles.weekSelect}
+            aria-label="Reporting week"
+            value={week.id}
+            onChange={(e) => handleWeekChange(e.target.value)}
+          >
             {weeks.map((w) => (
               <option key={w.id} value={w.id}>{w.label}</option>
             ))}
@@ -234,8 +258,14 @@ export default function ManagerDashboard() {
 
         <div className={styles.topbarSpacer} />
 
-        <div className={styles.notifWrap}>
-          <button className={styles.bellBtn} aria-label="Notifications" onClick={() => setNotifOpen((v) => !v)}>
+        <div className={styles.notifWrap} ref={notifRef}>
+          <button
+            className={styles.bellBtn}
+            aria-label={`Notifications (${week.notifications.length})`}
+            aria-expanded={notifOpen}
+            aria-haspopup="true"
+            onClick={() => setNotifOpen((v) => !v)}
+          >
             <IconBell />
             {week.notifications.length > 0 && <span className={styles.bellBadge}>{week.notifications.length}</span>}
           </button>
@@ -264,7 +294,7 @@ export default function ManagerDashboard() {
       </header>
 
       {exportedAt && (
-        <div className={styles.exportToast}>
+        <div className={styles.exportToast} role="status">
           Report for {week.label} exported at {exportedAt}.
           <button onClick={() => setExportedAt(null)}>Dismiss</button>
         </div>
@@ -333,13 +363,21 @@ export default function ManagerDashboard() {
                   <tr
                     key={job.id}
                     className={`${styles.jobRow} ${selectedJobId === job.id ? styles.jobRowActive : ""}`}
+                    aria-current={selectedJobId === job.id || undefined}
                     onClick={() => handleSelectJob(job.id)}
                   >
                     <td className={styles.jobIdCell}>{job.id}</td>
                     <td>{job.name}</td>
                     <td>
                       <div className={styles.rowProgress}>
-                        <div className={styles.rowProgressTrack}>
+                        <div
+                          className={styles.rowProgressTrack}
+                          role="progressbar"
+                          aria-valuenow={job.progress}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-label={`Job ${job.id} progress`}
+                        >
                           <div className={styles.rowProgressFill} style={{ width: `${job.progress}%` }} />
                         </div>
                         <span>{job.progress}%</span>
@@ -347,13 +385,22 @@ export default function ManagerDashboard() {
                     </td>
                     <td><Badge tone={statusTone(job.status)}>{job.status}</Badge></td>
                     <td>{job.machine ?? "–"}</td>
-                    <td><IconChevronRight /></td>
+                    <td>
+                      <button
+                        type="button"
+                        className={styles.jobRowBtn}
+                        onClick={() => handleSelectJob(job.id)}
+                        aria-label={`Show details for job ${job.id}, ${job.name}`}
+                      >
+                        <IconChevronRight />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <Link href="/manager/scheduler">
-              <button className={styles.viewAllLink}>View all jobs →</button>
+            <Link className={styles.viewAllLink} href="/manager/scheduler">
+              View all jobs →
             </Link>
           </section>
 

@@ -262,7 +262,14 @@ export default function OperatorDashboard() {
               <div className={styles.sideBig}>
                 {machine.shiftRemaining} <span className={styles.sideBigUnit}>of {machine.shiftTotal} hrs</span>
               </div>
-              <div className={styles.progressTrack}>
+              <div
+                className={styles.progressTrack}
+                role="progressbar"
+                aria-valuenow={machine.shiftPct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Shift elapsed"
+              >
                 <div className={styles.progressFillGreen} style={{ width: `${machine.shiftPct}%` }} />
               </div>
             </section>
@@ -366,7 +373,7 @@ export default function OperatorDashboard() {
 
       <footer className={styles.footer}>
         {issueBanner ? (
-          <div className={styles.issueBanner}>
+          <div className={styles.issueBanner} role="status">
             <IconWarning size={16} color="#b91c1c" />
             <span>{issueBanner}</span>
             <button className={styles.dismissBtn} onClick={() => setIssueBanner(null)}>Dismiss</button>

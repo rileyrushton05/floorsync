@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Badge, statusTone } from "../../_components/Badge";
+import { useEffect, useMemo, useState } from "react";
+import { Badge, priorityTone, statusTone } from "../../_components/Badge";
 import { Wordmark } from "../../_components/Logo";
 import {
     IconAlertCircle,
@@ -48,59 +48,88 @@ interface MachineSchedule {
     schedule: ScheduledOperation[];
 }
 
-const schedulerData = {
-    date: "Fri, 15 Nov 2019",
+/** Window the schedule grid renders, in 24-hour clock hours (08:00 -> 24:00). */
+const TIMELINE_START_HOUR = 8;
+const TIMELINE_HOURS = 16;
+/** Width of the machine-name gutter. Must match `.machineLabel` in the stylesheet. */
+const MACHINE_LABEL_WIDTH = "160px";
+/** Simulation clock. Drives both the readout and the "now" line on the grid. */
+const CURRENT_TIME_HOUR = 10 + 24 / 60;
+
+/** 10.4 -> "10:24 AM" */
+function formatClock(hour: number): string {
+    const hours24 = Math.floor(hour);
+    const minutes = Math.round((hour - hours24) * 60);
+    const suffix = hours24 < 12 ? "AM" : "PM";
+    const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+    return `${hours12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+/** 8.5 -> "08:30", the value format `<input type="time">` expects. */
+function toTimeInputValue(hour: number): string {
+    const hours = Math.floor(hour);
+    const minutes = Math.round((hour - hours) * 60);
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+/** "08:30" -> 8.5 */
+function fromTimeInputValue(value: string): number {
+    const [hours, minutes] = value.split(":").map(Number);
+    return hours + minutes / 60;
+}
+
+const schedulerData: { machines: MachineSchedule[]; jobs: SchedulerJob[] } = {
     machines: [
         {
             name: "Machine A",
             operator: "Anita Sandburg",
-            status: "Active" as const,
+            status: "Active",
             schedule: [
-                { jobId: "#255", opIndex: 1, opName: "Op 1", status: "completed" as const, startTime: 8, duration: 1, machine: "Machine A" },
-                { jobId: "#254", opIndex: 2, opName: "Op 2", status: "running" as const, startTime: 9, duration: 2, machine: "Machine A" },
-                { jobId: "#257", opIndex: 1, opName: "Op 1", status: "scheduled" as const, startTime: 11, duration: 1, machine: "Machine A" },
+                { jobId: "#255", opIndex: 1, opName: "Op 1", status: "completed", startTime: 8, duration: 1, machine: "Machine A" },
+                { jobId: "#254", opIndex: 2, opName: "Op 2", status: "running", startTime: 9, duration: 2, machine: "Machine A" },
+                { jobId: "#257", opIndex: 1, opName: "Op 1", status: "scheduled", startTime: 11, duration: 1, machine: "Machine A" },
             ],
         },
         {
             name: "Machine B",
             operator: "Chelsea",
-            status: "Active" as const,
+            status: "Active",
             schedule: [
-                { jobId: "#251", opIndex: 1, opName: "Op 1", status: "completed" as const, startTime: 8, duration: 0.5, machine: "Machine B" },
-                { jobId: "#253", opIndex: 1, opName: "Op 1", status: "completed" as const, startTime: 8.5, duration: 1.5, machine: "Machine B" },
-                { jobId: "#254", opIndex: 2, opName: "Op 2", status: "running" as const, startTime: 10, duration: 2.5, machine: "Machine B" },
-                { jobId: "#260", opIndex: 1, opName: "Op 1", status: "scheduled" as const, startTime: 12.5, duration: 1.5, machine: "Machine B" },
+                { jobId: "#251", opIndex: 1, opName: "Op 1", status: "completed", startTime: 8, duration: 0.5, machine: "Machine B" },
+                { jobId: "#253", opIndex: 1, opName: "Op 1", status: "completed", startTime: 8.5, duration: 1.5, machine: "Machine B" },
+                { jobId: "#254", opIndex: 2, opName: "Op 2", status: "running", startTime: 10, duration: 2.5, machine: "Machine B" },
+                { jobId: "#260", opIndex: 1, opName: "Op 1", status: "scheduled", startTime: 12.5, duration: 1.5, machine: "Machine B" },
             ],
         },
         {
             name: "Machine C",
             operator: "Fiona",
-            status: "Idle" as const,
+            status: "Idle",
             schedule: [
-                { jobId: "#256", opIndex: 1, opName: "Op 1", status: "completed" as const, startTime: 8, duration: 1.5, machine: "Machine C" },
-                { jobId: "#258", opIndex: 1, opName: "Op 1", status: "completed" as const, startTime: 9.5, duration: 1.5, machine: "Machine C" },
-                { jobId: "#259", opIndex: 1, opName: "Op 1", status: "scheduled" as const, startTime: 11, duration: 2, machine: "Machine C" },
+                { jobId: "#256", opIndex: 1, opName: "Op 1", status: "completed", startTime: 8, duration: 1.5, machine: "Machine C" },
+                { jobId: "#258", opIndex: 1, opName: "Op 1", status: "completed", startTime: 9.5, duration: 1.5, machine: "Machine C" },
+                { jobId: "#259", opIndex: 1, opName: "Op 1", status: "scheduled", startTime: 11, duration: 2, machine: "Machine C" },
             ],
         },
         {
             name: "Machine D",
             operator: "George",
-            status: "Waiting" as const,
+            status: "Waiting",
             schedule: [
-                { jobId: "#252", opIndex: 1, opName: "Op 1", status: "completed" as const, startTime: 8.5, duration: 1.5, machine: "Machine D" },
-                { jobId: "#257", opIndex: 2, opName: "Op 2", status: "scheduled" as const, startTime: 10, duration: 1.5, machine: "Machine D" },
-                { jobId: "#256", opIndex: 1, opName: "Op 1", status: "scheduled" as const, startTime: 11.5, duration: 2, machine: "Machine D" },
+                { jobId: "#252", opIndex: 1, opName: "Op 1", status: "completed", startTime: 8.5, duration: 1.5, machine: "Machine D" },
+                { jobId: "#257", opIndex: 2, opName: "Op 2", status: "scheduled", startTime: 10, duration: 1.5, machine: "Machine D" },
+                { jobId: "#256", opIndex: 1, opName: "Op 1", status: "scheduled", startTime: 11.5, duration: 2, machine: "Machine D" },
             ],
         },
-    ] as const,
+    ],
 
     jobs: [
-        { id: "#254", name: "Dryer not working", priority: "High", status: "In Progress" as const, progress: 60, currentOp: { index: 2, total: 5, name: "Adjusting Tension", state: "current" as const }, operations: ["Load Material", "Adjusting Tension", "Quality Check", "Final Test", "Unload & Clean"], machine: "Machine B", queueStatus: "Waiting for Machine B" },
-        { id: "#255", name: "Washing Machine Issue", priority: "Med", status: "In Progress" as const, progress: 40, currentOp: { index: 1, total: 4, name: "Diagnose Fault", state: "current" as const }, operations: ["Diagnose Fault", "Replace Belt", "Test Cycle", "Final Inspection"], machine: "Machine A", queueStatus: "Queued" },
-        { id: "#256", name: "Forklift Maintenance", priority: "Low", status: "Pending" as const, progress: 0, currentOp: { index: 1, total: 3, name: "Safety Check", state: "pending" as const }, operations: ["Safety Check", "Repair Hydraulics", "Test Drive"], queueStatus: "Queued" },
-        { id: "#257", name: "Conveyor Belt Check", priority: "Med", status: "In Progress" as const, progress: 80, currentOp: { index: 4, total: 5, name: "Test Run", state: "current" as const }, operations: ["Safety Lockout", "Inspect Rollers", "Lubricate Chain", "Test Run", "Sign Off"], machine: "Machine D", queueStatus: "In Queue" },
-        { id: "#258", name: "Tool Replacement", priority: "High", status: "Delayed" as const, progress: 0, currentOp: { index: 1, total: 2, name: "Remove Old Tool", state: "pending" as const }, operations: ["Remove Old Tool", "Install New Tool"], queueStatus: "Waiting for Material" }
-    ] as const,
+        { id: "#254", name: "Dryer not working", priority: "High", status: "In Progress", progress: 60, currentOp: { index: 2, total: 5, name: "Adjusting Tension", state: "current" }, operations: ["Load Material", "Adjusting Tension", "Quality Check", "Final Test", "Unload & Clean"], machine: "Machine B", queueStatus: "Waiting for Machine B" },
+        { id: "#255", name: "Washing Machine Issue", priority: "Med", status: "In Progress", progress: 40, currentOp: { index: 1, total: 4, name: "Diagnose Fault", state: "current" }, operations: ["Diagnose Fault", "Replace Belt", "Test Cycle", "Final Inspection"], machine: "Machine A", queueStatus: "Queued" },
+        { id: "#256", name: "Forklift Maintenance", priority: "Low", status: "Pending", progress: 0, currentOp: { index: 1, total: 3, name: "Safety Check", state: "pending" }, operations: ["Safety Check", "Repair Hydraulics", "Test Drive"], queueStatus: "Queued" },
+        { id: "#257", name: "Conveyor Belt Check", priority: "Med", status: "In Progress", progress: 80, currentOp: { index: 4, total: 5, name: "Test Run", state: "current" }, operations: ["Safety Lockout", "Inspect Rollers", "Lubricate Chain", "Test Run", "Sign Off"], machine: "Machine D", queueStatus: "In Queue" },
+        { id: "#258", name: "Tool Replacement", priority: "High", status: "Delayed", progress: 0, currentOp: { index: 1, total: 2, name: "Remove Old Tool", state: "pending" }, operations: ["Remove Old Tool", "Install New Tool"], queueStatus: "Waiting for Material" }
+    ],
 };
 
 type FilterType = "All" | "Pending" | "In Progress" | "Delayed";
@@ -110,8 +139,10 @@ const getOperationStatus = (
     jobStatus?: SchedulerJob["status"]
 ): ScheduledOperation["status"] => {
     if (!jobStatus) return operation.status;
-    if (jobStatus === "Delayed") return "delayed";
+    // Work that already finished stays "completed": delaying a job only
+    // repaints the operations it has yet to run, never its history.
     if (operation.status === "completed") return "completed";
+    if (jobStatus === "Delayed") return "delayed";
     return jobStatus === "In Progress" ? "running" : "scheduled";
 };
 
@@ -135,9 +166,8 @@ export default function SchedulerPage() {
     const [isPlaying, setIsPlaying] = useState(false);
     const [speed, setSpeed] = useState(1);
     const [filter, setFilter] = useState<FilterType>("All");
-    const [showAlerts, setShowAlerts] = useState(true);
     const [showJobListHint, setShowJobListHint] = useState(true);
-    const [jobs, setJobs] = useState([...schedulerData.jobs] as any[]);
+    const [jobs, setJobs] = useState<SchedulerJob[]>([...schedulerData.jobs]);
     const [editingJobId, setEditingJobId] = useState<string | null>(null);
     const [scheduleEditJobId, setScheduleEditJobId] = useState<string | null>(null);
     const [scheduleEdits, setScheduleEdits] = useState<Record<string, ScheduleEditData>>({});
@@ -148,6 +178,19 @@ export default function SchedulerPage() {
         status: "Pending",
         notes: "",
     });
+
+    // Escape dismisses whichever modal is open. Setters are stable, so this
+    // effect only needs the two "is a modal open" flags as dependencies.
+    useEffect(() => {
+        if (!editingJobId && !scheduleEditJobId) return;
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key !== "Escape") return;
+            setEditingJobId(null);
+            setScheduleEditJobId(null);
+        };
+        window.addEventListener("keydown", handleEscape);
+        return () => window.removeEventListener("keydown", handleEscape);
+    }, [editingJobId, scheduleEditJobId]);
 
     const filteredJobs = useMemo(() => {
         if (filter === "All") return jobs;
@@ -173,7 +216,7 @@ export default function SchedulerPage() {
                 name: job.name,
                 priority: job.priority,
                 status: job.status,
-                machine: (job as any).machine,
+                machine: job.machine,
                 notes: "",
             });
         }
@@ -201,19 +244,19 @@ export default function SchedulerPage() {
         handleCloseEditModal();
     };
 
-    const handleFormChange = (field: keyof EditFormData, value: any) => {
+    const handleFormChange = <K extends keyof EditFormData>(field: K, value: EditFormData[K]) => {
         setEditFormData((prev) => ({ ...prev, [field]: value }));
     };
 
     const handleOpenScheduleModal = () => {
         const currentOperation = schedulerData.machines
-            .flatMap((machine) => machine.schedule as readonly ScheduledOperation[])
+            .flatMap((machine) => machine.schedule)
             .find((operation) => operation.jobId === selectedJob.id && operation.opIndex === selectedJob.currentOp.index);
         const savedSchedule = scheduleEdits[selectedJob.id];
         setScheduleEditJobId(selectedJob.id);
         setScheduleEditData({
-            machine: savedSchedule?.machine || (selectedJob as any).machine || currentOperation?.machine || "Machine A",
-            startTime: savedSchedule?.startTime || `${String(Math.floor(currentOperation?.startTime || 8)).padStart(2, "0")}:${String(Math.round(((currentOperation?.startTime || 8) % 1) * 60)).padStart(2, "0")}`,
+            machine: savedSchedule?.machine || selectedJob.machine || currentOperation?.machine || "Machine A",
+            startTime: savedSchedule?.startTime || toTimeInputValue(currentOperation?.startTime ?? TIMELINE_START_HOUR),
             sourceMachine: savedSchedule?.sourceMachine || currentOperation?.machine || "Machine A",
         });
     };
@@ -235,7 +278,7 @@ export default function SchedulerPage() {
 
     const handleDelayOperation = () => {
         setJobs((previousJobs) => previousJobs.map((job) =>
-            job.id === selectedJob.id ? { ...job, status: "Delayed" } : job
+            job.id === selectedJob.id ? { ...job, status: "Delayed" as const } : job
         ));
     };
 
@@ -336,14 +379,16 @@ export default function SchedulerPage() {
 
                         <div className={styles.jobListContainer}>
                             {filteredJobs.map((job) => (
-                                <div
+                                <button
                                     key={job.id}
+                                    type="button"
                                     className={`${styles.jobCard} ${selectedJobId === job.id ? styles.jobCardActive : ""}`}
                                     onClick={() => handleOpenEditModal(job.id)}
+                                    aria-label={`Edit job ${job.id}, ${job.name}`}
                                 >
                                     <div className={styles.jobCardHead}>
                                         <span className={styles.jobId}>{job.id}</span>
-                                        <Badge tone={statusTone(job.status)}>
+                                        <Badge tone={priorityTone(job.priority)}>
                                             {job.priority}
                                         </Badge>
                                     </div>
@@ -355,7 +400,7 @@ export default function SchedulerPage() {
                                         <span className={`${styles.statusDot} ${styles[`status_${job.status.toLowerCase().replace(" ", "")}`]}`} />
                                         {job.status}
                                     </div>
-                                </div>
+                                </button>
                             ))}
                         </div>
 
@@ -365,7 +410,7 @@ export default function SchedulerPage() {
                     <section className={styles.centerPanel}>
                         <div className={styles.timelineHead}>
                             <h2 className={styles.panelTitle}>SCHEDULE TIMELINE</h2>
-                            <div className={styles.currentTime}>Current Time 10:24 AM</div>
+                            <div className={styles.currentTime}>Current Time {formatClock(CURRENT_TIME_HOUR)}</div>
                         </div>
 
                         <div className={styles.timelineContainer}>
@@ -373,9 +418,9 @@ export default function SchedulerPage() {
                                 {/* Time markers */}
                                 <div className={styles.timeMarkersRow}>
                                     <div className={styles.machineLabel} />
-                                    {Array.from({ length: 16 }).map((_, i) => (
+                                    {Array.from({ length: TIMELINE_HOURS }).map((_, i) => (
                                         <div key={i} className={styles.timeMarker}>
-                                            {String(8 + i).padStart(2, "0")}:00
+                                            {String(TIMELINE_START_HOUR + i).padStart(2, "0")}:00
                                         </div>
                                     ))}
                                 </div>
@@ -396,18 +441,19 @@ export default function SchedulerPage() {
                                                 const isOriginalMachine = !isEditedOperation || op.machine === operationEdit?.sourceMachine;
                                                 if (!isOriginalMachine) return null;
                                                 const editedStartTime = isEditedOperation && operationEdit
-                                                    ? Number(operationEdit.startTime.split(":")[0]) + Number(operationEdit.startTime.split(":")[1]) / 60
+                                                    ? fromTimeInputValue(operationEdit.startTime)
                                                     : op.startTime;
                                                 const editedMachine = isEditedOperation && operationEdit
                                                     ? operationEdit.machine
                                                     : op.machine;
                                                 if (editedMachine !== machine.name) return null;
-                                                const startPct = ((editedStartTime - 8) / 16) * 100;
-                                                const widthPct = (op.duration / 16) * 100;
+                                                const startPct = ((editedStartTime - TIMELINE_START_HOUR) / TIMELINE_HOURS) * 100;
+                                                const widthPct = (op.duration / TIMELINE_HOURS) * 100;
                                                 const operationStatus = getOperationStatus(op, job?.status);
                                                 return (
-                                                    <div
+                                                    <button
                                                         key={idx}
+                                                        type="button"
                                                         className={`${styles.scheduledOp} ${styles[`opStatus_${operationStatus}`]}`}
                                                         style={{
                                                             left: `${startPct}%`,
@@ -415,13 +461,14 @@ export default function SchedulerPage() {
                                                         }}
                                                         onClick={() => handleOpenEditModal(op.jobId)}
                                                         title={`${op.jobId} - ${op.opName}`}
+                                                        aria-label={`${op.jobId} ${op.opName} on ${machine.name}, ${formatClock(editedStartTime)} for ${op.duration}h — edit`}
                                                     >
                                                         <div className={styles.opLabel}>
                                                             {op.jobId}
                                                             <br />
                                                             {op.opName}
                                                         </div>
-                                                    </div>
+                                                    </button>
                                                 );
                                             })}
 
@@ -429,8 +476,14 @@ export default function SchedulerPage() {
                                     </div>
                                 ))}
 
-                                {/* Current time indicator spans the complete machine schedule. */}
-                                <div className={styles.currentTimeIndicator} style={{ left: "36.08%" }} />
+                                {/* "Now" line. Offset past the machine-name gutter so it lands on the
+                                    right hour of the grid rather than of the whole row. */}
+                                <div
+                                    className={styles.currentTimeIndicator}
+                                    style={{
+                                        left: `calc(${MACHINE_LABEL_WIDTH} + ${(CURRENT_TIME_HOUR - TIMELINE_START_HOUR) / TIMELINE_HOURS} * (100% - ${MACHINE_LABEL_WIDTH}))`,
+                                    }}
+                                />
                             </div>
                         </div>
 
@@ -477,7 +530,7 @@ export default function SchedulerPage() {
                         <div className={styles.operationFlowSection}>
                             <h3 className={styles.sectionTitle}>OPERATION FLOW</h3>
                             <div className={styles.operationFlow}>
-                                {selectedJob.operations.map((op: string, idx: number) => {
+                                {selectedJob.operations.map((op, idx) => {
                                     const opNum = idx + 1;
                                     const isComplete = opNum < selectedJob.currentOp.index;
                                     const isCurrent = opNum === selectedJob.currentOp.index;
@@ -501,7 +554,7 @@ export default function SchedulerPage() {
                             <div className={styles.currentOpCard}>
                                 <div className={styles.opCardRow}>
                                     <span className={styles.opCardLabel}>Machine:</span>
-                                    <span className={styles.opCardValue}>{(selectedJob as any).machine || "–"}</span>
+                                    <span className={styles.opCardValue}>{selectedJob.machine || "–"}</span>
                                 </div>
                                 <div className={styles.opCardRow}>
                                     <span className={styles.opCardLabel}>Operation:</span>
@@ -564,16 +617,23 @@ export default function SchedulerPage() {
             {/* EDIT JOB MODAL */}
             {editingJobId && (
                 <div className={styles.modalBackdrop} onClick={handleCloseEditModal}>
-                    <div className={styles.modalDialog} onClick={(e) => e.stopPropagation()}>
+                    <div
+                        className={styles.modalDialog}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="edit-job-modal-title"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <div className={styles.modalHead}>
-                            <h2 className={styles.modalTitle}>Edit Job {editingJobId}</h2>
-                            <button className={styles.modalCloseBtn} onClick={handleCloseEditModal}>✕</button>
+                            <h2 className={styles.modalTitle} id="edit-job-modal-title">Edit Job {editingJobId}</h2>
+                            <button className={styles.modalCloseBtn} onClick={handleCloseEditModal} aria-label="Close job editor">✕</button>
                         </div>
 
                         <div className={styles.modalContent}>
                             <div className={styles.formGroup}>
-                                <label className={styles.formLabel}>Job Name</label>
+                                <label className={styles.formLabel} htmlFor="edit-job-name">Job Name</label>
                                 <input
+                                    id="edit-job-name"
                                     type="text"
                                     className={styles.formInput}
                                     value={editFormData.name}
@@ -583,11 +643,12 @@ export default function SchedulerPage() {
 
                             <div className={styles.formRow}>
                                 <div className={styles.formGroup}>
-                                    <label className={styles.formLabel}>Priority</label>
+                                    <label className={styles.formLabel} htmlFor="edit-job-priority">Priority</label>
                                     <select
+                                        id="edit-job-priority"
                                         className={styles.formSelect}
                                         value={editFormData.priority}
-                                        onChange={(e) => handleFormChange("priority", e.target.value)}
+                                        onChange={(e) => handleFormChange("priority", e.target.value as EditFormData["priority"])}
                                     >
                                         <option>High</option>
                                         <option>Med</option>
@@ -596,11 +657,12 @@ export default function SchedulerPage() {
                                 </div>
 
                                 <div className={styles.formGroup}>
-                                    <label className={styles.formLabel}>Status</label>
+                                    <label className={styles.formLabel} htmlFor="edit-job-status">Status</label>
                                     <select
+                                        id="edit-job-status"
                                         className={styles.formSelect}
                                         value={editFormData.status}
-                                        onChange={(e) => handleFormChange("status", e.target.value)}
+                                        onChange={(e) => handleFormChange("status", e.target.value as EditFormData["status"])}
                                     >
                                         <option>Pending</option>
                                         <option>In Progress</option>
@@ -610,8 +672,9 @@ export default function SchedulerPage() {
                             </div>
 
                             <div className={styles.formGroup}>
-                                <label className={styles.formLabel}>Assigned Machine</label>
+                                <label className={styles.formLabel} htmlFor="edit-job-machine">Assigned Machine</label>
                                 <select
+                                    id="edit-job-machine"
                                     className={styles.formSelect}
                                     value={editFormData.machine || ""}
                                     onChange={(e) => handleFormChange("machine", e.target.value || undefined)}
@@ -625,8 +688,9 @@ export default function SchedulerPage() {
                             </div>
 
                             <div className={styles.formGroup}>
-                                <label className={styles.formLabel}>Notes</label>
+                                <label className={styles.formLabel} htmlFor="edit-job-notes">Notes</label>
                                 <textarea
+                                    id="edit-job-notes"
                                     className={styles.formTextarea}
                                     value={editFormData.notes}
                                     onChange={(e) => handleFormChange("notes", e.target.value)}
@@ -646,9 +710,15 @@ export default function SchedulerPage() {
 
             {scheduleEditJobId && (
                 <div className={styles.modalBackdrop} onClick={handleCloseScheduleModal}>
-                    <div className={styles.modalDialog} onClick={(e) => e.stopPropagation()}>
+                    <div
+                        className={styles.modalDialog}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="schedule-modal-title"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <div className={styles.modalHead}>
-                            <h2 className={styles.modalTitle}>Change Machine / Time</h2>
+                            <h2 className={styles.modalTitle} id="schedule-modal-title">Change Machine / Time</h2>
                             <button className={styles.modalCloseBtn} onClick={handleCloseScheduleModal} aria-label="Close schedule editor">✕</button>
                         </div>
 

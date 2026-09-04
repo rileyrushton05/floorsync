@@ -270,6 +270,12 @@
 }
 
 .jobCard {
+    /* Rendered as a <button> so the card is keyboard-reachable; these first
+       four declarations undo the user-agent button styling. */
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
     border: 1px solid #e2e8f0;
     background: #f8fafc;
     padding: 10px;
@@ -394,7 +400,10 @@
 .timelineContent {
     display: flex;
     flex-direction: column;
-    min-width: 1200px;
+    /* 160px machine gutter + 16 hour columns x 80px. Keep in step with
+       `.machineLabel`, `.timeMarker` and `.timelineRowContent` below, and with
+       MACHINE_LABEL_WIDTH / TIMELINE_HOURS in page.tsx. */
+    min-width: 1440px;
     position: relative;
 }
 
@@ -405,13 +414,6 @@
     position: sticky;
     top: 0;
     z-index: 10;
-}
-
-.machineLabel {
-    width: 160px;
-    padding: 8px;
-    border-right: 1px solid #e2e8f0;
-    flex-shrink: 0;
 }
 
 .timeMarker {
@@ -457,12 +459,15 @@
 .timelineRowContent {
     flex: 1;
     position: relative;
-    min-width: 1040px;
+    /* Must equal the hour-marker track (16 x 80px) so a block sits directly
+       under the hour it starts at. */
+    min-width: 1280px;
     display: flex;
     align-items: center;
 }
 
 .scheduledOp {
+    font: inherit;
     position: absolute;
     height: 40px;
     border-radius: 4px;
@@ -1057,4 +1062,57 @@
 
 .modalBtnSave:hover {
     background: #1d4ed8;
+}
+
+/* ===== FOCUS ===== */
+/* One visible focus ring for everything keyboard-reachable on this page.
+   `:focus-visible` keeps it off mouse clicks but on for tab navigation. */
+.dateNavBtn:focus-visible,
+.playBtn:focus-visible,
+.speedBtn:focus-visible,
+.generateBtn:focus-visible,
+.menuBtn:focus-visible,
+.filterBtn:focus-visible,
+.jobListHintDismiss:focus-visible,
+.jobCard:focus-visible,
+.addJobBtn:focus-visible,
+.scheduledOp:focus-visible,
+.actionBtn:focus-visible,
+.actionBtnDanger:focus-visible,
+.viewAllAlertsBtn:focus-visible,
+.modalCloseBtn:focus-visible,
+.modalBtnCancel:focus-visible,
+.modalBtnSave:focus-visible,
+.formInput:focus-visible,
+.formSelect:focus-visible,
+.formTextarea:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+/* ===== RESPONSIVE ===== */
+/* The three-column desk layout does not survive a narrow viewport: below
+   1200px the side panels stack above and below the timeline instead. */
+@media (max-width: 1200px) {
+    .main {
+        overflow: visible;
+    }
+
+    .contentRow {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .leftPanel,
+    .rightPanel {
+        width: 100%;
+    }
+
+    .leftPanel {
+        max-height: 340px;
+    }
+
+    .centerPanel {
+        min-height: 420px;
+    }
 }

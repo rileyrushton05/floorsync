@@ -360,6 +360,18 @@
 }
 .reportBtn:hover { background: #fef2f2; }
 
+/* ===== FOCUS ===== */
+/* One visible focus ring for everything keyboard-reachable on this page. */
+.primaryBtn:focus-visible,
+.secondaryBtn:focus-visible,
+.startBtn:focus-visible,
+.viewAllLink:focus-visible,
+.reportBtn:focus-visible,
+.dismissBtn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
 @media (max-width: 1100px) {
   .topRow { grid-template-columns: 1fr; }
   .bottomRow { grid-template-columns: 1fr; }

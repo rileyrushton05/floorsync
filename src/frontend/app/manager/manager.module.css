@@ -389,12 +389,14 @@
 }
 
 .viewAllLink {
+  align-self: flex-start;
   margin-top: 12px;
   background: none;
   border: none;
   color: #2563eb;
   font-size: 0.85rem;
   font-weight: 700;
+  text-decoration: none;
   cursor: pointer;
   padding: 0;
 }
@@ -705,4 +707,34 @@
   .bodyRow {
     grid-template-columns: 1fr;
   }
+}
+
+/* The row itself is clickable for mouse users; this chevron button is the
+   equivalent target for keyboard and screen-reader users. */
+.jobRowBtn {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.jobRowBtn:hover {
+  background: #e2e8f0;
+}
+
+/* ===== FOCUS ===== */
+/* One visible focus ring for everything keyboard-reachable on this page. */
+.weekSelect:focus-visible,
+.bellBtn:focus-visible,
+.exportBtn:focus-visible,
+.jobRowBtn:focus-visible,
+.viewAllLink:focus-visible,
+.sequenceLink:focus-visible,
+.viewAllMachinesBtn:focus-visible,
+.exportToast button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
