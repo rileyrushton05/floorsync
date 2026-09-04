@@ -4,6 +4,17 @@ Use this folder to record important project decisions.
 
 Decision records help explain why the team made particular design, technical, scope, or evaluation choices.
 
+## Decision index
+
+| Record | Status | Decision |
+| --- | --- | --- |
+| [0001](0001-celery-database-access.md) | Accepted | Process-local Celery database access |
+| [0002](0002-backend-feature-organisation.md) | Accepted | Pragmatic feature-first backend organisation |
+| [0003](0003-service-and-transaction-boundaries.md) | Accepted | Static service namespaces with caller-owned transactions |
+| [0004](0004-typed-expected-outcomes.md) | Accepted | Typed expected outcomes with exhaustive handling |
+| [0005](0005-initial-persistence-abstraction.md) | Accepted | Defer a repository abstraction for simple persistence |
+| [0006](0006-production-middleware-and-observability.md) | Accepted | Production middleware and observability baseline |
+
 ## Suggested Decision Record Format
 
 ```markdown
@@ -32,12 +43,14 @@ What other options were considered?
 ## Consequences
 
 What are the implications, risks, or trade-offs?
+```
 
 ## Examples of Decisions to Record
-choosing a technology stack
-changing the project scope
-removing or adding a feature
-changing the design direction
-changing the database structure
-changing the evaluation method
-responding to mentor, stakeholder, or user feedbac
+
+- choosing a technology stack;
+- changing the project scope;
+- removing or adding a feature;
+- changing the design direction;
+- changing the database structure;
+- changing the evaluation method; and
+- responding to mentor, stakeholder, or user feedback.
