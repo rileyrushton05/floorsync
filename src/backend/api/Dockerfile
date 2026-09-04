@@ -12,4 +12,4 @@ COPY src/backend/common ./src/backend/common
 COPY src/backend/api ./src/backend/api
 COPY src/database ./src/database
 EXPOSE 8000
-CMD ["uvicorn", "floorsync_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "floorsync_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
