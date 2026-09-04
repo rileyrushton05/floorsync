@@ -101,8 +101,25 @@ CHECK ((role = 'operator') = (machine_id IS NOT NULL))
 A User is a login. For `role = 'operator'` it's permanently tied to exactly one machine (the unique
 constraint enforces the 1:1 — "each machine has its own login"); `manager` accounts (which now cover
 what used to be the separate coordinator role, per the Statement of Work change) have no machine and
-log in independently. Authentication columns (password hash, session handling) are out of scope for
-this table — tracked separately under Feature #191.
+log in independently.
+
+## user_credentials
+
+Authentication data is deliberately separate from `users`: FloorSync's production/user model remains
+usable by scheduling and auditing code without carrying password material. Exactly one credential may
+belong to a user; no credential can exist without its user.
+
+| column | type | constraints |
+|---|---|---|
+| user_id | Uuid | FK -> users.id, not null, unique, ondelete RESTRICT, indexed |
+| username | Text | not null, unique, stored lowercase |
+| password_hash | Text | not null — Argon2 hash only |
+| active | Boolean | not null, default true |
+| last_authenticated_at | DateTime(timezone=True) | nullable |
+
+JWTs are short-lived API credentials, not database records. The API validates their signature and
+claims, then reloads the active credential and its user on each protected request. This lets a manager
+disable a credential without waiting for an old token to expire.
 
 ## jobs
 

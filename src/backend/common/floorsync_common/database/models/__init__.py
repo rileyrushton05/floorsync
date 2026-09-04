@@ -17,6 +17,7 @@ from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.database.models.simulation_event import SimulationEvent
 from floorsync_common.database.models.unavailability import Unavailability
 from floorsync_common.database.models.user import User
+from floorsync_common.database.models.user_credential import UserCredential
 
 __all__ = [
     "Category",
@@ -34,4 +35,5 @@ __all__ = [
     "UUIDPrimaryKeyMixin",
     "Unavailability",
     "User",
+    "UserCredential",
 ]
