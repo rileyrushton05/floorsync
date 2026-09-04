@@ -25,214 +25,229 @@ Other scripts:
 
 Run `pnpm typecheck` and `pnpm lint` before opening a PR — both must be clean.
 
+## The planning model
+
+The manager area is built around one idea: **a schedule is generated from job
+definitions, not drawn on a calendar.** The flow has three stages, each with its
+own route, because they answer three different questions.
+
+```text
+  /manager/jobs            /manager/scheduler          /manager/simulation
+┌──────────────────┐     ┌────────────────────┐      ┌────────────────────┐
+│ Define jobs:     │     │ Tick the jobs to   │      │ Run the clock      │
+│ operations,      │ ──► │ release, press     │ ──►  │ across that plan   │
+│ machines,        │     │ Generate           │      │ and watch it move  │
+│ durations,       │     │                    │      │                    │
+│ dependencies     │     │ "What IS the plan?"│      │ "What does the shop│
+│                  │     │                    │      │  look like at T+N?"│
+└──────────────────┘     └────────────────────┘      └────────────────────┘
+```
+
+**Time is relative.** A generated schedule has no dates and no wall clock. Every
+position is *minutes elapsed from T+0*, the moment the plan is released, and the
+Gantt axis is labelled `T+0h, 1h, 2h…`. Picking a calendar day is a separate
+concern the backend can layer on later; nothing in the generator depends on it.
+
+**Viewing a plan and simulating it are deliberately separate.** The scheduler has
+no play button, no speed control and no moving line — it shows the plan at full
+strength, coloured by job so one job can be traced across machines. The
+simulation has the transport controls and re-shades that same geometry by where
+the clock has reached. They share one `GanttChart` component so the geometry is
+identical and only the *reading* differs.
+
+### How generation works
+
+`app/manager/_lib/scheduling.ts` is a pure module with no React in it.
+`generateSchedule(jobs, machines, selectedIds)` returns either a schedule or a
+list of human-readable problems.
+
+1. **Validate** — the selection is non-empty, every job has operations with a
+   positive duration on a machine that exists, and every dependency is *itself
+   in the selection*. Scheduling a job whose prerequisite was not released is
+   refused rather than silently ignored.
+2. **Order** — Kahn's algorithm over the dependency graph, breaking ties by
+   priority (High → Med → Low) and then by id, so the same selection always
+   produces the same plan. A dependency cycle is reported, not thrown.
+3. **Place** — walk the jobs in that order and give each operation the earliest
+   slot on its machine that respects the previous operation in the same job, the
+   machine's existing bookings, and the finish time of every job it depends on.
+   Gaps are backfilled, so a short job drops into a machine's idle window instead
+   of being appended after it.
+
+It is a greedy list scheduler: it will not reorder or pre-empt to shorten the
+makespan, so the result is not optimal. It is deterministic and every placement
+is explainable, which matters more for a plan a person has to trust — the
+scheduler's *Placement order* table shows exactly which job was placed when and
+why.
+
+The algorithm's invariants (no machine double-booked, operations sequential
+within a job, durations preserved, dependencies respected, determinism, cycle
+and missing-dependency detection) are worth pinning down in tests — see
+*Known gaps*.
+
 ## Project structure
 
 ```text
 app/
-├── layout.tsx                   # Root layout, imports styles.css globally
-├── styles.css                   # Global reset ONLY — see "Global styles" below
-├── page.tsx                     # "/" landing page
-├── home.module.css              # Styles scoped to the landing page only
+├── layout.tsx                     # Root layout, imports styles.css globally
+├── styles.css                     # Global reset ONLY — see "Styling conventions"
+├── page.tsx                       # "/" landing page
+├── home.module.css
 │
-├── _components/                 # Shared, dashboard-agnostic building blocks
-│   ├── Logo.tsx                 # <Logo> mark and <Wordmark> home link
-│   ├── Badge.tsx                # Status/priority pill + tone helpers
+├── _components/                   # Shared across every route
+│   ├── Logo.tsx                   # <Logo> mark and <Wordmark> home link
+│   ├── Badge.tsx                  # Status/priority pill + tone helpers
 │   └── Badge.module.css
 │
-├── manager/                     # /manager — facility overview
-│   ├── page.tsx
+├── manager/
+│   ├── layout.tsx                 # Wraps every /manager route in PlanningProvider
+│   ├── icons.tsx                  # Inline SVG icon set for the manager area
+│   │
+│   ├── _lib/                      # Pure domain logic — no React
+│   │   ├── types.ts               # JobDef, ScheduledOperation, GeneratedSchedule…
+│   │   ├── scheduling.ts          # generateSchedule + validation + formatting
+│   │   ├── colors.ts              # Validated categorical palette for job identity
+│   │   └── seed.ts                # Starting machines and backlog
+│   │
+│   ├── _components/
+│   │   ├── PlanningProvider.tsx   # Backlog + selection + generated plan (context)
+│   │   ├── SubNav.tsx             # Overview / Jobs / Schedule / Simulation tabs
+│   │   ├── GanttChart.tsx         # The schedule grid, shared by plan + simulation
+│   │   └── *.module.css
+│   │
+│   ├── page.tsx                   # /manager — facility KPI overview
 │   ├── manager.module.css
-│   ├── icons.tsx                # Inline SVG icon set for manager + scheduler
-│   └── scheduler/               # /manager/scheduler — schedule builder
-│       ├── page.tsx
-│       └── scheduler.module.css
+│   ├── jobs/                      # /manager/jobs — job + dependency builder
+│   ├── scheduler/                 # /manager/scheduler — release & generate
+│   └── simulation/                # /manager/simulation — plan playback
 │
-└── operator/                    # /operator — single-machine job queue
+└── operator/                      # /operator — single-machine job queue
     ├── page.tsx
     ├── operator.module.css
-    └── icons.tsx                # Inline SVG icon set for the operator view
+    └── icons.tsx
 ```
 
 ## Routes
 
-Four routes covering two FloorSync user roles (see `docs/` and `spec/` for the
-user stories and functional requirements these map to).
-
-**Every dashboard is currently a frontend-only mock.** The data is hardcoded at
-the top of each `page.tsx`; there is no API, WebSocket or auth wiring yet. They
-exist to validate layout, visual language and interaction patterns ahead of
-backend integration.
-
----
-
 ### `/` — Landing (`app/page.tsx`)
 
-Server component. The only page that uses the dark palette from the global
-`styles.css`; every dashboard overrides it with its own light theme.
-
-Two card grids:
-
-1. **Foundation status** — static "Frontend shell" and "API health" cards left
-   over from the project scaffold.
-2. **Dashboard links** — entry points to `/manager` and `/operator`.
-
-`/manager/scheduler` is not linked from here; it is reachable only through the
-manager dashboard's "View all jobs →" link.
+Server component. The only page using the dark palette from the global
+`styles.css`; every dashboard overrides it with its own light theme. Cards link
+into each area of the app.
 
 ---
 
-### `/manager` — Manager dashboard (`app/manager/page.tsx`)
+### `/manager` — Overview (`app/manager/page.tsx`)
 
-Client component. Facility-wide weekly overview.
+Client component. Facility-wide weekly KPI overview: four stat cards (total jobs
+with a completed/in-progress/pending legend, on-time completion, machine
+utilisation, active operators), a job list table, a selected-job detail panel
+with an expandable operation sequence, and a machines overview.
 
-**Layout**
-
-| Region | Contents |
-| --- | --- |
-| Topbar | Wordmark, reporting-week `<select>`, notification bell + dropdown, Export Report, user block |
-| Stat row | Four KPI cards (below) |
-| Body — left | Job List table |
-| Body — right | Selected-job detail panel + Machines Overview |
-| Footer | Hint text, "View All Machines →" |
-
-**Stat cards**
-
-- **Total Jobs** — count plus a completed / in-progress / pending legend with
-  percentages derived from the week's totals.
-- **On-Time Completion** — percentage, plus a highlighted delayed-job count.
-- **Machine Utilization** — percentage with an amber progress bar.
-- **Active Operators** — `active / total` plus a ten-dot meter rounded from the
-  ratio.
-
-**Job List** — columns are Job ID, Job Name, Progress (bar + percentage),
-Status badge, Current Machine, and a chevron button. Clicking a row (or its
-chevron button) selects that job into the detail panel. "View all jobs →" links
-to `/manager/scheduler`.
-
-**Detail panel** — job ID/name/status, overall progress bar, then two mini
-cards: *Currently On* (machine, `Op n of N`, start time) and *Next Scheduled
-Step* (next operation, estimated start, machine). Both fall back to an empty
-state for completed or not-yet-started jobs. "View full job sequence" expands an
-ordered list of every operation, marked done / current / pending by comparing
-each index against `currentOp.index`.
-
-**Machines Overview** — four tiles (Running, Idle, Down, Offline) plus a total.
-
-**State**
-
-| State | Effect |
-| --- | --- |
-| `weekId` | Swaps the whole `WeekData` record; resets job selection and the sequence toggle |
-| `selectedJobId` | Drives the detail panel |
-| `sequenceExpanded` | Full operation sequence visibility |
-| `notifOpen` | Notification dropdown; closes on Escape or an outside click |
-| `exportedAt` | Timestamp for the "report exported" toast — cosmetic, nothing is generated |
+This page still runs on its own hardcoded `weeks` array and is **not** yet
+connected to the planning flow — see *Known gaps*.
 
 ---
 
-### `/manager/scheduler` — Scheduler (`app/manager/scheduler/page.tsx`)
+### `/manager/jobs` — Job builder (`app/manager/jobs/page.tsx`)
 
-Client component. The largest page: a three-column schedule builder and
-simulation inspector.
+Where the backlog is written. Two columns:
 
-**Topbar** — wordmark, day-back/day-forward date navigation, play/pause and a
-1x / 10x / 100x speed selector, a "Live Simulation" indicator, Generate
-Schedule, and an overflow menu.
+**Backlog (left)** — every defined job as a card: colour swatch, id, priority,
+operation count, total machine time, and its dependencies. Click to edit.
 
-**Left — Job List.** `All` / `Pending` / `In Progress` / `Delayed` filter
-buttons, a dismissible hint, then one card per job showing its ID, priority
-badge, name, `Op n of N` plus queue status, and a colour-coded status dot.
-Each card is a button that opens the Edit Job modal. "+ Add New Job" is not
-wired up.
+**Editor (right)** — name and priority, then:
 
-**Centre — Schedule Timeline.** A Gantt-style grid of machines × time:
+- **Operations** — an ordered, editable list. Each row is a name, a machine and
+  a duration in minutes. Rows can be reordered (↑/↓) or removed. *Order is
+  precedence*: operation n+1 cannot start until operation n finishes, so moving
+  a row rewrites the job's internal dependency chain.
+- **Dependencies** — a checklist of the other jobs that must finish before this
+  one starts. Any job that already depends on the one being edited is **disabled
+  with an explanation**, so a cycle cannot be created in the first place rather
+  than being caught later at generation time.
+- A reverse-dependency note ("3 jobs wait on this one") and a live summary of
+  operation count, total machine time and machines touched.
 
-- The window is defined by `TIMELINE_START_HOUR` (8) and `TIMELINE_HOURS` (16),
-  i.e. 08:00 → 24:00 in one-hour columns.
-- Each machine row has a 160px name/operator gutter (`MACHINE_LABEL_WIDTH`)
-  followed by the schedule track. Blocks are absolutely positioned from
-  `startTime` and `duration` as percentages of the track.
-- Block colour comes from `getOperationStatus()`, which reconciles the
-  operation's own status against its job's current status. Completed work is
-  checked first, so delaying a job never repaints operations it already ran.
-- A vertical "now" line is drawn at `CURRENT_TIME_HOUR`, offset past the gutter
-  with `calc()` so it lands on the correct hour of the grid.
-- Below the grid: a status legend and a MACHINE STATUS list (Active / Idle /
-  Waiting per machine).
+Validation runs on save and lists every problem at once.
 
-> The three width constants must stay in step: `.timelineContent` is
-> `160px + 16 × 80px`, `.timelineRowContent` and the hour-marker track are both
-> `16 × 80px`, and `MACHINE_LABEL_WIDTH` in `page.tsx` matches `.machineLabel`.
-> If they diverge, blocks drift out from under their hour labels.
+---
 
-**Right — Job details.** OPERATION FLOW (a horizontal stepper over
-`job.operations`, ticked up to `currentOp.index`), CURRENT OPERATION (machine,
-operation, start, estimated end, progress bar), SCHEDULE ACTIONS, and ALERTS.
+### `/manager/scheduler` — Release & generate (`app/manager/scheduler/page.tsx`)
 
-**Editing.** Two modals, both dismissible by backdrop click, the ✕ button, or
-Escape:
+**No date navigation, no playback controls.** Three columns:
 
-- **Edit Job** — name, priority, status, assigned machine, notes. Saving
-  updates the in-memory `jobs` state, which re-colours the matching timeline
-  blocks. Notes are collected but discarded.
-- **Change Machine / Time** — moves the selected job's *current* operation to a
-  different machine and/or start time. Saved edits live in `scheduleEdits`,
-  keyed by job ID; the timeline reads them when positioning each block so the
-  operation disappears from its original row and reappears on the new one.
+**Release to schedule (left)** — a checkbox per backlog job with its priority,
+operation count and work time. A job whose dependency is not also ticked is
+flagged inline in red *before* generation is attempted. Select-all / clear, and
+a running total of selected machine time.
 
-**Delay Operation** sets the selected job's status to `Delayed`, which turns its
-not-yet-run blocks red and surfaces it under the `Delayed` filter.
+**Generated plan (centre)** — the `GanttChart` in `plan` mode, or an empty state
+explaining what Generate will do, or a validation panel listing why the current
+selection cannot be scheduled. A **stale banner** appears if job definitions were
+edited after the plan was generated; plans are never silently regenerated
+underneath the manager.
+
+**Plan summary (right)** — makespan and job count, per-machine utilisation bars,
+and the **placement order** table: the order the generator worked in, with each
+job's start and finish offsets. Clicking a row (or a legend entry, or a block)
+traces that job across the grid by dimming the rest. The table doubles as the
+chart's text equivalent, so the plan is fully readable without relying on colour.
+
+---
+
+### `/manager/simulation` — Plan playback (`app/manager/simulation/page.tsx`)
+
+Runs the last generated plan forward. Nothing here changes the plan.
+
+**Transport** — play/pause, reset, and a speed selector expressed in shop-minutes
+per real second (`1×` = 1 min/s, `10×`, `60×` = one hour per second). A `T+`
+readout and a **scrubber** for jumping to any point; scrubbing pauses playback.
+
+**Machines now (left)** — per machine: Running (with the job, operation, a
+progress bar and its finish offset), Idle (with when the next job arrives), or
+Done.
+
+**Plan playback (centre)** — the same `GanttChart` in `simulation` mode: a "now"
+line, and blocks re-shaded by state — pale with a `✓` for completed, full
+strength with a `▶` and an elapsed bar for running, very pale for upcoming.
+Overall counters above it.
+
+**Job progress (right)** — operations completed per job and its live state.
+
+If no plan has been generated, the page says so and links to the scheduler.
 
 ---
 
 ### `/operator` — Operator dashboard (`app/operator/page.tsx`)
 
-Client component. One machine's work, from the operator's point of view. This is
-the most genuinely stateful page: it models a small queue machine rather than
-just re-rendering fixed data.
+Client component, one machine's work. Current Operation with **Mark Complete**
+(which advances within the job, then promotes the queue head, then goes idle),
+Next Operation, shift and break counters, and pending/completed operation
+tables. Starting a queued job out of order pauses the active one back onto the
+front of the queue.
 
-**Layout**
+Still on its own hardcoded `initialMachine` — it does not yet read from a
+generated schedule.
 
-| Region | Contents |
-| --- | --- |
-| Topbar | Wordmark, machine tag with live dot, clock, operator + shift |
-| Top row | Current Operation card, Next Operation card, side stack (shift time, next break) |
-| Bottom row | Pending Operations table, Completed Operations table |
-| Footer | Hint or issue banner, Report Issue |
+## State and the API seam
 
-**Current Operation** — the running step of the active job, with **Mark
-Complete**. Completing a step:
+`PlanningProvider` (`app/manager/_components/PlanningProvider.tsx`) holds the
+backlog, the selection and the generated plan for every `/manager` route. It is
+**in-memory only**: client-side navigation between the tabs preserves everything,
+but a browser reload resets to the seed backlog and clears the plan.
 
-1. moves that step to `completed` and prepends an entry to the completed table;
-2. starts the next step of the same job if there is one;
-3. otherwise promotes the head of the queue to be the active job;
-4. otherwise leaves the machine idle, and both cards fall back to empty states.
+That provider is the seam the API will replace. Its actions (`createJob`,
+`updateJob`, `deleteJob`, `generate`, …) are already the shape of the calls the
+backend will need to serve; `generateSchedule` itself will likely move server-side
+once the solver is real.
 
-**Next Operation** — either the next step of the active job or the first step of
-the queue head, whichever applies.
-
-**Pending Operations** — the queue in order, each row with a **Start** button.
-Starting a queued job out of order pauses the active job and pushes it back onto
-the *front* of the queue, retaining its progress; it resumes from its first
-pending step.
-
-**Report Issue** swaps the footer hint for a confirmation banner. Nothing is
-sent anywhere.
-
-## Mock data and the API seam
-
-The mock structures at the top of each `page.tsx` are the contract to replace
-when the backend lands; their shape is already close to what the API and
-WebSocket payloads will need to provide.
-
-| File | Structure | Shape |
+| File | Structure | Replaced by |
 | --- | --- | --- |
-| `manager/page.tsx` | `weeks: WeekData[]` | Weekly KPI rollup + `ManagerJob[]` |
-| `manager/scheduler/page.tsx` | `schedulerData` | `MachineSchedule[]` (rows of `ScheduledOperation`) + `SchedulerJob[]` |
-| `operator/page.tsx` | `initialMachine: MachineState` | Active job, queue, completed log, shift counters |
-
-Every one of these is typed, so replacing the literal with a fetch should
-surface any mismatch at the type level rather than at runtime.
+| `manager/_lib/seed.ts` | `SEED_MACHINES`, `SEED_JOBS` | Machine + job endpoints |
+| `manager/_lib/scheduling.ts` | `generateSchedule` | The backend solver |
+| `manager/page.tsx` | `weeks: WeekData[]` | KPI rollup endpoint |
+| `operator/page.tsx` | `initialMachine: MachineState` | Per-machine queue endpoint / WebSocket |
 
 ## Styling conventions
 
@@ -248,78 +263,122 @@ surface any mismatch at the type level rather than at runtime.
   `section { display: grid; grid-template-columns: … }` rule meant only for the
   landing page, which silently broke the scheduler timeline grid (also a
   `<section>`). Page-specific look belongs in that page's own `.module.css`.
-- Shared visual primitives (badges, the logo) live in `_components/` and are
-  imported by whichever pages need them.
+- Shared visual primitives (badges, the logo) live in `app/_components/`;
+  manager-only ones in `app/manager/_components/`.
 - Dynamic class names are composed as template literals against the styles
-  object: ``styles[`opStatus_${status}`]``, ``styles[`sequence_${state}`]``.
-  Renaming such a class means grepping for the prefix, not the full name.
-- No charting library, and no icon library: icons are hand-written inline SVG
-  components taking `size` and `color` props.
+  object: ``styles[`pill_${state}`]``. Renaming such a class means grepping for
+  the prefix, not the full name.
+- No charting library and no icon library: the Gantt is CSS-positioned divs and
+  icons are hand-written inline SVG components taking `size` and `color`.
+
+### Gantt geometry
+
+`GanttChart.module.css` defines two custom properties on its root — `--gutter`
+(the machine-name column) and `--hour` (the width of one hour). Every offset in
+the chart is `calc()`-ed from them:
+
+```
+left:  calc(var(--hour) * ${startMins / 60})
+width: calc(var(--hour) * ${durationMins / 60} - 2px)
+```
+
+Nothing is a percentage, so the hour ruler and the blocks beneath it are laid
+out against exactly the same scale and cannot drift apart. **Change the hour
+width in one place and the whole chart rescales**; do not reintroduce
+percentage-based positioning here.
+
+### Job colours
+
+`_lib/colors.ts` holds an eight-slot categorical palette in fixed order,
+validated against the chart surface for lightness band, chroma floor,
+adjacent-pair colour-vision-deficiency separation and normal-vision separation.
+Each fill is paired with whichever ink (near-black or white) contrasts better;
+the worst pairing is 3.98:1.
+
+Two rules matter when touching it:
+
+- **Colour is keyed to a job's position in the backlog, not its position in the
+  selection**, so filtering the schedule down to fewer jobs never repaints the
+  ones that remain.
+- Three slots sit under 3:1 against the surface, so **colour is never the only
+  identity channel**: every block carries a visible job-id label, the chart ships
+  a legend, and the scheduler's placement-order table is a full text equivalent.
+  Past eight jobs, colour stops carrying identity (a neutral slate is used) and
+  the label alone does.
 
 ## Accessibility conventions
 
-Applied consistently across the three dashboards; keep new work in line with
-them:
+Applied consistently; keep new work in line with them:
 
-- **Anything clickable is a real `<button>` or `<a>`.** Job cards and timeline
-  blocks are buttons; the manager's clickable table rows keep their row-level
-  `onClick` as a mouse affordance but carry a focusable chevron button as the
-  keyboard equivalent, so the table keeps its semantics.
+- **Anything clickable is a real `<button>` or `<a>`.** Job cards, legend
+  entries and Gantt blocks are buttons; the manager overview's clickable table
+  rows keep their row-level `onClick` as a mouse affordance but carry a
+  focusable chevron button as the keyboard equivalent, so the table keeps its
+  semantics.
 - **Every module ends with a `:focus-visible` block** giving one consistent
   `2px solid #2563eb` ring to every interactive element on that page.
-- **Modals** carry `role="dialog"`, `aria-modal`, and `aria-labelledby`
-  pointing at their title, and close on Escape as well as backdrop click.
-- **Popovers** (the manager's notification bell) set `aria-expanded` and close
+- **Modals** carry `role="dialog"`, `aria-modal` and `aria-labelledby`, and
+  close on Escape as well as backdrop click.
+- **Popovers** (the overview's notification bell) set `aria-expanded` and close
   on Escape or an outside click.
-- **Transient banners and toasts** carry `role="status"` so they are announced.
+- **Transient banners and toasts** carry `role="status"`; blocking validation
+  carries `role="alert"`.
 - **Progress bars** carry `role="progressbar"` with `aria-valuenow/min/max`.
+- Gantt blocks carry a full `aria-label` (job, operation, machine, offset,
+  duration, state) since their visible label is necessarily abbreviated.
 - Icons are `aria-hidden`; icon-only buttons carry an `aria-label`.
 
 ## Known gaps / next steps
 
-**Data and integration**
+**Not yet connected to the planning flow.** `/manager` (the KPI overview) and
+`/operator` still run on their own hardcoded fixtures. The operator view is the
+obvious next integration: its queue should be the operations the generated plan
+assigned to that machine.
 
-- No live data. Replace the mock structures above with API calls and WebSocket
-  subscriptions per the functional requirements (schedule, simulation state,
-  machine/job status).
-- No auth or session handling — the topbar user blocks are static strings.
-- No loading, empty or error states for data that will eventually be fetched.
-  The pages assume their arrays are always present and non-empty.
+**The plan does not survive a reload.** `PlanningProvider` is in-memory. Fine for
+a prototype, but a user-testing session where a refresh wipes the plan is worth
+avoiding — `sessionStorage` hydration (read after mount, to avoid an SSR
+mismatch) would be a small, contained fix.
 
-**Unwired controls.** These render but do nothing, and should either be wired or
-removed before user testing: "View All Machines →" and Export Report
-(manager); "Generate Schedule", "+ Add New Job", "View all alerts →", the
-overflow menu, play/pause and the speed selector (scheduler); "View full queue",
-"View all completed" (operator).
+**No manual override of a generated plan.** The previous scheduler let a manager
+drag an operation to a different machine or time; that was editing hardcoded
+blocks and did not carry over to generated plans. Re-adding it properly means
+deciding what happens to everything downstream of the moved operation — pin it
+and re-run the generator around it, most likely.
 
-**Scheduler simulation.** `isPlaying` and `speed` are stored but nothing
-consumes them; the "now" line, the current-time readout and the "Started /
-Est. End" fields are fixed values. Date navigation moves the header label but
-not the schedule — every day renders identical data.
+**No what-if disruptions.** The simulation is a faithful replay. Injecting a
+breakdown or an overrun mid-run and re-planning from that point is the natural
+next feature, and the reason the simulation is a separate route.
 
-**Mock data consistency.** The scheduler is dated November 2019 while the
-manager weeks are labelled Nov 18–24 with no year; the same job IDs carry
-different current-operation indices between the two pages. Worth reconciling
-into one shared fixture before user testing, since testers move between the two
-views.
+**Scheduling quality.** The generator is greedy and never backtracks. Bottleneck
+machines, setup/changeover times, operator availability, shift boundaries and
+machine capability constraints are all unmodelled. If schedule quality becomes a
+real requirement, this is where a proper solver goes — and `scheduling.ts` is
+already isolated enough to swap wholesale.
+
+**No tests.** `_lib/scheduling.ts` is pure and is the obvious first target: no
+machine double-booked, operations sequential within a job, durations preserved,
+dependencies respected, deterministic output, and correct detection of cycles
+and missing dependencies. The operator queue state machine is the second.
+
+**Mock data consistency.** The overview's `weeks` fixture uses `#254`-style job
+ids while the planning flow uses `JOB-254`, and the two disagree about the same
+jobs' progress. Worth reconciling before user testing, since testers move between
+the views.
 
 **Duplicated icon sets.** `manager/icons.tsx` and `operator/icons.tsx` both
-define `IconClock`, `IconInfo`, `IconCheckCircle`, `IconUser`, `IconPlay` and
-`IconChevronDown`, differing only in default colour. They should be one
-`_components/icons.tsx` with the colour passed at the call site.
+define `IconClock`, `IconInfo`, `IconCheckCircle`, `IconUser` and `IconPlay`,
+differing only in default colour. They should be one shared module with the
+colour passed at the call site.
 
-**Responsive coverage.** Each dashboard collapses to a single column at its own
-breakpoint (1200px for manager and scheduler, 1100px for operator), but none has
-been designed for tablet or phone widths, and the scheduler's timeline is
+**Responsive coverage.** Every page collapses to fewer columns at its own
+breakpoint, but none has been designed for phone widths, and the Gantt is
 horizontally scrollable by necessity. If shop-floor tablets are a target, the
 operator view needs a deliberate small-screen design.
 
 **Two lockfiles.** Both `pnpm-lock.yaml` and `package-lock.json` are committed,
-so `npm install` and `pnpm install` resolve dependencies differently while
-Docker and CI only ever use pnpm. The team should agree on pnpm and delete
+so `npm install` and `pnpm install` resolve dependencies differently while Docker
+and CI only ever use pnpm. The team should agree on pnpm and delete
 `package-lock.json`.
 
-**No tests.** No component, interaction or accessibility tests yet. The operator
-queue state machine and the scheduler's `getOperationStatus` / block
-positioning are pure functions of their inputs and are the obvious first
-candidates.
+**No favicon**, so every page logs a `/favicon.ico` 404 in the console.

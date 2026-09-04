@@ -54,13 +54,6 @@ export function IconInfo({ size = 16, color = "#2563eb" }: IconProps) {
   );
 }
 
-export function IconChevronDown({ size = 14, color = "#64748b" }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <path d="M5 8.5 12 15l7-6.5" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 export function IconCheckCircle({ size = 18, color = "#16a34a" }: IconProps) {
   return (

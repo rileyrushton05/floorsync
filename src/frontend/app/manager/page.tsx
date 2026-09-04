@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, statusTone } from "../_components/Badge";
 import { Wordmark } from "../_components/Logo";
+import { SubNav } from "./_components/SubNav";
 import {
   IconBell,
   IconBriefcase,
@@ -238,8 +239,10 @@ export default function ManagerDashboard() {
       <header className={styles.topbar}>
         <div className={styles.brandGroup}>
           <Wordmark />
-          <span className={styles.viewLabel}>Manager View</span>
+          <span className={styles.viewLabel}>Manager</span>
         </div>
+
+        <SubNav />
 
         <div className={styles.weekPillWrap}>
           <IconCalendar />
@@ -399,8 +402,8 @@ export default function ManagerDashboard() {
                 ))}
               </tbody>
             </table>
-            <Link className={styles.viewAllLink} href="/manager/scheduler">
-              View all jobs →
+            <Link className={styles.viewAllLink} href="/manager/jobs">
+              Manage the job backlog →
             </Link>
           </section>
 

@@ -124,13 +124,6 @@ export function IconInfo({ size = 16, color = "#2563eb" }: IconProps) {
   );
 }
 
-export function IconChevronLeft({ size = 16, color = "#64748b" }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <path d="M15 5.5 8.5 12 15 18.5" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 export function IconPlay({ size = 16, color = "#0f172a" }: IconProps) {
   return (
@@ -149,15 +142,6 @@ export function IconPause({ size = 16, color = "#0f172a" }: IconProps) {
   );
 }
 
-export function IconMoreVertical({ size = 16, color = "#64748b" }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="5" r="1.5" fill={color} />
-      <circle cx="12" cy="12" r="1.5" fill={color} />
-      <circle cx="12" cy="19" r="1.5" fill={color} />
-    </svg>
-  );
-}
 
 export function IconAlertCircle({ size = 18, color = "#dc2626" }: IconProps) {
   return (

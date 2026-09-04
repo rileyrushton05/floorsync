@@ -5,7 +5,6 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     display: flex;
     flex-direction: column;
-    position: relative;
 }
 
 /* ===== TOPBAR ===== */
@@ -19,1100 +18,313 @@
     flex-wrap: wrap;
 }
 
-.brandGroup {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 200px;
-}
+.brandGroup { display: flex; align-items: center; gap: 10px; }
 
 .viewLabel {
-    font-size: 0.7rem;
+    font-size: 0.72rem;
     font-weight: 700;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: #64748b;
     border-left: 1px solid #cbd5e1;
-    padding-left: 8px;
+    padding-left: 10px;
 }
 
-.dateNav {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    padding: 6px 10px;
-    background: #fff;
-}
-
-.dateNavBtn {
-    border: none;
-    background: none;
-    cursor: pointer;
-    padding: 4px;
-    display: inline-flex;
-    color: #64748b;
-}
-
-.dateDisplay {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #0f172a;
-}
-
-.playbackControls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.playBtn {
-    border: 1px solid #cbd5e1;
-    background: #fff;
-    cursor: pointer;
-    padding: 6px 10px;
-    border-radius: 4px;
-    display: inline-flex;
-    color: #0f172a;
-}
-
-.pauseLabel {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    font-weight: 600;
-}
-
-.speedPill {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    padding: 4px 8px;
-    background: #fff;
-}
-
-.speedLabel {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #64748b;
-}
-
-.speedBtn {
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 0.8rem;
-    font-weight: 600;
-    padding: 4px 8px;
-    color: #64748b;
-    border-radius: 4px;
-}
-
-.speedBtnActive {
-    background: #2563eb;
-    color: #fff;
-}
-
-.topbarSpacer {
-    flex: 1;
-}
-
-.liveSimulation {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #0f172a;
-    cursor: pointer;
-}
-
-.liveDot {
-    width: 8px;
-    height: 8px;
-    background: #16a34a;
-    border-radius: 50%;
-    display: inline-block;
-}
+.topbarSpacer { flex: 1; }
 
 .generateBtn {
+    border: none;
     background: #2563eb;
     color: #fff;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: 8px;
     font-size: 0.85rem;
+    font-weight: 700;
     cursor: pointer;
 }
+.generateBtn:hover { background: #1d4ed8; }
 
-.generateBtn:hover {
-    background: #1d4ed8;
-}
-
-.menuBtn {
-    border: none;
-    background: none;
+.ghostBtn {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
     cursor: pointer;
-    padding: 4px;
-    color: #64748b;
 }
+.ghostBtn:hover { background: #f1f5f9; }
 
-/* ===== MAIN LAYOUT ===== */
+.userBlock { display: inline-flex; align-items: center; gap: 8px; }
+.userName { font-size: 0.85rem; font-weight: 600; color: #0f172a; }
+
+/* ===== LAYOUT ===== */
 .main {
     flex: 1;
-    display: flex;
-    overflow: hidden;
-    padding: 16px;
+    display: grid;
+    grid-template-columns: 290px minmax(0, 1fr) 300px;
     gap: 16px;
+    padding: 16px 20px 24px;
+    align-items: start;
 }
 
-.contentRow {
-    display: flex;
-    gap: 16px;
-    width: 100%;
-    height: 100%;
-}
-
-/* ===== LEFT PANEL - JOB LIST ===== */
-.leftPanel {
-    width: 240px;
+.selectPanel,
+.planPanel,
+.summaryPanel {
     background: #fff;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 16px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    min-width: 0;
 }
 
-.jobListHead {
-    margin-bottom: 12px;
+.planPanel { display: flex; flex-direction: column; }
+
+.panelHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
 }
 
 .panelTitle {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #64748b;
     margin: 0;
-}
-
-.filterRow {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-}
-
-.filterBtn {
-    border: 1px solid #cbd5e1;
-    background: #f8fafc;
-    color: #0f172a;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 500;
-    cursor: pointer;
-}
-
-.filterBtnActive {
-    background: #2563eb;
-    color: #fff;
-    border-color: #2563eb;
-}
-
-.jobListContainer {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.jobListHint {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-    margin: 0 0 12px;
-    padding: 8px 8px 8px 10px;
-    border: 1px solid #ffe88b;
-    border-radius: 8px;
-    background: #fffbdf;
-    color: #713f12;
-    font-size: 0.7rem;
-    line-height: 1.4;
-}
-
-.jobListHintDismiss {
-    flex-shrink: 0;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: #713f12;
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 16px;
-}
-
-.jobListHintDismiss:hover {
-    background: rgba(113, 63, 18, 0.12);
-}
-
-.jobCard {
-    /* Rendered as a <button> so the card is keyboard-reachable; these first
-       four declarations undo the user-agent button styling. */
-    display: block;
-    width: 100%;
-    text-align: left;
-    font: inherit;
-    border: 1px solid #e2e8f0;
-    background: #f8fafc;
-    padding: 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.jobCard:hover {
-    border-color: #cbd5e1;
-    background: #fff;
-}
-
-.jobCardActive {
-    border-color: #2563eb;
-    background: #eff6ff;
-}
-
-.jobCardHead {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 4px;
-}
-
-.jobId {
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     font-weight: 700;
-    color: #0f172a;
-}
-
-.jobName {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #0f172a;
-    margin-bottom: 4px;
-}
-
-.jobMeta {
-    font-size: 0.7rem;
-    color: #64748b;
-    margin-bottom: 4px;
-}
-
-.jobStatus {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #475569;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.statusDot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    display: inline-block;
-}
-
-.status_inprogress {
-    background: #2563eb;
-}
-
-.status_pending {
-    background: #94a3b8;
-}
-
-.status_delayed {
-    background: #dc2626;
-}
-
-.addJobBtn {
-    border: 1px dashed #cbd5e1;
-    background: #f8fafc;
-    color: #2563eb;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    margin-top: auto;
-}
-
-.addJobBtn:hover {
-    background: #eff6ff;
-}
-
-/* ===== CENTER PANEL - TIMELINE ===== */
-.centerPanel {
-    flex: 1;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.timelineHead {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-}
-
-.currentTime {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #2563eb;
-}
-
-.timelineContainer {
-    flex: 1;
-    overflow: auto;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    background: #f8fafc;
-}
-
-.timelineContent {
-    display: flex;
-    flex-direction: column;
-    /* 160px machine gutter + 16 hour columns x 80px. Keep in step with
-       `.machineLabel`, `.timeMarker` and `.timelineRowContent` below, and with
-       MACHINE_LABEL_WIDTH / TIMELINE_HOURS in page.tsx. */
-    min-width: 1440px;
-    position: relative;
-}
-
-.timeMarkersRow {
-    display: flex;
-    background: #fff;
-    border-bottom: 1px solid #e2e8f0;
-    position: sticky;
-    top: 0;
-    z-index: 10;
-}
-
-.timeMarker {
-    flex: 1;
-    min-width: 80px;
-    padding: 8px;
-    text-align: center;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #64748b;
-    border-right: 1px solid #e2e8f0;
-}
-
-.machineRow {
-    display: flex;
-    border-bottom: 1px solid #e2e8f0;
-    background: #fff;
-    position: relative;
-}
-
-.machineLabel {
-    width: 160px;
-    padding: 12px 8px;
-    border-right: 1px solid #e2e8f0;
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    background: #f8fafc;
-}
-
-.machineName {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #0f172a;
-}
-
-.operatorName {
-    font-size: 0.75rem;
-    color: #64748b;
-}
-
-.timelineRowContent {
-    flex: 1;
-    position: relative;
-    /* Must equal the hour-marker track (16 x 80px) so a block sits directly
-       under the hour it starts at. */
-    min-width: 1280px;
-    display: flex;
-    align-items: center;
-}
-
-.scheduledOp {
-    font: inherit;
-    position: absolute;
-    height: 40px;
-    border-radius: 4px;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.7rem;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-.opStatus_running {
-    background: #dbeafe;
-    color: #1e40af;
-    border-color: #60a5fa;
-}
-
-.opStatus_scheduled {
-    background: #dcfce7;
-    color: #166534;
-    border-color: #86efac;
-}
-
-.opStatus_completed {
-    background: #e5e7eb;
-    color: #374151;
-    border-color: #9ca3af;
-}
-
-.opStatus_delayed {
-    background: #fee2e2;
-    color: #991b1b;
-    border-color: #fca5a5;
-}
-
-.opLabel {
-    text-align: center;
-    line-height: 1.2;
-}
-
-.currentTimeIndicator {
-    position: absolute;
-    width: 2px;
-    background: #2563eb;
-    top: 40px;
-    bottom: 0;
-    z-index: 5;
-}
-
-.timelineLegend {
-    display: flex;
-    gap: 24px;
-    margin-top: 12px;
-    font-size: 0.8rem;
-    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: #475569;
 }
 
-.legendItem {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.legendDot {
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-}
-
-.legendDotRunning {
-    background: #dbeafe;
-    border: 1px solid #60a5fa;
-}
-
-.legendDotScheduled {
-    background: #dcfce7;
-    border: 1px solid #86efac;
-}
-
-.legendDotCompleted {
-    background: #e5e7eb;
-    border: 1px solid #9ca3af;
-}
-
-.legendDotDelayed {
-    background: #fee2e2;
-    border: 1px solid #fca5a5;
-}
-
-.machineStatusSection {
-    margin-top: 16px;
-}
-
-.machineStatusTitle {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #64748b;
-    margin: 0 0 8px 0;
-}
-
-.machineStatusGrid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-}
-
-.machineStatusItem {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    font-weight: 500;
-    color: #475569;
-    padding: 8px;
-    background: #f8fafc;
-    border-radius: 4px;
-}
-
-.statusIndicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-}
-
-.machineStatus_active {
-    background: #16a34a;
-}
-
-.machineStatus_idle {
-    background: #f59e0b;
-}
-
-.machineStatus_waiting {
-    background: #f97316;
-}
-
-.machineStatusName {
-    flex: 1;
-}
-
-.machineStatusValue {
-    font-size: 0.75rem;
-    color: #64748b;
-}
-
-/* ===== RIGHT PANEL - JOB DETAILS ===== */
-.rightPanel {
-    width: 320px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-}
-
-.detailsHead {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 16px;
-    gap: 8px;
-}
-
-.jobLabel {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #64748b;
-}
-
-.jobTitle {
-    font-size: 1rem;
-    font-weight: 700;
-    color: #0f172a;
-    margin: 4px 0 0 0;
-}
-
-.operationFlowSection {
-    margin-bottom: 16px;
-}
-
-.sectionTitle {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #64748b;
-    margin: 0 0 8px 0;
-}
-
-.operationFlow {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-}
-
-.flowItem {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.flowIndex {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
+.countPill {
     background: #e2e8f0;
-    color: #0f172a;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-
-.flowIndexCurrent {
-    background: #2563eb;
-    color: #fff;
-}
-
-.flowIndexComplete {
-    background: #16a34a;
-    color: #fff;
-}
-
-.flowText {
-    font-size: 0.75rem;
-    color: #64748b;
-}
-
-.flowArrow {
-    font-size: 0.8rem;
-    color: #cbd5e1;
-    margin: 0 2px;
-}
-
-.currentOpSection {
-    margin-bottom: 16px;
-}
-
-.currentOpCard {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    padding: 10px;
-    font-size: 0.8rem;
-}
-
-.opCardRow {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    align-items: flex-start;
-}
-
-.opCardRow:last-child {
-    margin-bottom: 0;
-}
-
-.opCardLabel {
-    font-weight: 600;
-    color: #475569;
-}
-
-.opCardValue {
-    color: #0f172a;
-    font-weight: 500;
-    text-align: right;
-    flex: 1;
-    margin-left: 8px;
-}
-
-.progressBar {
-    width: 100%;
-    height: 4px;
-    background: #e2e8f0;
-    border-radius: 2px;
-    overflow: hidden;
-    margin-top: 4px;
-}
-
-.progressFill {
-    height: 100%;
-    background: #2563eb;
-}
-
-.scheduleActionsSection {
-    margin-bottom: 16px;
-}
-
-.actionBtn {
-    width: 100%;
-    border: 1px solid #e2e8f0;
-    background: #f8fafc;
-    color: #0f172a;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    margin-bottom: 8px;
-}
-
-.actionBtn:hover {
-    background: #eff6ff;
-    border-color: #2563eb;
-}
-
-.actionBtnDanger {
-    width: 100%;
-    border: 1px solid #fca5a5;
-    background: #fee2e2;
-    color: #991b1b;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    margin-bottom: 8px;
-}
-
-.actionBtnDanger:hover {
-    background: #fecaca;
-    border-color: #dc2626;
-}
-
-.actionHint {
-    font-size: 0.7rem;
-    color: #94a3b8;
-    font-style: italic;
-}
-
-.alertsSection {
-    margin-top: auto;
-    padding-top: 16px;
-    border-top: 1px solid #e2e8f0;
-}
-
-.alertsList {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 8px;
-}
-
-.alertItem {
-    display: flex;
-    gap: 8px;
-    padding: 8px;
-    background: #f8fafc;
-    border-radius: 4px;
-    border-left: 3px solid #dc2626;
-}
-
-.alertItem:nth-child(2) {
-    border-left-color: #f59e0b;
-}
-
-.alertIconError {
-    color: #dc2626;
-    flex-shrink: 0;
-    margin-top: 2px;
-}
-
-.alertIconWarning {
-    color: #f59e0b;
-    flex-shrink: 0;
-    margin-top: 2px;
-}
-
-.alertContent {
-    font-size: 0.75rem;
-    flex: 1;
-}
-
-.alertTitle {
-    font-weight: 600;
-    color: #0f172a;
-    margin-bottom: 2px;
-}
-
-.alertMsg {
-    color: #64748b;
-}
-
-.viewAllAlertsBtn {
-    width: 100%;
-    border: none;
-    background: transparent;
-    color: #2563eb;
-    padding: 4px 8px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: center;
-}
-
-.viewAllAlertsBtn:hover {
-    text-decoration: underline;
-}
-
-/* ===== MODAL - EDIT JOB ===== */
-.modalBackdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-}
-
-.modalDialog {
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.2);
-    width: 90%;
-    max-width: 500px;
-    max-height: 90vh;
-    overflow-y: auto;
-    animation: zoomIn 0.2s ease-out;
-}
-
-@keyframes zoomIn {
-    from {
-        opacity: 0;
-        transform: scale(0.95);
-    }
-
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-.modalHead {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 20px;
-    border-bottom: 1px solid #e2e8f0;
-    position: sticky;
-    top: 0;
-    background: #fff;
-}
-
-.modalTitle {
-    font-size: 1.1rem;
+    color: #334155;
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 0.72rem;
     font-weight: 700;
-    color: #0f172a;
-    margin: 0;
 }
 
-.modalCloseBtn {
+.panelHint {
+    margin: 0 0 10px;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    color: #64748b;
+}
+
+.planMeta { font-size: 0.76rem; color: #64748b; font-variant-numeric: tabular-nums; }
+
+/* ===== SELECTION ===== */
+.selectActions { display: flex; gap: 12px; margin-bottom: 10px; }
+
+.linkBtn {
     border: none;
     background: none;
-    font-size: 1.5rem;
-    color: #94a3b8;
-    cursor: pointer;
     padding: 0;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
+    color: #2563eb;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
 }
+.linkBtn:hover { text-decoration: underline; }
 
-.modalCloseBtn:hover {
-    background: #f1f5f9;
-    color: #475569;
-}
+.jobList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 
-.modalContent {
-    padding: 20px;
+.jobItem {
     display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.scheduleModalJob {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px;
-    border-radius: 6px;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 9px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
     background: #f8fafc;
-    color: #0f172a;
-    font-size: 0.85rem;
+    cursor: pointer;
+}
+.jobItem:hover { background: #fff; border-color: #cbd5e1; }
+.jobItemOn { border-color: #bfdbfe; background: #f5f9ff; }
+
+.jobSwatch { width: 4px; align-self: stretch; border-radius: 2px; flex-shrink: 0; }
+.jobBody { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.jobHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jobId { font-size: 0.8rem; font-weight: 700; color: #0f172a; }
+.jobName { font-size: 0.81rem; font-weight: 600; color: #0f172a; }
+.jobMeta { font-size: 0.72rem; color: #64748b; }
+.jobDeps { font-size: 0.7rem; font-weight: 600; color: #64748b; }
+.jobDepsBad { font-size: 0.7rem; font-weight: 700; color: #b91c1c; }
+
+.selectSummary {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 0.77rem;
+    color: #64748b;
 }
 
-.formGroup {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+.emptyNote {
+    list-style: none;
+    padding: 14px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    color: #64748b;
+    text-align: center;
 }
 
-.formRow {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+/* ===== PLAN ===== */
+.errorBox {
+    border: 1px solid #fca5a5;
+    background: #fef2f2;
+    color: #991b1b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 0.79rem;
+    margin-bottom: 12px;
 }
+.errorHead { display: flex; align-items: center; gap: 7px; }
+.errorBox ul { margin: 6px 0 0; padding-left: 18px; }
+.errorBox li { margin-bottom: 2px; }
 
-.formLabel {
-    font-size: 0.8rem;
+.staleBox {
+    border: 1px solid #fde68a;
+    background: #fffbeb;
+    color: #92400e;
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 0.78rem;
     font-weight: 600;
-    color: #475569;
+    margin-bottom: 12px;
+}
+
+.emptyPlan {
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 40px 28px;
+    text-align: center;
+    background: #f8fafc;
+}
+.emptyPlan h3 { margin: 0 0 8px; font-size: 1rem; color: #334155; }
+.emptyPlan p {
+    margin: 0 auto;
+    max-width: 460px;
+    font-size: 0.84rem;
+    line-height: 1.6;
+    color: #64748b;
+}
+
+.emptyProblems {
+    margin: 16px auto 0;
+    max-width: 460px;
+    text-align: left;
+    padding: 10px 12px 10px 30px;
+    border-radius: 8px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    font-size: 0.78rem;
+}
+
+/* ===== SUMMARY ===== */
+.statGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+
+.stat {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 10px;
+}
+.statValue { font-size: 1.15rem; font-weight: 800; color: #0f172a; }
+.statLabel { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+
+.sectionTitle {
+    margin: 16px 0 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    color: #475569;
 }
 
-.formInput,
-.formSelect,
-.formTextarea {
-    font-family: inherit;
-    font-size: 0.9rem;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    padding: 8px 10px;
-    color: #0f172a;
-    background: #fff;
-}
+.sectionNote { margin: 0 0 8px; font-size: 0.73rem; color: #64748b; line-height: 1.5; }
 
-.formInput:focus,
-.formSelect:focus,
-.formTextarea:focus {
-    outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
+.loadList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 
-.formInput::placeholder,
-.formTextarea::placeholder {
+.loadRow { display: grid; grid-template-columns: 84px 1fr 36px; align-items: center; gap: 8px; }
+.loadName { font-size: 0.76rem; font-weight: 600; color: #334155; }
+
+.loadTrack {
+    height: 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    overflow: hidden;
+    display: block;
+}
+.loadFill { display: block; height: 100%; background: #2563eb; border-radius: 999px; }
+.loadPct { font-size: 0.72rem; font-weight: 700; color: #475569; text-align: right; font-variant-numeric: tabular-nums; }
+
+.orderTable { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+.orderTable th {
+    text-align: left;
+    padding: 5px 4px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: #94a3b8;
 }
+.orderTable td { padding: 6px 4px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #334155; }
+.orderRowOn td { background: #eff6ff; }
+.numeric { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.formTextarea {
-    resize: vertical;
-    min-height: 80px;
-}
-
-.modalFooter {
+.orderJobBtn {
     display: flex;
-    gap: 12px;
-    padding: 16px 20px;
-    border-top: 1px solid #e2e8f0;
-    justify-content: flex-end;
-    position: sticky;
-    bottom: 0;
-    background: #f8fafc;
-}
-
-.modalBtnCancel {
-    border: 1px solid #cbd5e1;
-    background: #fff;
-    color: #0f172a;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.85rem;
-    cursor: pointer;
-}
-
-.modalBtnCancel:hover {
-    background: #f1f5f9;
-    border-color: #94a3b8;
-}
-
-.modalBtnSave {
+    align-items: flex-start;
+    gap: 6px;
     border: none;
-    background: #2563eb;
-    color: #fff;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.85rem;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 0.76rem;
+    text-align: left;
+    color: #0f172a;
     cursor: pointer;
 }
+.orderSwatch { width: 9px; height: 9px; border-radius: 3px; margin-top: 3px; flex-shrink: 0; }
+.orderJobName { color: #64748b; }
 
-.modalBtnSave:hover {
-    background: #1d4ed8;
+.simLink {
+    display: inline-block;
+    margin-top: 16px;
+    color: #2563eb;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-decoration: none;
 }
+.simLink:hover { text-decoration: underline; }
+
+.summaryEmpty { font-size: 0.79rem; line-height: 1.6; color: #64748b; margin: 0; }
 
 /* ===== FOCUS ===== */
-/* One visible focus ring for everything keyboard-reachable on this page.
-   `:focus-visible` keeps it off mouse clicks but on for tab navigation. */
-.dateNavBtn:focus-visible,
-.playBtn:focus-visible,
-.speedBtn:focus-visible,
 .generateBtn:focus-visible,
-.menuBtn:focus-visible,
-.filterBtn:focus-visible,
-.jobListHintDismiss:focus-visible,
-.jobCard:focus-visible,
-.addJobBtn:focus-visible,
-.scheduledOp:focus-visible,
-.actionBtn:focus-visible,
-.actionBtnDanger:focus-visible,
-.viewAllAlertsBtn:focus-visible,
-.modalCloseBtn:focus-visible,
-.modalBtnCancel:focus-visible,
-.modalBtnSave:focus-visible,
-.formInput:focus-visible,
-.formSelect:focus-visible,
-.formTextarea:focus-visible {
+.ghostBtn:focus-visible,
+.linkBtn:focus-visible,
+.jobItem input:focus-visible,
+.orderJobBtn:focus-visible,
+.simLink:focus-visible {
     outline: 2px solid #2563eb;
     outline-offset: 2px;
 }
 
 /* ===== RESPONSIVE ===== */
-/* The three-column desk layout does not survive a narrow viewport: below
-   1200px the side panels stack above and below the timeline instead. */
-@media (max-width: 1200px) {
-    .main {
-        overflow: visible;
-    }
+@media (max-width: 1240px) {
+    .main { grid-template-columns: 280px minmax(0, 1fr); }
+    .summaryPanel { grid-column: 1 / -1; }
+}
 
-    .contentRow {
-        flex-direction: column;
-        height: auto;
-    }
-
-    .leftPanel,
-    .rightPanel {
-        width: 100%;
-    }
-
-    .leftPanel {
-        max-height: 340px;
-    }
-
-    .centerPanel {
-        min-height: 420px;
-    }
+@media (max-width: 860px) {
+    .main { grid-template-columns: 1fr; }
 }
