@@ -48,6 +48,7 @@ def create_application(config: Settings) -> FastAPI:
         lifespan=lifespan,
         middleware=middleware,
     )
+    application.state.settings = config
     install_problem_handlers(application)
     application.include_router(api_router)
     application.include_router(health_router)
