@@ -14,6 +14,8 @@ Decision records help explain why the team made particular design, technical, sc
 | [0004](0004-typed-expected-outcomes.md) | Accepted | Typed expected outcomes with exhaustive handling |
 | [0005](0005-initial-persistence-abstraction.md) | Accepted | Defer a repository abstraction for simple persistence |
 | [0006](0006-production-middleware-and-observability.md) | Accepted | Production middleware and observability baseline |
+| [0007](0007-local-jwt-authentication.md) | Accepted | Local JWT authentication with separate credentials |
+| [0008](0008-route-declared-authorization.md) | Accepted | Route-declared role and machine authorization |
 
 ## Suggested Decision Record Format
 
