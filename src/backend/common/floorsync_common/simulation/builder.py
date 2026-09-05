@@ -1,30 +1,37 @@
-"""Resolve a schedule's ordering into concrete start and end times.
+"""Derive a timeline from a benchmark instance and a solver's solution.
 
-The builder combines the two constraint sets that together pin every operation
-to the clock:
+Benchmark instances stay out of the database entirely (see
+``docs/database-schema.md``), so this adapter reads the two file formats the
+benchmarking work produces and translates them into the neutral node and edge
+vocabulary of :mod:`floorsync_common.simulation.graph`.
 
-* job precedence, from the instance: operation ``k + 1`` of a job cannot start
-  before operation ``k`` of that job has finished;
-* machine sequencing, from the schedule: a machine's next job cannot start
-  before the previous one on that machine has finished.
+The translation supplies the precedence edges that a FloorSync schedule already
+stores in ``schedule_dependencies``:
 
-Both are encoded as edges of a directed acyclic graph, and a topological longest
-path over that graph gives the earliest feasible start for every operation. This
-is the same reasoning the benchmark solvers use to validate a solution, kept here
-as a reusable step that yields a full timeline rather than a single makespan.
+* job precedence -- operation ``k + 1`` of a job cannot start before operation
+  ``k`` of that job has finished;
+* machine sequencing -- a machine's next job cannot start before the previous one
+  on that machine has finished.
+
+Once those edges exist, the resolution is identical for both sources.
 """
 
 from collections import deque
 from itertools import pairwise
 
-from .errors import CyclicScheduleError, ScheduleMismatchError
+from .errors import ScheduleMismatchError
+from .graph import PrecedenceEdge, PrecedenceReason, TimelineNode
 from .instance import JobShopInstance
 from .schedule import Schedule
-from .timeline import ScheduledOperation, Timeline
+from .timeline import Timeline
+
+
+def _node_key(job: int, operation_index: int) -> str:
+    return f"{job}:{operation_index}"
 
 
 class TimelineBuilder:
-    """Turn an instance and a schedule into a timeline. Stateless."""
+    """Turn a benchmark instance and solution into a timeline. Stateless."""
 
     @staticmethod
     def build(instance: JobShopInstance, schedule: Schedule) -> Timeline:
@@ -43,59 +50,72 @@ class TimelineBuilder:
             CyclicScheduleError: If the two constraint sets imply a deadlock, so
                 no feasible start times exist.
         """
-        operations = instance.operations
-        successors: list[list[int]] = [[] for _ in operations]
-        in_degree = [0] * len(operations)
-
-        for chain in TimelineBuilder._job_chains(instance):
-            for earlier, later in pairwise(chain):
-                successors[earlier].append(later)
-                in_degree[later] += 1
-
-        slots = TimelineBuilder._apply_machine_sequences(instance, schedule, successors, in_degree)
-        starts = TimelineBuilder._longest_paths(instance, successors, in_degree)
-
-        placed = [
-            ScheduledOperation(
-                operation=operation,
-                start_time=starts[position],
-                end_time=starts[position] + operation.duration,
-                machine_slot=slots[position],
-            )
-            for position, operation in enumerate(operations)
+        nodes = TimelineBuilder.to_nodes(instance)
+        edges = [
+            *TimelineBuilder.job_precedence_edges(instance),
+            *TimelineBuilder.machine_queue_edges(instance, schedule),
         ]
-        return Timeline.from_operations(placed)
+        return Timeline.from_graph(nodes, edges)
 
     @staticmethod
-    def _job_chains(instance: JobShopInstance) -> list[list[int]]:
-        """Return each job's operation positions, in the order it must run them."""
-        chains: dict[int, list[tuple[int, int]]] = {}
-        for position, operation in enumerate(instance.operations):
-            chains.setdefault(operation.job, []).append((operation.operation_index, position))
+    def to_nodes(instance: JobShopInstance) -> list[TimelineNode]:
+        """Translate every operation in the instance into a timeline node."""
         return [
-            [position for _, position in sorted(entries)] for _, entries in sorted(chains.items())
+            TimelineNode(
+                key=_node_key(operation.job, operation.operation_index),
+                job_key=str(operation.job),
+                machine_key=str(operation.machine),
+                duration=operation.duration,
+                job_label=f"Job {operation.job}",
+                machine_label=f"Machine {operation.machine}",
+                operation_label=f"Op {operation.operation_index}",
+            )
+            for operation in instance.operations
         ]
 
     @staticmethod
-    def _apply_machine_sequences(
-        instance: JobShopInstance,
-        schedule: Schedule,
-        successors: list[list[int]],
-        in_degree: list[int],
-    ) -> list[int]:
-        """Add machine-order edges and return each operation's queue position.
+    def job_precedence_edges(instance: JobShopInstance) -> list[PrecedenceEdge]:
+        """Return the edges implied by each job's fixed operation order.
+
+        A benchmark job is a strict chain, unlike a FloorSync process, which may
+        fan in and cross jobs.
+        """
+        edges: list[PrecedenceEdge] = []
+        for job_id in instance.job_ids:
+            chain = sorted(
+                instance.operations_for_job(job_id), key=lambda item: item.operation_index
+            )
+            for earlier, later in pairwise(chain):
+                edges.append(
+                    PrecedenceEdge(
+                        before=_node_key(earlier.job, earlier.operation_index),
+                        after=_node_key(later.job, later.operation_index),
+                        reason=PrecedenceReason.JOB_ORDER,
+                    )
+                )
+        return edges
+
+    @staticmethod
+    def machine_queue_edges(instance: JobShopInstance, schedule: Schedule) -> list[PrecedenceEdge]:
+        """Return the edges implied by each machine's visiting order.
 
         A job may visit one machine more than once, so a bare job identifier in a
         machine sequence is ambiguous. Occurrences are consumed in order: the
         first appearance of job ``j`` in machine ``m``'s sequence binds to ``j``'s
         first operation on ``m``, the second appearance to its second, and so on.
+
+        Raises:
+            ScheduleMismatchError: If the schedule does not sequence exactly the
+                operations the instance declares.
         """
-        pending: dict[tuple[int, int], deque[int]] = {}
-        for position, operation in enumerate(instance.operations):
-            pending.setdefault((operation.job, operation.machine), deque()).append(position)
+        pending: dict[tuple[int, int], deque[str]] = {}
+        for operation in instance.operations:
+            visit = (operation.job, operation.machine)
+            pending.setdefault(visit, deque()).append(
+                _node_key(operation.job, operation.operation_index)
+            )
 
-        slots = [0] * len(instance.operations)
-
+        edges: list[PrecedenceEdge] = []
         for machine_id in instance.machine_ids:
             sequence = schedule.sequence_for_machine(machine_id)
             expected = len(instance.operations_for_machine(machine_id))
@@ -105,20 +125,24 @@ class TimelineBuilder:
                     f"instance declares {expected}."
                 )
 
-            previous: int | None = None
-            for slot, job_id in enumerate(sequence):
+            previous: str | None = None
+            for job_id in sequence:
                 queue = pending.get((job_id, machine_id))
                 if not queue:
                     raise ScheduleMismatchError(
                         f"Machine {machine_id} sequences job {job_id}, which has no remaining "
                         f"operation on that machine."
                     )
-                position = queue.popleft()
-                slots[position] = slot
+                key = queue.popleft()
                 if previous is not None:
-                    successors[previous].append(position)
-                    in_degree[position] += 1
-                previous = position
+                    edges.append(
+                        PrecedenceEdge(
+                            before=previous,
+                            after=key,
+                            reason=PrecedenceReason.MACHINE_QUEUE,
+                        )
+                    )
+                previous = key
 
         for (job_id, machine_id), queue in pending.items():
             if queue:
@@ -127,44 +151,4 @@ class TimelineBuilder:
                     f"{machine_id}."
                 )
 
-        return slots
-
-    @staticmethod
-    def _longest_paths(
-        instance: JobShopInstance,
-        successors: list[list[int]],
-        in_degree: list[int],
-    ) -> list[int]:
-        """Return the earliest feasible start of every operation.
-
-        Kahn's algorithm relaxes each edge exactly once, so a node's start time is
-        final when it is dequeued. A node left unvisited means a cycle, which is
-        reported rather than silently producing wrong times.
-        """
-        operations = instance.operations
-        starts = [0] * len(operations)
-        remaining = list(in_degree)
-        queue = deque(position for position, degree in enumerate(remaining) if degree == 0)
-        visited = 0
-
-        while queue:
-            position = queue.popleft()
-            visited += 1
-            finish = starts[position] + operations[position].duration
-            for following in successors[position]:
-                starts[following] = max(starts[following], finish)
-                remaining[following] -= 1
-                if remaining[following] == 0:
-                    queue.append(following)
-
-        if visited != len(operations):
-            stuck = [
-                operations[position] for position, degree in enumerate(remaining) if degree > 0
-            ][:5]
-            detail = ", ".join(f"job {item.job} op {item.operation_index}" for item in stuck)
-            raise CyclicScheduleError(
-                "Job precedence and machine sequencing imply a deadlock; no feasible start "
-                f"times exist. Operations involved include: {detail}."
-            )
-
-        return starts
+        return edges

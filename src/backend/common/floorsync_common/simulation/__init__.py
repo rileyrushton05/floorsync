@@ -1,25 +1,32 @@
-"""Replay a solved job shop schedule over simulated time.
+"""Replay a solved schedule over simulated time.
 
-The package is layered so each stage can be tested without the one above it:
+A timeline is **derived, never stored**: start and end times are a pure function
+of a schedule's assignments and its precedence edges, so they are recomputed on
+read rather than persisted and kept in sync. See decision 0009.
 
-1. **Problem definition** -- :class:`Operation` and :class:`JobShopInstance` parse
-   an instance document into the work that exists and each job's routing.
-2. **Timeline resolution** -- :class:`Schedule` parses a solver's machine
-   sequences, and :class:`TimelineBuilder` resolves those sequences plus job
-   precedence into a :class:`Timeline` of operations with concrete times.
-3. **Playback runtime** -- :class:`PlaybackClock` moves over the timeline and
-   :class:`SimulationEngine` publishes a :class:`SimulationSnapshot` of every
-   machine and job at the current instant.
+The package is layered so each stage is testable without the one above it, and
+so both sources of schedules share one resolution:
 
-Playback is deterministic: it replays a schedule that has already been solved.
-There is no stochastic behaviour, no machine breakdown and no re-dispatching.
+1. **Core** -- :class:`TimelineNode` and :class:`PrecedenceEdge` express work and
+   precedence with opaque string keys; :func:`resolve_start_times` places them on
+   the clock with a topological longest path.
+2. **Adapters** --
+   :class:`~floorsync_common.simulation.floorsync.FloorSyncScheduleAdapter`
+   translates ``schedule_entries`` and ``schedule_dependencies`` rows;
+   :class:`TimelineBuilder` translates a benchmark instance and solver solution,
+   deriving the precedence edges that FloorSync already stores.
+3. **Playback** -- :class:`Timeline` answers "what is true at time ``t``";
+   :func:`derive_simulated_time` replays a simulation's event log to find that
+   ``t`` authoritatively; :class:`PlaybackClock` and :class:`SimulationEngine`
+   animate locally between derived positions.
+
+Playback is deterministic. It replays a schedule that has already been generated:
+no stochastic durations, no breakdowns, no re-dispatching.
 
 Example:
-    >>> engine = SimulationEngine()
-    >>> engine.load_instance("instances/json/ft06.json")     # doctest: +SKIP
-    >>> engine.load_schedule("solutions_CP-SAT_2026-08-30.json")  # doctest: +SKIP
-    >>> engine.seek(12).machines[0].status                   # doctest: +SKIP
-    <MachineStatus.BUSY: 'busy'>
+    >>> timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)  # doctest: +SKIP
+    >>> point = derive_simulated_time(events, at=now, makespan=timeline.makespan)  # doctest: +SKIP
+    >>> snapshot = SimulationEngine(timeline).seek(point.time)                     # doctest: +SKIP
 """
 
 from .builder import TimelineBuilder
@@ -31,7 +38,21 @@ from .errors import (
     ScheduleFormatError,
     ScheduleMismatchError,
     SimulationError,
+    SimulationTimelineError,
 )
+from .events import (
+    SimulatedTimePoint,
+    SimulationEventRecord,
+    SimulationEventType,
+    derive_simulated_time,
+    events_from_rows,
+)
+from .floorsync import (
+    FloorSyncScheduleAdapter,
+    ScheduleDependencyRecord,
+    ScheduleEntryRecord,
+)
+from .graph import PrecedenceEdge, PrecedenceReason, TimelineNode, resolve_start_times
 from .instance import JobShopInstance, Operation
 from .schedule import Schedule
 from .state import (
@@ -45,6 +66,7 @@ from .timeline import ScheduledOperation, Timeline
 
 __all__ = [
     "CyclicScheduleError",
+    "FloorSyncScheduleAdapter",
     "InstanceFormatError",
     "JobShopInstance",
     "JobState",
@@ -53,14 +75,26 @@ __all__ = [
     "MachineStatus",
     "Operation",
     "PlaybackClock",
+    "PrecedenceEdge",
+    "PrecedenceReason",
     "Schedule",
+    "ScheduleDependencyRecord",
+    "ScheduleEntryRecord",
     "ScheduleFormatError",
     "ScheduleMismatchError",
     "ScheduledOperation",
+    "SimulatedTimePoint",
     "SimulationEngine",
     "SimulationError",
+    "SimulationEventRecord",
+    "SimulationEventType",
     "SimulationObserver",
     "SimulationSnapshot",
+    "SimulationTimelineError",
     "Timeline",
     "TimelineBuilder",
+    "TimelineNode",
+    "derive_simulated_time",
+    "events_from_rows",
+    "resolve_start_times",
 ]

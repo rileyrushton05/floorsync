@@ -1,8 +1,8 @@
 """Snapshots of what the floor looks like at one instant of simulated time.
 
 Every value here is derived from a :class:`~floorsync_common.simulation.timeline.Timeline`
-and a time value. Nothing in this module is mutated in place, so a snapshot can
-be handed to a renderer and kept for comparison against a later one.
+and a time value. Nothing is mutated in place, so a snapshot can be handed to a
+renderer and kept for comparison against a later one.
 """
 
 from __future__ import annotations
@@ -35,7 +35,8 @@ class MachineState:
     """What one machine is doing at the current instant.
 
     Attributes:
-        machine_id: Identifier of the machine.
+        machine_key: Identifier of the machine.
+        machine_label: Human-readable machine name, for the lane heading.
         status: Whether the machine is idle or processing.
         current: Operation being processed, or ``None`` when idle.
         utilization: Fraction of elapsed time the machine has spent processing,
@@ -44,7 +45,8 @@ class MachineState:
         remaining_count: Number of operations the machine has yet to finish.
     """
 
-    machine_id: int
+    machine_key: str
+    machine_label: str
     status: MachineStatus
     current: ScheduledOperation | None
     utilization: float
@@ -57,21 +59,22 @@ class JobState:
     """How far one job has progressed at the current instant.
 
     Attributes:
-        job_id: Identifier of the job.
+        job_key: Identifier of the job.
+        job_label: Human-readable job name, for the row heading.
         status: Whether the job is waiting, running or finished.
-        current_op_index: Position of the operation in progress, or of the next
-            operation due when the job is waiting. ``None`` once the job is done.
         current: Operation being processed, or ``None`` when not running.
+        next_up: Next operation due, or ``None`` when running or finished.
         completion_time: End time of the job's final operation, or ``None``
             until the job is done.
         completed_count: Number of the job's operations already finished.
         total_count: Number of operations the job has in total.
     """
 
-    job_id: int
+    job_key: str
+    job_label: str
     status: JobStatus
-    current_op_index: int | None
     current: ScheduledOperation | None
+    next_up: ScheduledOperation | None
     completion_time: int | None
     completed_count: int
     total_count: int
@@ -91,8 +94,8 @@ class SimulationSnapshot:
     Attributes:
         time: Simulated time this snapshot describes.
         makespan: Time at which the last operation finishes.
-        machines: Machine states, ordered by machine identifier.
-        jobs: Job states, ordered by job identifier.
+        machines: Machine states, ordered by machine label.
+        jobs: Job states, ordered by job label.
         active: Operations in progress at this instant.
         is_complete: Whether simulated time has reached the makespan.
     """
