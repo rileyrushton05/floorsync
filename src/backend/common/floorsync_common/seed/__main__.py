@@ -14,6 +14,7 @@ from floorsync_common.seed.instances import (
     load_instance,
 )
 from floorsync_common.seed.loader import SeedSummary, seed_instance
+from floorsync_common.seed.solutions import SolutionError, find_solution
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,8 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def run(name: str) -> SeedSummary:
     instance = load_instance(name)
+    solution = find_solution(name)
     async with session_scope() as session:
-        return await seed_instance(session, instance)
+        return await seed_instance(session, instance, solution)
 
 
 def report(summary: SeedSummary) -> None:
@@ -53,6 +55,17 @@ def report(summary: SeedSummary) -> None:
         ("compatibilities", summary.compatibilities),
     ):
         print(f"  {label:<16}{value:>8,}")
+
+    if summary.solver is None:
+        print("No solution available, so no schedule was created -- the problem only.")
+    else:
+        print(f"Schedule from {summary.solver} (makespan {summary.makespan:,}), confirmed")
+        for label, value in (
+            ("entries", summary.schedule_entries),
+            ("precedence", summary.schedule_dependencies),
+        ):
+            print(f"  {label:<16}{value:>8,}")
+
     if summary.removed_operator_logins:
         print(
             f"  removed {summary.removed_operator_logins} operator login(s) bound to the "
@@ -77,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         summary = asyncio.run(run(arguments.instance))
-    except InstanceError as error:
+    except (InstanceError, SolutionError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 

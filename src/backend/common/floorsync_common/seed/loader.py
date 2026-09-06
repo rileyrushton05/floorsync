@@ -7,6 +7,8 @@ always reflects exactly one instance rather than an accumulation of several.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from itertools import pairwise
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -30,6 +32,7 @@ from floorsync_common.database.models import (
     UserCredential,
 )
 from floorsync_common.seed.instances import BenchmarkInstance
+from floorsync_common.seed.solutions import BenchmarkSolution, validate_against
 
 # Children before parents. Users are handled separately: an operator's login is bound to a machine
 # by a check constraint, so it has to go before the machine it points at.
@@ -59,14 +62,25 @@ class SeedSummary:
     dependencies: int
     compatibilities: int
     removed_operator_logins: int
+    solver: str | None = None
+    makespan: int | None = None
+    schedule_entries: int = 0
+    schedule_dependencies: int = 0
 
 
-async def seed_instance(session: AsyncSession, instance: BenchmarkInstance) -> SeedSummary:
-    """Replace the current scenario with `instance`.
+async def seed_instance(
+    session: AsyncSession,
+    instance: BenchmarkInstance,
+    solution: BenchmarkSolution | None = None,
+) -> SeedSummary:
+    """Replace the current scenario with `instance`, and its schedule when one is supplied.
 
     The caller owns the transaction, so a failure part-way leaves the database untouched rather than
     half-seeded.
     """
+
+    if solution is not None:
+        validate_against(solution, instance)
 
     removed_logins = await clear_scheduling_data(session)
 
@@ -95,12 +109,16 @@ async def seed_instance(session: AsyncSession, instance: BenchmarkInstance) -> S
     operation_rows: list[dict[str, Any]] = []
     dependency_rows: list[dict[str, Any]] = []
     compatibility_rows: list[dict[str, Any]] = []
+    # Keyed by (job, operation index) so a solution's machine sequences can be resolved back to the
+    # operations they order.
+    operation_ids: dict[tuple[int, int], UUID] = {}
 
     for job, operations in instance.operations_by_job.items():
         operation_width = _index_width(len(operations))
         previous_id: UUID | None = None
         for operation in operations:
             operation_id = uuid4()
+            operation_ids[(operation.job, operation.index)] = operation_id
             operation_rows.append(
                 {
                     "id": operation_id,
@@ -132,6 +150,13 @@ async def seed_instance(session: AsyncSession, instance: BenchmarkInstance) -> S
     await _insert_all(session, Dependency, dependency_rows)
     await _insert_all(session, Compatibility, compatibility_rows)
 
+    entry_count = 0
+    queue_count = 0
+    if solution is not None:
+        entry_count, queue_count = await _seed_schedule(
+            session, instance, solution, operation_ids, machine_ids
+        )
+
     return SeedSummary(
         instance=instance.name,
         family=instance.family,
@@ -141,7 +166,94 @@ async def seed_instance(session: AsyncSession, instance: BenchmarkInstance) -> S
         dependencies=len(dependency_rows),
         compatibilities=len(compatibility_rows),
         removed_operator_logins=removed_logins,
+        solver=solution.solver if solution else None,
+        makespan=solution.makespan if solution else None,
+        schedule_entries=entry_count,
+        schedule_dependencies=queue_count,
     )
+
+
+async def _seed_schedule(
+    session: AsyncSession,
+    instance: BenchmarkInstance,
+    solution: BenchmarkSolution,
+    operation_ids: dict[tuple[int, int], UUID],
+    machine_ids: list[UUID],
+) -> tuple[int, int]:
+    """Write the solved schedule, returning how many entries and dependencies were created.
+
+    The schedule is stored as confirmed: seeded data exists to be simulated, and the simulation
+    refuses anything else. Cost totals stay NULL because the instance carries no cost data.
+    """
+
+    schedule_id = uuid4()
+    await _insert_all(
+        session,
+        Schedule,
+        [
+            {
+                "id": schedule_id,
+                "status": "confirmed",
+                "strategy": solution.solver,
+                "makespan": solution.makespan,
+                "confirmed_at": datetime.now(UTC),
+            }
+        ],
+    )
+
+    # One entry per operation. The machine and duration are the instance's, not the solution's --
+    # a solution only decides ordering.
+    entry_ids: dict[tuple[int, int], UUID] = {}
+    entry_rows: list[dict[str, Any]] = []
+    for operation in instance.operations:
+        entry_id = uuid4()
+        entry_ids[(operation.job, operation.index)] = entry_id
+        entry_rows.append(
+            {
+                "id": entry_id,
+                "schedule_id": schedule_id,
+                "operation_id": operation_ids[(operation.job, operation.index)],
+                "machine_id": machine_ids[operation.machine],
+                "duration": operation.duration,
+            }
+        )
+    await _insert_all(session, ScheduleEntry, entry_rows)
+
+    precedence_rows: list[dict[str, Any]] = []
+
+    # job_order: the instance's own precedence chain, restated against this schedule's entries.
+    for operations in instance.operations_by_job.values():
+        for earlier, later in pairwise(operations):
+            precedence_rows.append(
+                {
+                    "id": uuid4(),
+                    "schedule_entry_id": entry_ids[(later.job, later.index)],
+                    "depends_on_schedule_entry_id": entry_ids[(earlier.job, earlier.index)],
+                    "reason": "job_order",
+                }
+            )
+
+    # machine_queue: the ordering the solver actually chose. Each machine works through its jobs in
+    # sequence, so every job waits for the one before it in that queue.
+    operation_on_machine = {
+        (operation.machine, operation.job): (operation.job, operation.index)
+        for operation in instance.operations
+    }
+    for machine, sequence in sorted(solution.machine_sequences.items()):
+        for earlier_job, later_job in pairwise(sequence):
+            precedence_rows.append(
+                {
+                    "id": uuid4(),
+                    "schedule_entry_id": entry_ids[operation_on_machine[(machine, later_job)]],
+                    "depends_on_schedule_entry_id": entry_ids[
+                        operation_on_machine[(machine, earlier_job)]
+                    ],
+                    "reason": "machine_queue",
+                }
+            )
+
+    await _insert_all(session, ScheduleDependency, precedence_rows)
+    return len(entry_rows), len(precedence_rows)
 
 
 async def clear_scheduling_data(session: AsyncSession) -> int:

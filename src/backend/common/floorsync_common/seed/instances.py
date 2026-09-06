@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
-_REPOSITORY_SOURCE_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_INSTANCE_DIRECTORY = _REPOSITORY_SOURCE_ROOT / "database" / "seed-data" / "jobshop"
+SEED_DATA_DIRECTORY = Path(__file__).resolve().parents[4] / "database" / "seed-data"
+DEFAULT_INSTANCE_DIRECTORY = SEED_DATA_DIRECTORY / "jobshop"
 
 
 class InstanceError(Exception):

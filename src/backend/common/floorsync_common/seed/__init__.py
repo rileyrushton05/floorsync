@@ -14,14 +14,28 @@ from floorsync_common.seed.instances import (
     parse_instance,
 )
 from floorsync_common.seed.loader import SeedSummary, seed_instance
+from floorsync_common.seed.solutions import (
+    BenchmarkSolution,
+    SolutionError,
+    available_solutions,
+    find_solution,
+    parse_solution,
+    validate_against,
+)
 
 __all__ = [
     "BenchmarkInstance",
     "BenchmarkOperation",
+    "BenchmarkSolution",
     "InstanceError",
     "SeedSummary",
+    "SolutionError",
     "available_instances",
+    "available_solutions",
+    "find_solution",
     "load_instance",
     "parse_instance",
+    "parse_solution",
     "seed_instance",
+    "validate_against",
 ]
