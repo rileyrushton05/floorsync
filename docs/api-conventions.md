@@ -65,6 +65,8 @@ shared handlers in `floorsync_api.problems` cover framework HTTP errors and requ
 
 New problem `type` identifiers are stable API contract values. Domain and persistence code must not
 raise FastAPI exceptions; the transport layer maps typed application errors to problem responses.
+Expected application outcomes are concrete frozen result types and must be handled exhaustively at
+the web edge. See the [backend conventions](backend-conventions.md#expected-outcomes).
 
 ## Collections
 
@@ -85,9 +87,18 @@ transaction. Autobegin is disabled, so reads and writes outside an explicit tran
 @router.post("/resources", status_code=201)
 async def create_resource(command: ResourceCreate, db: DbSession) -> ResourceRead:
     async with db.begin():
-        resource = await resource_service.create(db, command)
+        result = await ResourceService.create_resource(
+            db,
+            name=command.name,
+        )
 
-    return ResourceRead.model_validate(resource)
+    match result:
+        case ResourceCreated(resource=resource):
+            return ResourceRead.model_validate(resource)
+        case ResourceNameAlreadyExists(name=name):
+            return resource_name_conflict(name)
+        case _:
+            assert_never(result)
 ```
 
 - Begin the transaction before the first query, including reads.
@@ -97,6 +108,9 @@ async def create_resource(command: ResourceCreate, db: DbSession) -> ResourceRea
 - Do not keep a database transaction open while calling slow external services. For future workflows
   that must coordinate a database change with message publication, use an outbox pattern.
 - Never share an `AsyncSession` across concurrent tasks.
+
+Service structure, session ownership, expected outcomes, and repository extraction rules are defined
+in the [backend conventions](backend-conventions.md).
 
 ## Documentation and testing
 

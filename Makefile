@@ -33,3 +33,5 @@ db-upgrade:
 
 db-revision:
 	docker compose run --rm api alembic revision --autogenerate -m "$(name)"
+	uv run ruff check --fix src/database/migrations/versions
+	uv run ruff format src/database/migrations/versions
