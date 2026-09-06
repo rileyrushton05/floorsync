@@ -1,304 +1,468 @@
 "use client";
 
-import { useState } from "react";
+import {
+  CheckCircleIcon,
+  CheckIcon,
+  ClockIcon,
+  ExclamationTriangleIcon,
+  InformationCircleIcon,
+  PlayIcon,
+  UserCircleIcon,
+} from "@heroicons/react/24/outline";
+import { useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Note } from "@/components/ui/note";
+import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CoffeeIcon } from "../_components/icons";
 import { Wordmark } from "../_components/Logo";
-import { Badge, priorityTone } from "../_components/Badge";
-import { RadialGauge } from "../_components/RadialGauge";
-import styles from "./operator.module.css";
 
-type RowPriority = "High" | "Norm" | "Low";
-
-interface QueueRow {
-  id: string;
-  title: string;
-  type: string;
-  opProgress: string;
-  priority: RowPriority;
-  timing: string;
-  timingTone: "active" | "queued" | "warning" | "delayed";
-  estTime: string;
-  plannedEnd: string;
-  action: "pause" | "start";
-}
-
-const queueRows: QueueRow[] = [
-  { id: "#254", title: "Dryer not working", type: "Repair", opProgress: "Op 2 of 5", priority: "High", timing: "Started 2m 16s ago", timingTone: "active", estTime: "04h 00m", plannedEnd: "02:00 PM", action: "pause" },
-  { id: "#255", title: "Washing Machine Issue", type: "Repair", opProgress: "Op 1 of 4", priority: "Norm", timing: "Queued for 10:30 AM", timingTone: "queued", estTime: "02h 00m", plannedEnd: "01:00 PM", action: "start" },
-  { id: "#256", title: "Forklift Maintenance", type: "Maintenance", opProgress: "Op 1 of 3", priority: "Low", timing: "Queued for 12:00 PM", timingTone: "queued", estTime: "01h 00m", plannedEnd: "03:00 PM", action: "start" },
-  { id: "#258", title: "Tool Replacement", type: "Maintenance", opProgress: "Op 1 of 2", priority: "Norm", timing: "Waiting for material", timingTone: "warning", estTime: "02h 00m", plannedEnd: "04:00 PM", action: "start" },
-  { id: "#259", title: "Quality Inspection", type: "Inspection", opProgress: "Op 1 of 3", priority: "High", timing: "Delayed", timingTone: "delayed", estTime: "01h 30m", plannedEnd: "05:00 PM", action: "start" },
-  { id: "#260", title: "Conveyor Belt Check", type: "Maintenance", opProgress: "Op 1 of 2", priority: "Norm", timing: "Queued for 02:00 PM", timingTone: "queued", estTime: "01h 00m", plannedEnd: "05:30 PM", action: "start" },
-];
+type OpStatus = "completed" | "running" | "pending";
 
 interface OperationStep {
-  n: number;
+  index: number;
+  total: number;
   name: string;
-  state: "done" | "running" | "pending";
-  detail: string;
-  timer?: string;
+  status: OpStatus;
+  startedAt?: string;
 }
 
-const operations: OperationStep[] = [
-  { n: 1, name: "Load Material", state: "done", detail: "09:58 AM - 10:00 AM" },
-  { n: 2, name: "Adjusting Tension", state: "running", detail: "Started 2m 16s ago", timer: "02:16" },
-  { n: 3, name: "Quality Check", state: "pending", detail: "Est. 45m" },
-  { n: 4, name: "Final Test", state: "pending", detail: "Est. 30m" },
-  { n: 5, name: "Unload & Clean", state: "pending", detail: "Est. 25m" },
-];
+interface ActiveJob {
+  jobId: string;
+  title: string;
+  ops: OperationStep[];
+}
 
-const statusFilters = [
-  { label: "Running", count: 1, checked: true },
-  { label: "Queued", count: 15, checked: true },
-  { label: "Paused", count: 0, checked: false },
-  { label: "Complete", count: 23, checked: false },
-  { label: "Delayed", count: 2, checked: true },
-];
-const priorityFilters = [
-  { label: "High", checked: true },
-  { label: "Normal", checked: true },
-  { label: "Low", checked: false },
-];
-const jobTypeFilters = [
-  { label: "Repair", checked: true },
-  { label: "Maintenance", checked: true },
-  { label: "Assembly", checked: false },
-  { label: "Inspection", checked: false },
-];
+interface QueuedJob {
+  jobId: string;
+  title: string;
+  ops: OperationStep[];
+  estTime: string;
+  estStart: string;
+}
+
+interface CompletedEntry {
+  key: string;
+  jobId: string;
+  label: string;
+  completedAt: string;
+  duration: string;
+}
+
+interface MachineState {
+  name: string;
+  activeJob: ActiveJob | null;
+  queue: QueuedJob[];
+  completed: CompletedEntry[];
+  shiftRemaining: string;
+  shiftTotal: string;
+  shiftPct: number;
+  nextBreakRemaining: string;
+  nextBreakAt: string;
+}
+
+function makeOps(names: string[], runningIndex: number, startedAt?: string): OperationStep[] {
+  return names.map((name, i) => ({
+    index: i + 1,
+    total: names.length,
+    name,
+    status: i < runningIndex ? "completed" : i === runningIndex ? "running" : "pending",
+    startedAt: i === runningIndex ? startedAt : undefined,
+  }));
+}
+
+const initialMachine: MachineState = {
+  name: "Machine B",
+  activeJob: {
+    jobId: "#254",
+    title: "Dryer not working",
+    ops: makeOps(["Load Material", "Adjusting Tension", "Quality Check", "Final Test", "Unload & Clean"], 1, "09:58 AM"),
+  },
+  queue: [
+    { jobId: "#255", title: "Washing Machine Issue", estTime: "02:00", estStart: "11:02 AM", ops: makeOps(["Diagnose Fault", "Replace Belt", "Test Cycle", "Final Inspection"], -1) },
+    { jobId: "#256", title: "Forklift Maintenance", estTime: "01:00", estStart: "01:05 PM", ops: makeOps(["Safety Check", "Repair Hydraulics", "Test Drive"], -1) },
+    { jobId: "#258", title: "Tool Replacement", estTime: "02:00", estStart: "02:05 PM", ops: makeOps(["Remove Old Tool", "Install New Tool"], -1) },
+  ],
+  completed: [
+    { key: "c1", jobId: "#254", label: "Op 1 of 5 • Load Material", completedAt: "09:58 AM", duration: "00:12" },
+    { key: "c2", jobId: "#253", label: "Op 3 of 3 • Final Test", completedAt: "09:34 AM", duration: "00:18" },
+  ],
+  shiftRemaining: "03:35",
+  shiftTotal: "08:00",
+  shiftPct: 55,
+  nextBreakRemaining: "00:56",
+  nextBreakAt: "10:30 AM",
+};
+
+function getCurrentOp(job: ActiveJob | null): OperationStep | null {
+  if (!job) return null;
+  return job.ops.find((o) => o.status === "running") ?? null;
+}
+
+function firstPendingOp(ops: OperationStep[]): OperationStep {
+  return ops.find((o) => o.status === "pending") ?? ops[0];
+}
 
 export default function OperatorDashboard() {
-  const [selectedId, setSelectedId] = useState("#254");
-  const [tab, setTab] = useState<"operations" | "notes">("operations");
-  const selected = queueRows.find((r) => r.id === selectedId) ?? queueRows[0];
+  const [machine, setMachine] = useState(initialMachine);
+  const [issueBanner, setIssueBanner] = useState<string | null>(null);
+
+  const current = useMemo(() => getCurrentOp(machine.activeJob), [machine.activeJob]);
+
+  const nextInfo = useMemo(() => {
+    if (machine.activeJob && current) {
+      const nextStep = machine.activeJob.ops.find((o) => o.index === current.index + 1);
+      if (nextStep) {
+        return { kind: "same-job" as const, jobId: machine.activeJob.jobId, label: `Op ${nextStep.index} of ${nextStep.total} • ${nextStep.name}`, estStart: null as string | null };
+      }
+    }
+    if (machine.queue.length > 0) {
+      const q = machine.queue[0];
+      const next = firstPendingOp(q.ops);
+      return { kind: "queued-job" as const, jobId: q.jobId, label: `Op ${next.index} of ${next.total} • ${next.name}`, estStart: q.estStart };
+    }
+    return null;
+  }, [machine, current]);
+
+  function completeCurrentOperation() {
+    setMachine((m) => {
+      if (!m.activeJob) return m;
+      const runningIndex = m.activeJob.ops.findIndex((o) => o.status === "running");
+      if (runningIndex === -1) return m;
+      const step = m.activeJob.ops[runningIndex];
+      const newCompletedEntry: CompletedEntry = {
+        key: `${m.activeJob.jobId}-${step.index}-${Date.now()}`,
+        jobId: m.activeJob.jobId,
+        label: `Op ${step.index} of ${step.total} • ${step.name}`,
+        completedAt: "Just now",
+        duration: "—",
+      };
+
+      let updatedOps = m.activeJob.ops.map((o, i) => (i === runningIndex ? { ...o, status: "completed" as OpStatus } : o));
+      let newActiveJob: ActiveJob | null = { ...m.activeJob, ops: updatedOps };
+      let newQueue = m.queue;
+
+      if (runningIndex + 1 < updatedOps.length) {
+        updatedOps = updatedOps.map((o, i) => (i === runningIndex + 1 ? { ...o, status: "running" as OpStatus, startedAt: "Just now" } : o));
+        newActiveJob = { ...m.activeJob, ops: updatedOps };
+      } else if (m.queue.length > 0) {
+        const [nextJob, ...rest] = m.queue;
+        const promotedOps = nextJob.ops.map((o, i) => (i === 0 ? { ...o, status: "running" as OpStatus, startedAt: "Just now" } : o));
+        newActiveJob = { jobId: nextJob.jobId, title: nextJob.title, ops: promotedOps };
+        newQueue = rest;
+      } else {
+        newActiveJob = null;
+      }
+
+      return {
+        ...m,
+        activeJob: newActiveJob,
+        queue: newQueue,
+        completed: [newCompletedEntry, ...m.completed],
+      };
+    });
+  }
+
+  function startQueuedJob(jobId: string) {
+    setMachine((m) => {
+      const target = m.queue.find((q) => q.jobId === jobId);
+      if (!target) return m;
+
+      let newQueue = m.queue.filter((q) => q.jobId !== jobId);
+
+      if (m.activeJob) {
+        const runningIndex = m.activeJob.ops.findIndex((o) => o.status === "running");
+        if (runningIndex !== -1) {
+          const pausedOps = m.activeJob.ops.map((o, i) => (i === runningIndex ? { ...o, status: "pending" as OpStatus, startedAt: undefined } : o));
+          const step = pausedOps[runningIndex];
+          const pausedJob: QueuedJob = {
+            jobId: m.activeJob.jobId,
+            title: m.activeJob.title,
+            ops: pausedOps,
+            estTime: "—",
+            estStart: `Paused at Op ${step.index}`,
+          };
+          newQueue = [pausedJob, ...newQueue];
+        }
+      }
+
+      const resumeIndex = firstPendingOp(target.ops).index;
+      const promotedOps = target.ops.map((o) => (o.index === resumeIndex ? { ...o, status: "running" as OpStatus, startedAt: "Just now" } : o));
+      const newActiveJob: ActiveJob = { jobId: target.jobId, title: target.title, ops: promotedOps };
+
+      return {
+        ...m,
+        activeJob: newActiveJob,
+        queue: newQueue,
+      };
+    });
+  }
+
+  function reportIssue() {
+    setIssueBanner(`Issue reported for ${machine.name} — coordinator notified.`);
+  }
 
   return (
-    <div className={styles.shell}>
-      <header className={styles.topbar}>
-        <Wordmark />
-        <select className={styles.machineSelect} defaultValue="Machine B: Anita Sandburg">
-          <option>Machine B: Anita Sandburg</option>
-          <option>Machine A: Chelsea</option>
-          <option>Machine C: Fiona</option>
-        </select>
-        <div className={styles.clock}>
-          <span className={styles.clockLabel}>Live Clock:</span> 10:24 AM
+    <div className="flex min-h-dvh flex-col bg-bg text-fg">
+      <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <Wordmark />
+          <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
+            Operator View
+          </span>
         </div>
-        <span className={styles.liveBadge}><span className={styles.liveDot} /> Live (Simulation)</span>
-        <div className={styles.topbarSpacer} />
-        <div className={styles.userBlock}>
-          Logged in: <b>J. Smith (Shift 1)</b>
+        <Badge intent="outline" className="gap-x-2 px-3 py-1.5">
+          <span className="size-2 rounded-full bg-success" />
+          {machine.name}
+        </Badge>
+        <div className="flex-1" />
+        <div className="font-semibold tabular-nums">10:24 AM</div>
+        <div className="flex items-center gap-2">
+          <UserCircleIcon className="size-7 text-muted-fg" />
+          <div className="text-sm leading-tight">
+            <div className="font-semibold">Operator</div>
+            <div className="text-muted-fg text-xs">Shift 1</div>
+          </div>
         </div>
-        <button className={styles.logoutBtn}>Logout</button>
       </header>
 
-      <div className={styles.body}>
-        <aside className={styles.sidebar}>
-          <h2 className={styles.panelTitle}>Filters &amp; Search</h2>
-          <input className={styles.searchInput} placeholder="Search current queue..." />
+      <main className="flex flex-1 flex-col gap-5 p-5">
+        <div className="grid gap-5 xl:grid-cols-[1fr_1fr_minmax(240px,0.7fr)]">
+          <Card className="border-primary/30 bg-primary-subtle/40">
+            <CardHeader className="flex-row items-center justify-between gap-3">
+              <CardTitle className="font-bold text-primary-subtle-fg text-xs uppercase tracking-[0.06em]">
+                Current Operation
+              </CardTitle>
+              {current && <Badge intent="info">Running</Badge>}
+            </CardHeader>
+            <CardContent>
+              {machine.activeJob && current ? (
+                <>
+                  <h2 className="font-semibold text-lg">
+                    {machine.activeJob.jobId} {machine.activeJob.title}
+                  </h2>
+                  <div className="mt-1 text-sm">
+                    Op {current.index} of {current.total} • {current.name}
+                  </div>
+                  <div className="mt-1 text-muted-fg text-sm">Started {current.startedAt}</div>
+                  <Button className="mt-4 w-full" onPress={completeCurrentOperation}>
+                    <CheckIcon /> Mark Complete
+                  </Button>
+                </>
+              ) : (
+                <p className="py-4 text-muted-fg text-sm">No active operation on this machine.</p>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className={styles.filterGroup}>
-            <span className={styles.filterGroupLabel}>Status</span>
-            {statusFilters.map((f) => (
-              <label key={f.label} className={styles.checkRow}>
-                <input type="checkbox" defaultChecked={f.checked} />
-                {f.label}
-                <span className={styles.checkCount}>{f.count}</span>
-              </label>
-            ))}
-          </div>
+          <Card className="border-warning/40 bg-warning-subtle/50">
+            <CardHeader className="flex-row items-center justify-between gap-3">
+              <CardTitle className="font-bold text-warning-subtle-fg text-xs uppercase tracking-[0.06em]">
+                Next Operation
+              </CardTitle>
+              {nextInfo && <Badge intent="warning">Up Next</Badge>}
+            </CardHeader>
+            <CardContent>
+              {nextInfo ? (
+                <>
+                  <h2 className="font-semibold text-lg">
+                    {nextInfo.jobId}{" "}
+                    {machine.activeJob && nextInfo.kind === "same-job"
+                      ? machine.activeJob.title
+                      : machine.queue.find((q) => q.jobId === nextInfo.jobId)?.title}
+                  </h2>
+                  <div className="mt-1 text-sm">{nextInfo.label}</div>
+                  <div className="mt-1 text-muted-fg text-sm">
+                    {nextInfo.estStart
+                      ? `Est. Start: ${nextInfo.estStart}`
+                      : "Starts immediately after current operation"}
+                  </div>
+                  <Button
+                    intent="outline"
+                    className="mt-4 w-full bg-overlay"
+                    onPress={
+                      nextInfo.kind === "same-job"
+                        ? completeCurrentOperation
+                        : () => startQueuedJob(nextInfo.jobId)
+                    }
+                  >
+                    <PlayIcon /> Start Next Operation
+                  </Button>
+                </>
+              ) : (
+                <p className="py-4 text-muted-fg text-sm">No further operations queued.</p>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className={styles.filterGroup}>
-            <span className={styles.filterGroupLabel}>Priority</span>
-            {priorityFilters.map((f) => (
-              <label key={f.label} className={styles.checkRow}>
-                <input type="checkbox" defaultChecked={f.checked} />
-                {f.label}
-              </label>
-            ))}
-          </div>
-
-          <div className={styles.filterGroup}>
-            <span className={styles.filterGroupLabel}>Job Type</span>
-            {jobTypeFilters.map((f) => (
-              <label key={f.label} className={styles.checkRow}>
-                <input type="checkbox" defaultChecked={f.checked} />
-                {f.label}
-              </label>
-            ))}
-          </div>
-
-          <div className={styles.filterGroup}>
-            <span className={styles.filterGroupLabel}>Date</span>
-            <label className={styles.checkRow}><input type="radio" name="date" defaultChecked /> Today</label>
-            <label className={styles.checkRow}><input type="radio" name="date" /> This Shift</label>
-            <label className={styles.checkRow}><input type="radio" name="date" /> Custom Range</label>
-            <input className={styles.dateInput} placeholder="Select dates..." disabled />
-          </div>
-
-          <button className={styles.clearBtn}>Clear All Filters</button>
-        </aside>
-
-        <main className={styles.main}>
-          <div className={styles.statRow}>
-            <div className={`${styles.statCard} ${styles.statCardGreen}`}>
-              <div className={styles.statTop}>RUNNING <span className={styles.dotGreen} /></div>
-              <div className={styles.statBig}>1</div>
-              <div className={styles.statSub}>Currently in progress</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statTop}>QUEUE</div>
-              <div className={styles.statBig}>15</div>
-              <div className={styles.statSub}>Upcoming jobs</div>
-            </div>
-            <div className={`${styles.statCard} ${styles.statCardAmber}`}>
-              <div className={styles.statTop}>EST. TIME LEFT</div>
-              <div className={styles.statBig}>2h 30m</div>
-              <div className={styles.statSub}>For current operation</div>
-            </div>
-            <div className={`${styles.statCard} ${styles.statCardPurple}`}>
-              <div className={styles.statTopRow}>
-                <div>
-                  <div className={styles.statTop}>EFFICIENCY</div>
-                  <div className={styles.statBig}>95%</div>
-                  <div className={styles.statSub}>vs. planned schedule</div>
+          <div className="flex flex-col gap-5">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2 font-medium text-sm">
+                  <ClockIcon className="size-4.5 text-success" />
+                  <span>Shift Time Remaining</span>
                 </div>
-                <RadialGauge percent={95} size={54} thickness={7} color="#7c3aed" />
-              </div>
-            </div>
-          </div>
-
-          <div className={styles.queuePanel}>
-            <div className={styles.queueHead}>
-              <h2 className={styles.panelTitle}>Job Queue for Machine B</h2>
-              <div className={styles.queueHeadRight}>
-                <span className={styles.sortLabel}>Sort by:</span>
-                <select className={styles.select} defaultValue="Planned Start Time">
-                  <option>Planned Start Time</option>
-                  <option>Priority</option>
-                </select>
-              </div>
-            </div>
-
-            <div className={styles.queueList}>
-              {queueRows.map((row) => (
-                <div
-                  key={row.id}
-                  className={`${styles.queueRow} ${styles[`queueRow_${row.timingTone}`]} ${
-                    selectedId === row.id ? styles.queueRowSelected : ""
-                  }`}
-                  onClick={() => setSelectedId(row.id)}
+                <div className="mt-2 font-bold text-2xl tabular-nums">
+                  {machine.shiftRemaining}{" "}
+                  <span className="font-normal text-muted-fg text-sm">of {machine.shiftTotal} hrs</span>
+                </div>
+                <ProgressBar
+                  aria-label="Shift elapsed"
+                  value={machine.shiftPct}
+                  className="mt-3"
                 >
-                  <span className={styles.chevron}>{selectedId === row.id ? "▾" : "▸"}</span>
-                  <div className={styles.queueMain}>
-                    <div className={styles.queueTitleRow}>
-                      <span className={styles.queueId}>{row.id}</span>
-                      <span className={styles.queueTitle}>{row.title}</span>
-                    </div>
-                    <div className={styles.queueSub}>{row.type} • {row.opProgress}</div>
-                  </div>
-                  <Badge tone={priorityTone(row.priority)}>{row.priority}</Badge>
-                  {row.action === "pause" ? (
-                    <button className={styles.pauseBtn} onClick={(e) => e.stopPropagation()}>❚❚ Pause</button>
-                  ) : (
-                    <button className={styles.startBtn} onClick={(e) => e.stopPropagation()}>▶ Start Now</button>
-                  )}
-                  <div className={styles.queueTiming}>
-                    <span className={`${styles.timingDot} ${styles[`timingDot_${row.timingTone}`]}`} />
-                    {row.timing}
-                    {row.timingTone === "warning" && <span className={styles.warnMark}>⚠</span>}
-                    {row.timingTone === "delayed" && <span className={styles.warnMark}>!</span>}
-                  </div>
-                  <div className={styles.queueMeta}>
-                    <div>Est. Time: <b>{row.estTime}</b></div>
-                    <div>Planned End: <b>{row.plannedEnd}</b></div>
-                  </div>
+                  <ProgressBarTrack className="min-w-0 [--progress-content-bg:var(--color-success)]" />
+                </ProgressBar>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2 font-medium text-sm">
+                  <CoffeeIcon className="size-4.5 text-primary" />
+                  <span>Next Break</span>
                 </div>
-              ))}
-            </div>
-
-            <div className={styles.pagination}>
-              <span>Showing 6 of 15 queued jobs</span>
-              <div className={styles.pageButtons}>
-                <button className={`${styles.pageBtn} ${styles.pageBtnActive}`}>1</button>
-                <button className={styles.pageBtn}>2</button>
-                <button className={styles.pageBtn}>3</button>
-                <button className={styles.pageBtn}>›</button>
-              </div>
-            </div>
-          </div>
-
-          <div className={styles.machineBar}>
-            <div>
-              <div className={styles.machineBarLabel}>Machine B Status</div>
-              <div className={styles.machineBarValue}><span className={styles.dotGreen} /> Active</div>
-            </div>
-            <div>
-              <div className={styles.machineBarLabel}>Current Operation</div>
-              <div className={styles.machineBarValue}>#254 Dryer not working • Op 2 of 5</div>
-            </div>
-            <div>
-              <div className={styles.machineBarLabel}>Machine Health</div>
-              <div className={styles.machineBarValue}>✓ Good</div>
-            </div>
-            <div>
-              <div className={styles.machineBarLabel}>Last Maintenance</div>
-              <div className={styles.machineBarValue}>2 days ago</div>
-            </div>
-            <button className={styles.historyLink}>View Machine History →</button>
-          </div>
-        </main>
-
-        <aside className={styles.detailPanel}>
-          <div className={styles.detailHead}>
-            <h2 className={styles.panelTitle}>Job Details</h2>
-            <button className={styles.closeBtn} aria-label="Close">✕</button>
-          </div>
-          <div className={styles.detailTitleRow}>
-            <span className={styles.detailId}>{selected.id}</span>
-            <span className={styles.detailTitle}>{selected.title}</span>
-          </div>
-          <div className={styles.detailBadges}>
-            <Badge tone={priorityTone(selected.priority)}>{selected.priority}</Badge>
-            <Badge tone="blue">Running</Badge>
-            <span className={styles.detailStep}>{selected.opProgress}</span>
-          </div>
-
-          <div className={styles.detailTabs}>
-            <button className={`${styles.detailTab} ${tab === "operations" ? styles.detailTabActive : ""}`} onClick={() => setTab("operations")}>
-              Operations
-            </button>
-            <button className={`${styles.detailTab} ${tab === "notes" ? styles.detailTabActive : ""}`} onClick={() => setTab("notes")}>
-              Details &amp; Notes
-            </button>
-          </div>
-
-          {tab === "operations" ? (
-            <div className={styles.opsList}>
-              {operations.map((op) => (
-                <div key={op.n} className={styles.opRow}>
-                  <span className={`${styles.opIcon} ${styles[`opIcon_${op.state}`]}`}>
-                    {op.state === "done" ? "✓" : op.n}
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="font-bold text-2xl text-primary tabular-nums">
+                    {machine.nextBreakRemaining}
                   </span>
-                  <div className={styles.opInfo}>
-                    <div className={styles.opName}>Op {op.n}: {op.name}</div>
-                    <div className={styles.opDetail}>{op.detail}</div>
-                  </div>
-                  {op.state === "running" && <span className={styles.opTimer}>⏱ {op.timer}</span>}
-                  {op.state === "running" && <Badge tone="blue">Running</Badge>}
-                  {op.state === "pending" && <Badge tone="gray">Pending</Badge>}
+                  <span className="text-muted-fg text-sm">Until {machine.nextBreakAt}</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className={styles.notesBlock}>
-              <p>Please ensure tension is set to specification 12.5±0.5 before proceeding to quality check.</p>
-              <p>Refer to Work Instruction WI-254-A.</p>
-              <div className={styles.notesFooter}>Added by: Coordinator A. Lee, Today, 09:45 AM</div>
-            </div>
-          )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
-          <button className={styles.reportBtn}>⚠ Report Issue / Machine Fault</button>
-        </aside>
-      </div>
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Card>
+            <CardHeader className="flex-row items-center gap-2.5">
+              <CardTitle>Pending Operations</CardTitle>
+              <Badge intent="secondary">{machine.queue.length}</Badge>
+            </CardHeader>
+            <CardContent>
+              <Table aria-label="Pending operations">
+                <TableHeader>
+                  <TableColumn className="w-0">Order</TableColumn>
+                  <TableColumn isRowHeader>Job ID</TableColumn>
+                  <TableColumn>Operation</TableColumn>
+                  <TableColumn>Est. Time</TableColumn>
+                  <TableColumn>Est. Start</TableColumn>
+                  <TableColumn />
+                </TableHeader>
+                <TableBody
+                  items={machine.queue}
+                  renderEmptyState={() => (
+                    <div className="py-6 text-center text-muted-fg text-sm">Queue is empty.</div>
+                  )}
+                >
+                  {(q) => {
+                    const nextOp = firstPendingOp(q.ops);
+                    return (
+                      <TableRow id={q.jobId}>
+                        <TableCell>
+                          <span className="inline-flex size-6 items-center justify-center rounded-full bg-secondary font-semibold text-xs">
+                            {machine.queue.indexOf(q) + 1}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-semibold">{q.jobId}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{q.title}</div>
+                          <div className="text-muted-fg text-xs">
+                            Op {nextOp.index} of {nextOp.total}
+                          </div>
+                        </TableCell>
+                        <TableCell className="tabular-nums">{q.estTime}</TableCell>
+                        <TableCell className="tabular-nums">{q.estStart}</TableCell>
+                        <TableCell className="text-right">
+                          <Button size="xs" onPress={() => startQueuedJob(q.jobId)}>
+                            Start
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }}
+                </TableBody>
+              </Table>
+              <Separator className="my-3" />
+              <Button intent="plain" size="sm" className="px-0 text-primary">
+                View full queue ({machine.queue.length})
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-center gap-2.5">
+              <CardTitle>Completed Operations</CardTitle>
+              <Badge intent="success">{machine.completed.length}</Badge>
+            </CardHeader>
+            <CardContent>
+              <Table aria-label="Completed operations">
+                <TableHeader>
+                  <TableColumn isRowHeader>Job ID</TableColumn>
+                  <TableColumn>Operation</TableColumn>
+                  <TableColumn>Completed At</TableColumn>
+                  <TableColumn>Duration</TableColumn>
+                </TableHeader>
+                <TableBody
+                  items={machine.completed}
+                  renderEmptyState={() => (
+                    <div className="py-6 text-center text-muted-fg text-sm">
+                      No completed operations yet.
+                    </div>
+                  )}
+                >
+                  {(c) => (
+                    <TableRow id={c.key}>
+                      <TableCell className="font-semibold">
+                        <span className="flex items-center gap-1.5">
+                          <CheckCircleIcon className="size-4 text-success" /> {c.jobId}
+                        </span>
+                      </TableCell>
+                      <TableCell>{c.label}</TableCell>
+                      <TableCell className="tabular-nums">{c.completedAt}</TableCell>
+                      <TableCell className="tabular-nums">{c.duration}</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+              <Separator className="my-3" />
+              <Button intent="plain" size="sm" className="px-0 text-primary">
+                View all completed ({machine.completed.length})
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+
+      <footer className="flex flex-wrap items-center gap-4 border-t bg-navbar px-7 py-3.5">
+        {issueBanner ? (
+          <Note intent="danger" role="status" className="flex-1 py-2">
+            <div className="flex items-center gap-3">
+              <span className="flex-1">{issueBanner}</span>
+              <Button intent="plain" size="xs" onPress={() => setIssueBanner(null)}>
+                Dismiss
+              </Button>
+            </div>
+          </Note>
+        ) : (
+          <div className="flex flex-1 items-center gap-2 text-muted-fg text-sm">
+            <InformationCircleIcon className="size-4.5" />
+            <span>If you encounter any issues, notify your coordinator.</span>
+          </div>
+        )}
+        <Button intent="danger" onPress={reportIssue}>
+          <ExclamationTriangleIcon /> Report Issue
+        </Button>
+      </footer>
     </div>
   );
 }
