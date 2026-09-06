@@ -23,6 +23,11 @@ class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     time, not stored (see docs/database-schema.md). duration/energy/machine_salary are snapshotted
     from Compatibility/Machine at generation time so a schedule's reported cost never silently
     changes if that source data changes later.
+
+    energy and machine_salary are nullable because the values they snapshot are: a scenario seeded
+    from an academic benchmark records durations only. A NULL here means the source carried no such
+    cost when the schedule was generated, so cost reporting must exclude the entry rather than sum
+    it as zero. duration stays required -- a schedule entry without one cannot be sequenced.
     """
 
     __tablename__ = "schedule_entries"
@@ -47,8 +52,8 @@ class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
-    energy: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    machine_salary: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    energy: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    machine_salary: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     schedule: Mapped[Schedule] = relationship()
     operation: Mapped[Operation] = relationship()
