@@ -29,6 +29,8 @@ class Schedule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     status: Mapped[str] = mapped_column(Text, nullable=False)
     strategy: Mapped[str] = mapped_column(Text, nullable=False)
+    runtime_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_operation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     makespan: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_energy: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     total_labour_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)

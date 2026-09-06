@@ -1,0 +1,394 @@
+"""Adapter between FloorSync's scheduling contract and the ReSched FJSP policy."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import timedelta
+from decimal import Decimal
+from itertools import pairwise
+from pathlib import Path
+from typing import Any, ClassVar
+from uuid import UUID
+
+from floorsync_common.outcomes import ExpectedOutcome
+from floorsync_common.scheduling.contracts import (
+    ScheduleDependencySpec,
+    ScheduledOperation,
+    ScheduleGenerated,
+    ScheduleMetrics,
+    SchedulePlan,
+    SchedulingInput,
+    SchedulingInputInvalid,
+    SchedulingIssue,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ReSchedRuntimeUnavailable(ExpectedOutcome):
+    detail: str
+
+
+type ReSchedGenerateResult = ScheduleGenerated | SchedulingInputInvalid | ReSchedRuntimeUnavailable
+
+
+class ReSchedEngine:
+    """Run ReSched unchanged, then map its solution into FloorSync's schedule format."""
+
+    strategy = "resched_reinforce_v1"
+    _model_params: ClassVar[dict[str, int]] = {
+        "action_space": 2,
+        "embedding_dim": 128,
+        "block_num": 2,
+        "head_num": 8,
+        "qkv_dim": 16,
+        "ff_hidden_dim": 512,
+    }
+
+    @staticmethod
+    def generate(problem: SchedulingInput) -> ReSchedGenerateResult:
+        issues, chains = ReSchedEngine._validate(problem)
+        if issues:
+            return SchedulingInputInvalid(issues=issues)
+        try:
+            return ScheduleGenerated(plan=ReSchedEngine._run(problem, chains))
+        except ReSchedRuntimeError as error:
+            return ReSchedRuntimeUnavailable(detail=str(error))
+
+    @staticmethod
+    def _validate(
+        problem: SchedulingInput,
+    ) -> tuple[tuple[SchedulingIssue, ...], tuple[tuple[UUID, ...], ...]]:
+        """Accept only the standard FJSP input represented by the pretrained ReSched policy."""
+
+        issues: list[SchedulingIssue] = []
+        if problem.starts_at.tzinfo is None:
+            issues.append(
+                SchedulingIssue("invalid_start", "Schedule start time must include a timezone.")
+            )
+        if problem.unavailabilities:
+            issues.append(
+                SchedulingIssue(
+                    "unsupported_unavailability",
+                    "ReSched does not model machine downtime.",
+                )
+            )
+
+        machine_ids = {machine.id for machine in problem.machines}
+        operation_ids = {operation.id for operation in problem.operations}
+        if len(machine_ids) != len(problem.machines):
+            issues.append(SchedulingIssue("duplicate_machine", "Machine IDs must be unique."))
+        if len(operation_ids) != len(problem.operations):
+            issues.append(SchedulingIssue("duplicate_operation", "Operation IDs must be unique."))
+        if not operation_ids:
+            issues.append(SchedulingIssue("no_operations", "At least one operation is required."))
+
+        active_machine_ids = {machine.id for machine in problem.machines if machine.active}
+        route_pairs: set[tuple[UUID, UUID]] = set()
+        active_routes: dict[UUID, int] = defaultdict(int)
+        for route in problem.routes:
+            if route.operation_id not in operation_ids or route.machine_id not in machine_ids:
+                issues.append(
+                    SchedulingIssue(
+                        "unknown_route_reference",
+                        "A route must reference an included operation and machine.",
+                        route.operation_id,
+                        route.machine_id,
+                    )
+                )
+            if route.duration_minutes <= 0:
+                issues.append(
+                    SchedulingIssue(
+                        "invalid_duration",
+                        "Route duration must be greater than zero.",
+                        route.operation_id,
+                        route.machine_id,
+                    )
+                )
+            if route.energy < 0:
+                issues.append(
+                    SchedulingIssue(
+                        "invalid_energy",
+                        "Route energy cannot be negative.",
+                        route.operation_id,
+                        route.machine_id,
+                    )
+                )
+            pair = (route.operation_id, route.machine_id)
+            if pair in route_pairs:
+                issues.append(
+                    SchedulingIssue(
+                        "duplicate_route",
+                        "Each operation-machine route must be unique.",
+                        route.operation_id,
+                        route.machine_id,
+                    )
+                )
+            route_pairs.add(pair)
+            if route.machine_id in active_machine_ids:
+                active_routes[route.operation_id] += 1
+        for operation_id in operation_ids:
+            if active_routes[operation_id] == 0:
+                issues.append(
+                    SchedulingIssue(
+                        "no_compatible_machine",
+                        "Operation has no active compatible machine.",
+                        operation_id,
+                    )
+                )
+
+        predecessor: dict[UUID, UUID] = {}
+        successor: dict[UUID, UUID] = {}
+        dependency_pairs: set[tuple[UUID, UUID]] = set()
+        for edge in problem.dependencies:
+            pair = (edge.before_operation_id, edge.after_operation_id)
+            if pair in dependency_pairs:
+                issues.append(
+                    SchedulingIssue("duplicate_dependency", "Dependency edges must be unique.")
+                )
+                continue
+            dependency_pairs.add(pair)
+            if pair[0] not in operation_ids or pair[1] not in operation_ids:
+                issues.append(
+                    SchedulingIssue(
+                        "unknown_dependency_operation",
+                        "A dependency must reference included operations.",
+                    )
+                )
+            elif pair[0] == pair[1]:
+                issues.append(
+                    SchedulingIssue("self_dependency", "An operation cannot depend on itself.")
+                )
+            elif pair[1] in predecessor or pair[0] in successor:
+                issues.append(
+                    SchedulingIssue(
+                        "unsupported_dependency_shape",
+                        "ReSched requires at most one predecessor and successor per operation.",
+                    )
+                )
+            else:
+                predecessor[pair[1]] = pair[0]
+                successor[pair[0]] = pair[1]
+        if issues:
+            return tuple(issues), ()
+
+        chains: list[tuple[UUID, ...]] = []
+        for start in sorted(operation_ids - set(predecessor), key=str):
+            chain = [start]
+            while chain[-1] in successor:
+                chain.append(successor[chain[-1]])
+            chains.append(tuple(chain))
+        scheduled_operations = {operation_id for chain in chains for operation_id in chain}
+        if scheduled_operations != operation_ids:
+            return (
+                (
+                    SchedulingIssue(
+                        "cyclic_dependencies",
+                        "ReSched requires acyclic linear job dependencies.",
+                    ),
+                ),
+                (),
+            )
+        return (), tuple(chains)
+
+    @staticmethod
+    def _run(problem: SchedulingInput, chains: tuple[tuple[UUID, ...], ...]) -> SchedulePlan:
+        np, torch, fjsp_environment, model_type, build_model_input = ReSchedEngine._load_runtime()
+        ordered_operation_ids = tuple(operation_id for chain in chains for operation_id in chain)
+        active_machines = tuple(
+            sorted(
+                (machine for machine in problem.machines if machine.active),
+                key=lambda machine: str(machine.id),
+            )
+        )
+        operation_index = {
+            operation_id: index for index, operation_id in enumerate(ordered_operation_ids)
+        }
+        machine_index = {machine.id: index for index, machine in enumerate(active_machines)}
+        route_by_pair = {(route.operation_id, route.machine_id): route for route in problem.routes}
+
+        duration = np.zeros((1, len(ordered_operation_ids), len(active_machines)), dtype=np.float32)
+        for (operation_id, machine_id), route in route_by_pair.items():
+            if machine_id in machine_index:
+                duration[0, operation_index[operation_id], machine_index[machine_id]] = (
+                    route.duration_minutes
+                )
+        dependency = np.zeros(
+            (1, len(ordered_operation_ids), len(ordered_operation_ids)), dtype=np.bool_
+        )
+        connection = np.zeros_like(dependency)
+        for chain in chains:
+            for position, operation_id in enumerate(chain):
+                target_index = operation_index[operation_id]
+                for successor_id in chain[position + 1 :]:
+                    connection[0, target_index, operation_index[successor_id]] = True
+                if position:
+                    dependency[0, operation_index[chain[position - 1]], target_index] = True
+        job_indexes = np.concatenate(
+            [
+                np.full(len(chain), job_index, dtype=np.int64)
+                for job_index, chain in enumerate(chains)
+            ]
+        )[None, :]
+        operation_positions = np.concatenate(
+            [np.arange(len(chain), dtype=np.int64) for chain in chains]
+        )[None, :]
+
+        environment = fjsp_environment()
+        environment.load_data(
+            1,
+            job_indexes,
+            operation_positions,
+            duration,
+            dependency,
+            connection,
+        )
+        state = environment.reset_state()
+        model = model_type(**ReSchedEngine._model_params)
+        model.load_state_dict(torch.load(ReSchedEngine._checkpoint_path(), map_location="cpu"))
+        model.eval()
+        model.set_decode_type("greedy")
+        with torch.no_grad():
+            done = False
+            while not done:
+                model_state, _ = build_model_input(state, environment)
+                action, _ = model(model_state)
+                state, _, done = environment.step(action)
+
+        operation_by_job_position = {
+            (job_index, position): operation_id
+            for job_index, chain in enumerate(chains)
+            for position, operation_id in enumerate(chain)
+        }
+        machines_by_index = {index: machine for index, machine in enumerate(active_machines)}
+        assignments = []
+        for job_index, position, machine_id in zip(
+            environment.solution.job_idx[0],
+            environment.solution.operation_idx[0],
+            environment.solution.machine_idx[0],
+            strict=True,
+        ):
+            operation_id = operation_by_job_position[(int(job_index), int(position))]
+            machine = machines_by_index[int(machine_id)]
+            route = route_by_pair[(operation_id, machine.id)]
+            operation_offset = operation_index[operation_id]
+            starts_at = state.start_time[0, operation_offset, int(machine_id)]
+            ends_at = state.finish_time[0, operation_offset, int(machine_id)]
+            assignments.append(
+                ScheduledOperation(
+                    operation_id=operation_id,
+                    machine_id=machine.id,
+                    starts_at=problem.starts_at + timedelta(minutes=int(starts_at)),
+                    ends_at=problem.starts_at + timedelta(minutes=int(ends_at)),
+                    duration_minutes=route.duration_minutes,
+                    energy=route.energy,
+                    machine_salary_per_minute=machine.salary_per_minute,
+                )
+            )
+        return ReSchedEngine._to_plan(problem, tuple(assignments))
+
+    @staticmethod
+    def _to_plan(
+        problem: SchedulingInput,
+        assignments: tuple[ScheduledOperation, ...],
+    ) -> SchedulePlan:
+        dependencies = [
+            ScheduleDependencySpec(
+                schedule_operation_id=edge.after_operation_id,
+                depends_on_operation_id=edge.before_operation_id,
+                reason="job_order",
+            )
+            for edge in problem.dependencies
+        ]
+        existing_edges = {
+            (dependency.schedule_operation_id, dependency.depends_on_operation_id)
+            for dependency in dependencies
+        }
+        for machine_id in {assignment.machine_id for assignment in assignments}:
+            queue = sorted(
+                (assignment for assignment in assignments if assignment.machine_id == machine_id),
+                key=lambda assignment: (
+                    assignment.starts_at,
+                    assignment.ends_at,
+                    str(assignment.operation_id),
+                ),
+            )
+            for previous, current in pairwise(queue):
+                edge = (current.operation_id, previous.operation_id)
+                if edge not in existing_edges:
+                    dependencies.append(
+                        ScheduleDependencySpec(
+                            schedule_operation_id=current.operation_id,
+                            depends_on_operation_id=previous.operation_id,
+                            reason="machine_queue",
+                        )
+                    )
+                    existing_edges.add(edge)
+        ordered = tuple(
+            sorted(
+                assignments,
+                key=lambda assignment: (
+                    assignment.starts_at,
+                    assignment.ends_at,
+                    str(assignment.operation_id),
+                ),
+            )
+        )
+        latest_end = max(assignment.ends_at for assignment in ordered)
+        return SchedulePlan(
+            assignments=ordered,
+            dependencies=tuple(dependencies),
+            metrics=ScheduleMetrics(
+                makespan_minutes=int((latest_end - problem.starts_at).total_seconds() // 60),
+                total_energy=sum((assignment.energy for assignment in ordered), Decimal("0")),
+                total_labour_cost=sum(
+                    (
+                        Decimal(assignment.duration_minutes) * assignment.machine_salary_per_minute
+                        for assignment in ordered
+                    ),
+                    Decimal("0"),
+                ),
+            ),
+        )
+
+    @staticmethod
+    def _load_runtime() -> tuple[Any, Any, Any, Any, Any]:
+        if importlib.util.find_spec("numpy") is None or importlib.util.find_spec("torch") is None:
+            raise ReSchedRuntimeError(
+                "Install the 'resched' optional dependency group to run ReSched."
+            )
+        source_directory = ReSchedEngine._source_directory()
+        if not source_directory.is_dir():
+            raise ReSchedRuntimeError("The ReSched git submodule has not been initialised.")
+        if not ReSchedEngine._checkpoint_path().is_file():
+            raise ReSchedRuntimeError("The configured ReSched checkpoint is unavailable.")
+        if str(source_directory) not in sys.path:
+            sys.path.insert(0, str(source_directory))
+        try:
+            import numpy as np
+            import torch
+            from SchedulingEnvironment import FJSPEnv  # type: ignore[import-not-found]
+            from SchedulingModel import Model, build_model_input  # type: ignore[import-not-found]
+        except ImportError as error:
+            raise ReSchedRuntimeError(f"Unable to import ReSched: {error}") from error
+        return np, torch, FJSPEnv, Model, build_model_input
+
+    @staticmethod
+    def _source_directory() -> Path:
+        return Path(__file__).resolve().parents[3] / "third_party" / "ReSched" / "REINFORCE"
+
+    @staticmethod
+    def _checkpoint_path() -> Path:
+        return (
+            ReSchedEngine._source_directory().parent
+            / "ckpt"
+            / "REINFORCE"
+            / "FJSP"
+            / "Old-SD1-10x05.pth"
+        )
+
+
+class ReSchedRuntimeError(RuntimeError):
+    """Expected deployment/configuration failure of the optional learned runtime."""

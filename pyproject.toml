@@ -16,6 +16,12 @@ dependencies = [
   "uvicorn[standard]>=0.52.3,<1",
 ]
 
+[project.optional-dependencies]
+resched = [
+  "numpy>=1.26,<3",
+  "torch>=2.4,<3",
+]
+
 [dependency-groups]
 dev = [
   "httpx>=0.28.1,<1",
@@ -28,6 +34,7 @@ dev = [
 line-length = 100
 target-version = "py312"
 src = ["src/backend/common", "src/backend/api", "src/backend/workers"]
+extend-exclude = ["src/backend/third_party"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
@@ -44,7 +51,7 @@ python_version = "3.12"
 strict = true
 explicit_package_bases = true
 mypy_path = ["src/backend/common", "src/backend/api", "src/backend/workers"]
-exclude = ["src/database/migrations"]
+exclude = ["src/database/migrations", "src/backend/third_party"]
 
 [[tool.mypy.overrides]]
 module = ["celery", "celery.*"]

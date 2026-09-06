@@ -1,0 +1,3 @@
+[submodule "src/backend/third_party/ReSched"]
+	path = src/backend/third_party/ReSched
+	url = https://github.com/XiangjieXiao/ReSched.git
