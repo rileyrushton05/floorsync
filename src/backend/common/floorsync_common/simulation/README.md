@@ -21,6 +21,10 @@ Two decisions govern this package:
 | Playback | `timeline.py`, `state.py` | `Timeline` answers "what is true at time `t`" as `MachineState` / `JobState` / `SimulationSnapshot`. |
 | Playback | `events.py` | `derive_simulated_time()` replays a simulation's control log to find that `t` authoritatively. |
 | Playback | `clock.py`, `engine.py` | `PlaybackClock` and `SimulationEngine` animate locally between derived positions. |
+| Application | `queries.py`, `service.py`, `results.py` | The only DB-touching modules: named reads, `ScheduleTimelineService` / `SimulationService`, and their typed outcomes. |
+
+Everything above the application row is pure. `queries.py` and `service.py` are the only modules
+that import SQLAlchemy, so the resolver and the event replay stay testable without a database.
 
 ## FloorSync schedules
 
@@ -101,6 +105,19 @@ A solver run writes an array of solutions, so pass `instance_name` when a file h
 Reentrant visits are supported: when a job appears in a machine's sequence more than once,
 occurrences bind in order — the first appearance of job `j` on machine `m` is `j`'s first operation
 there. The `ft*` and `la*` families do not exercise this; `dmu*` and `ta*` do.
+
+## HTTP surface
+
+`floorsync_api.features.simulation` exposes four endpoints, all under `/api/v1`:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /schedules/{schedule_id}/timeline` | The resolved timeline. Immutable for a confirmed schedule, so fetch once and animate locally. |
+| `POST /simulations` | Create the simulation for a confirmed schedule. One per schedule. |
+| `GET /simulations/{simulation_id}` | The position derived from the event log right now. |
+| `POST /simulations/{simulation_id}/events` | Record a control action and return the resulting position. |
+
+Reads are open to any signed-in account so operators can watch; control actions require a manager.
 
 ## Errors
 
