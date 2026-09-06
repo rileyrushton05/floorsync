@@ -1,3 +1,261 @@
-:root { color: #eaf7ff; background: #071b2a; font-family: Arial, sans-serif; }
-* { box-sizing: border-box; }
-body { margin: 0; }
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "tailwindcss-react-aria-components";
+
+/**
+ * FloorSync theme for Intent UI.
+ *
+ * Two surfaces, because the product has always had two:
+ *   :root        the light operations surface (/manager, /operator) — slate
+ *                shell, white panels, #2563eb accent.
+ *   .theme-navy  the navy marketing surface (the landing page) — #071b2a with
+ *                cyan accents. Also aliased to .dark so a dark-mode toggle
+ *                lands somewhere coherent rather than on unstyled defaults.
+ *
+ * Every value here is lifted from the CSS modules this replaced, so Intent UI
+ * components render in the palette the team already designed against.
+ */
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  /* Intent UI's <Heading> styles itself with font-display. */
+  --font-display: var(--font-sans);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-fg: var(--primary-subtle-fg);
+  --color-secondary: var(--secondary);
+  --color-secondary-fg: var(--secondary-fg);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-success: var(--success);
+  --color-success-fg: var(--success-fg);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-subtle-fg: var(--success-subtle-fg);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-subtle-fg: var(--danger-subtle-fg);
+  --color-warning: var(--warning);
+  --color-warning-fg: var(--warning-fg);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-subtle-fg: var(--warning-subtle-fg);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-subtle-fg: var(--info-subtle-fg);
+  --color-muted: var(--muted);
+  --color-muted-fg: var(--muted-fg);
+  --color-overlay: var(--overlay);
+  --color-overlay-fg: var(--overlay-fg);
+  --color-navbar: var(--navbar);
+  --color-navbar-fg: var(--navbar-fg);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-fg: var(--sidebar-fg);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-fg: var(--sidebar-primary-fg);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-fg: var(--sidebar-accent-fg);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Mirrors the categorical job palette in app/manager/_lib/colors.ts. */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ── Light operations surface ─────────────────────────────────────────────── */
+:root {
+  --radius: 0.625rem;
+
+  --bg: #f1f5f9;
+  --fg: #0f172a;
+
+  --primary: #2563eb;
+  --primary-fg: #ffffff;
+  --primary-subtle: #dbeafe;
+  --primary-subtle-fg: #1d4ed8;
+
+  --secondary: #e2e8f0;
+  --secondary-fg: #0f172a;
+
+  --overlay: #ffffff;
+  --overlay-fg: #0f172a;
+
+  --accent: #e2e8f0;
+  --accent-fg: #0f172a;
+
+  --muted: #f8fafc;
+  --muted-fg: #64748b;
+
+  --success: #16a34a;
+  --success-fg: #ffffff;
+  --success-subtle: #dcfce7;
+  --success-subtle-fg: #15803d;
+
+  --info-subtle: #dbeafe;
+  --info-subtle-fg: #1d4ed8;
+
+  --warning: #f59e0b;
+  --warning-fg: #422006;
+  --warning-subtle: #fef3c7;
+  --warning-subtle-fg: #b45309;
+
+  --danger: #dc2626;
+  --danger-fg: #ffffff;
+  --danger-subtle: #fee2e2;
+  --danger-subtle-fg: #b91c1c;
+
+  --border: #e2e8f0;
+  --input: #cbd5e1;
+  --ring: #2563eb;
+
+  --navbar: #ffffff;
+  --navbar-fg: #0f172a;
+
+  --sidebar: #ffffff;
+  --sidebar-fg: #0f172a;
+  --sidebar-primary: #dbeafe;
+  --sidebar-primary-fg: #1d4ed8;
+  --sidebar-accent: #e2e8f0;
+  --sidebar-accent-fg: #0f172a;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: #2563eb;
+
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+}
+
+/* ── Navy marketing surface ───────────────────────────────────────────────── */
+.theme-navy,
+.dark {
+  --bg: #071b2a;
+  --fg: #eaf7ff;
+
+  --primary: #43c5ff;
+  --primary-fg: #04212f;
+  --primary-subtle: #0f3450;
+  --primary-subtle-fg: #8dd9ff;
+
+  --secondary: #0b2940;
+  --secondary-fg: #eaf7ff;
+
+  --overlay: #0b2940;
+  --overlay-fg: #eaf7ff;
+
+  --accent: #0f3450;
+  --accent-fg: #eaf7ff;
+
+  --muted: #0b2940;
+  --muted-fg: #b3d2e3;
+
+  --success: #22c55e;
+  --success-fg: #04210f;
+  --success-subtle: #0d3a24;
+  --success-subtle-fg: #6ee7a8;
+
+  --info-subtle: #0f3450;
+  --info-subtle-fg: #8dd9ff;
+
+  --warning: #fbbf24;
+  --warning-fg: #2c1a02;
+  --warning-subtle: #3d2c07;
+  --warning-subtle-fg: #fcd34d;
+
+  --danger: #f05252;
+  --danger-fg: #2b0606;
+  --danger-subtle: #45161a;
+  --danger-subtle-fg: #fca5a5;
+
+  --border: #1d6687;
+  --input: #1d6687;
+  --ring: #43c5ff;
+
+  --navbar: #071b2a;
+  --navbar-fg: #eaf7ff;
+
+  --sidebar: #0b2940;
+  --sidebar-fg: #eaf7ff;
+  --sidebar-primary: #0f3450;
+  --sidebar-primary-fg: #8dd9ff;
+  --sidebar-accent: #0f3450;
+  --sidebar-accent-fg: #eaf7ff;
+  --sidebar-border: #1d6687;
+  --sidebar-ring: #43c5ff;
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border, currentColor);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+}
+
+@utility touch-target {
+  position: relative;
+
+  &::before {
+    content: "";
+    position: absolute;
+    display: block;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    height: 100%;
+    min-height: 44px;
+    min-width: 44px;
+    z-index: 9999;
+  }
+}

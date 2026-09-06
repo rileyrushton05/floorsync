@@ -1,7 +1,23 @@
 "use client";
 
-import Link from "next/link";
+import { PauseIcon, PlayIcon, UserCircleIcon } from "@heroicons/react/24/outline";
 import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/field";
+import { Link } from "@/components/ui/link";
+import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Slider, SliderFill, SliderThumb, SliderTrack } from "@/components/ui/slider";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableColumn,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Wordmark } from "../../_components/Logo";
 import { GanttChart } from "../_components/GanttChart";
 import { usePlanning } from "../_components/PlanningProvider";
@@ -9,8 +25,6 @@ import { SubNav } from "../_components/SubNav";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { formatDuration, formatOffset } from "../_lib/scheduling";
 import type { GeneratedSchedule } from "../_lib/types";
-import { IconPause, IconPlay, IconUser } from "../icons";
-import styles from "./simulation.module.css";
 
 /**
  * Simulation.
@@ -55,6 +69,38 @@ function machineActivity(schedule: GeneratedSchedule, machineId: string, nowMins
     return { kind: "idle", nextStartMins: Math.min(...upcoming.map((op) => op.startMins)) };
 }
 
+const ACTIVITY_INTENT = {
+    running: "info",
+    idle: "warning",
+    finished: "success",
+} as const;
+
+const STATE_INTENT = {
+    Done: "success",
+    Running: "info",
+    Waiting: "secondary",
+} as const;
+
+function ManagerTopbar({ children }: { children?: React.ReactNode }) {
+    return (
+        <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+            <div className="flex items-center gap-2.5">
+                <Wordmark />
+                <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
+                    Manager
+                </span>
+            </div>
+            <SubNav />
+            {children}
+            <div className="flex-1" />
+            <div className="flex items-center gap-2">
+                <UserCircleIcon className="size-7 text-muted-fg" />
+                <span className="font-semibold text-sm">Manager</span>
+            </div>
+        </header>
+    );
+}
+
 export default function SimulationPage() {
     const { machines, jobs, schedule } = usePlanning();
     const [simMins, setSimMins] = useState(0);
@@ -90,27 +136,18 @@ export default function SimulationPage() {
 
     if (!schedule) {
         return (
-            <div className={styles.shell}>
-                <header className={styles.topbar}>
-                    <div className={styles.brandGroup}>
-                        <Wordmark />
-                        <span className={styles.viewLabel}>Manager</span>
-                    </div>
-                    <SubNav />
-                    <div className={styles.topbarSpacer} />
-                    <div className={styles.userBlock}>
-                        <IconUser />
-                        <span className={styles.userName}>Manager</span>
-                    </div>
-                </header>
-                <main className={styles.main}>
-                    <div className={styles.emptyState}>
-                        <h2>Nothing to simulate yet</h2>
-                        <p>
+            <div className="flex min-h-dvh flex-col bg-bg text-fg">
+                <ManagerTopbar />
+                <main className="flex flex-1 items-center justify-center p-5">
+                    <div className="max-w-prose rounded-lg border border-dashed bg-overlay p-8 text-center">
+                        <h2 className="font-semibold text-lg">Nothing to simulate yet</h2>
+                        <p className="mt-2 text-muted-fg text-sm">
                             The simulation replays a generated plan. Build one first — pick the jobs to
                             release and generate a schedule.
                         </p>
-                        <Link className={styles.emptyLink} href="/manager/scheduler">Go to the scheduler →</Link>
+                        <Link href="/manager/scheduler" className="mt-4 inline-block text-primary text-sm">
+                            Go to the scheduler →
+                        </Link>
                     </div>
                 </main>
             </div>
@@ -123,216 +160,238 @@ export default function SimulationPage() {
     const usedMachines = machines.filter((machine) => schedule.ops.some((op) => op.machineId === machine.id));
 
     return (
-        <div className={styles.shell}>
-            <header className={styles.topbar}>
-                <div className={styles.brandGroup}>
-                    <Wordmark />
-                    <span className={styles.viewLabel}>Manager</span>
-                </div>
-                <SubNav />
-
-                <div className={styles.transport}>
-                    <button
-                        className={styles.playBtn}
-                        onClick={() => {
+        <div className="flex min-h-dvh flex-col bg-bg text-fg">
+            <ManagerTopbar>
+                <div className="flex flex-wrap items-center gap-2.5">
+                    <Button
+                        size="sq-sm"
+                        onPress={() => {
                             if (atEnd) setSimMins(0);
                             setPlaying((value) => (atEnd ? true : !value));
                         }}
                         aria-label={running ? "Pause simulation" : "Play simulation"}
                     >
-                        {running ? <IconPause /> : <IconPlay />}
-                    </button>
-                    <button
-                        className={styles.resetBtn}
-                        onClick={() => { setPlaying(false); setSimMins(0); }}
-                    >Reset</button>
+                        {running ? <PauseIcon /> : <PlayIcon />}
+                    </Button>
+                    <Button
+                        intent="outline"
+                        size="sm"
+                        onPress={() => {
+                            setPlaying(false);
+                            setSimMins(0);
+                        }}
+                    >
+                        Reset
+                    </Button>
 
-                    <div className={styles.speedPill} role="group" aria-label="Playback speed">
+                    <ToggleGroup
+                        aria-label="Playback speed"
+                        selectionMode="single"
+                        disallowEmptySelection
+                        selectedKeys={new Set([String(speed)])}
+                        onSelectionChange={(keys) => {
+                            const [first] = Array.from(keys);
+                            if (typeof first === "string") setSpeed(Number(first));
+                        }}
+                    >
                         {SPEEDS.map((option) => (
-                            <button
+                            <ToggleGroupItem
                                 key={option.value}
-                                className={`${styles.speedBtn} ${speed === option.value ? styles.speedBtnOn : ""}`}
-                                onClick={() => setSpeed(option.value)}
-                                aria-pressed={speed === option.value}
-                                title={option.hint}
+                                id={String(option.value)}
+                                aria-label={`${option.label} speed — ${option.hint}`}
                             >
                                 {option.label}
-                            </button>
+                            </ToggleGroupItem>
                         ))}
-                    </div>
+                    </ToggleGroup>
 
-                    <span className={styles.clock}>{formatOffset(simMins)}</span>
+                    <span className="font-semibold tabular-nums">{formatOffset(simMins)}</span>
                 </div>
+            </ManagerTopbar>
 
-                <div className={styles.topbarSpacer} />
-                <div className={styles.userBlock}>
-                    <IconUser />
-                    <span className={styles.userName}>Manager</span>
-                </div>
-            </header>
-
-            <div className={styles.scrubBar}>
-                <label className={styles.scrubLabel} htmlFor="sim-scrub">Scrub</label>
-                <input
-                    id="sim-scrub"
-                    type="range"
-                    className={styles.scrub}
-                    min={0}
-                    max={makespan}
+            <div className="flex items-center gap-4 border-b bg-navbar px-7 py-2.5">
+                <Slider
+                    aria-label="Scrub the simulation clock"
+                    className="flex-1"
+                    minValue={0}
+                    maxValue={makespan}
                     step={1}
                     value={simMins}
-                    onChange={(e) => { setPlaying(false); setSimMins(Number(e.target.value)); }}
-                />
-                <span className={styles.scrubEnd}>{formatDuration(makespan)}</span>
+                    onChange={(value) => {
+                        setPlaying(false);
+                        setSimMins(Array.isArray(value) ? value[0] : value);
+                    }}
+                >
+                    <Label className="sr-only">Scrub</Label>
+                    <SliderTrack>
+                        <SliderFill />
+                        <SliderThumb />
+                    </SliderTrack>
+                </Slider>
+                <span className="shrink-0 text-muted-fg text-sm tabular-nums">
+                    {formatDuration(makespan)}
+                </span>
             </div>
 
-            <main className={styles.main}>
-                <aside className={styles.machinePanel}>
-                    <div className={styles.panelHead}>
-                        <h2 className={styles.panelTitle}>Machines now</h2>
-                    </div>
-                    <ul className={styles.machineList}>
-                        {usedMachines.map((machine) => {
-                            const activity = machineActivity(schedule, machine.id, simMins);
-                            return (
-                                <li key={machine.id} className={styles.machineCard}>
-                                    <div className={styles.machineHead}>
-                                        <span className={styles.machineName}>{machine.name}</span>
-                                        <span className={`${styles.pill} ${styles[`pill_${activity.kind}`]}`}>
-                                            {activity.kind === "running" ? "Running"
-                                                : activity.kind === "idle" ? "Idle" : "Done"}
-                                        </span>
-                                    </div>
-                                    <div className={styles.machineOperator}>{machine.operator}</div>
-                                    {activity.kind === "running" && (
-                                        <>
-                                            <div className={styles.machineJob}>
-                                                <span
-                                                    className={styles.dot}
-                                                    style={{ background: jobColor(colors, activity.jobId).fill }}
-                                                />
-                                                <strong>{activity.jobId}</strong> · Op {activity.opIndex}/{activity.opTotal} {activity.opName}
-                                            </div>
-                                            <div
-                                                className={styles.miniTrack}
-                                                role="progressbar"
-                                                aria-valuenow={Math.round(activity.progressPct)}
-                                                aria-valuemin={0}
-                                                aria-valuemax={100}
-                                                aria-label={`${machine.name} current operation progress`}
-                                            >
-                                                <div className={styles.miniFill} style={{ width: `${activity.progressPct}%` }} />
-                                            </div>
-                                            <div className={styles.machineSub}>
-                                                finishes {formatOffset(activity.endMins)}
-                                            </div>
-                                        </>
-                                    )}
-                                    {activity.kind === "idle" && (
-                                        <div className={styles.machineSub}>
-                                            next job at {formatOffset(activity.nextStartMins ?? 0)}
-                                        </div>
-                                    )}
-                                    {activity.kind === "finished" && (
-                                        <div className={styles.machineSub}>all work complete</div>
-                                    )}
-                                </li>
-                            );
-                        })}
-                    </ul>
-                </aside>
-
-                <section className={styles.timelinePanel}>
-                    <div className={styles.panelHead}>
-                        <h2 className={styles.panelTitle}>Plan playback</h2>
-                        <div className={styles.stateLegend}>
-                            <span><span className={styles.swatchDone} />✓ Completed</span>
-                            <span><span className={styles.swatchRunning} />▶ Running</span>
-                            <span><span className={styles.swatchUpcoming} />Upcoming</span>
-                        </div>
-                    </div>
-
-                    <div className={styles.overallRow}>
-                        <div
-                            className={styles.overallTrack}
-                            role="progressbar"
-                            aria-valuenow={overallPct}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                            aria-label="Elapsed share of the plan"
-                        >
-                            <div className={styles.overallFill} style={{ width: `${overallPct}%` }} />
-                        </div>
-                        <span className={styles.overallText}>
-                            {completedOps} done · {runningOps} running · {schedule.ops.length - completedOps - runningOps} to go
-                        </span>
-                    </div>
-
-                    <GanttChart
-                        machines={machines}
-                        jobs={jobs}
-                        schedule={schedule}
-                        colors={colors}
-                        mode="simulation"
-                        nowMins={simMins}
-                        selectedJobId={highlightedJobId}
-                        onSelectJob={(jobId) =>
-                            setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
-                        }
-                    />
-                </section>
-
-                <aside className={styles.jobPanel}>
-                    <div className={styles.panelHead}>
-                        <h2 className={styles.panelTitle}>Job progress</h2>
-                    </div>
-                    <table className={styles.jobTable}>
-                        <thead>
-                            <tr>
-                                <th>Job</th>
-                                <th>Ops</th>
-                                <th>State</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {schedule.order.map((jobId) => {
-                                const jobOps = schedule.ops.filter((op) => op.jobId === jobId);
-                                const done = jobOps.filter((op) => op.endMins <= simMins).length;
-                                const finish = schedule.jobFinish[jobId] ?? 0;
-                                const start = schedule.jobStart[jobId] ?? 0;
-                                const state = simMins >= finish ? "Done"
-                                    : simMins >= start ? "Running"
-                                    : "Waiting";
+            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(240px,0.8fr)_2.4fr_minmax(220px,0.7fr)]">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Machines now</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <ul className="space-y-2.5">
+                            {usedMachines.map((machine) => {
+                                const activity = machineActivity(schedule, machine.id, simMins);
                                 return (
-                                    <tr key={jobId} className={highlightedJobId === jobId ? styles.jobRowOn : ""}>
-                                        <td>
-                                            <button
-                                                type="button"
-                                                className={styles.jobBtn}
-                                                onClick={() =>
-                                                    setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
-                                                }
-                                                aria-pressed={highlightedJobId === jobId}
-                                            >
-                                                <span
-                                                    className={styles.dot}
-                                                    style={{ background: jobColor(colors, jobId).fill }}
-                                                />
-                                                {jobId}
-                                            </button>
-                                        </td>
-                                        <td className={styles.numeric}>{done}/{jobOps.length}</td>
-                                        <td>
-                                            <span className={`${styles.pill} ${styles[`pill_${state.toLowerCase()}`]}`}>
-                                                {state}
-                                            </span>
-                                        </td>
-                                    </tr>
+                                    <li key={machine.id} className="rounded-lg border bg-muted p-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="font-semibold text-sm">{machine.name}</span>
+                                            <Badge intent={ACTIVITY_INTENT[activity.kind]}>
+                                                {activity.kind === "running"
+                                                    ? "Running"
+                                                    : activity.kind === "idle"
+                                                      ? "Idle"
+                                                      : "Done"}
+                                            </Badge>
+                                        </div>
+                                        <div className="text-muted-fg text-xs">{machine.operator}</div>
+                                        {activity.kind === "running" && (
+                                            <>
+                                                <div className="mt-2 flex items-center gap-1.5 text-xs">
+                                                    <span
+                                                        className="size-2.5 shrink-0 rounded-full"
+                                                        style={{ background: jobColor(colors, activity.jobId).fill }}
+                                                    />
+                                                    <strong>{activity.jobId}</strong> · Op {activity.opIndex}/
+                                                    {activity.opTotal} {activity.opName}
+                                                </div>
+                                                <ProgressBar
+                                                    aria-label={`${machine.name} current operation progress`}
+                                                    value={activity.progressPct}
+                                                    className="mt-2"
+                                                >
+                                                    <ProgressBarTrack className="min-w-0" />
+                                                </ProgressBar>
+                                                <div className="mt-1.5 text-muted-fg text-xs">
+                                                    finishes {formatOffset(activity.endMins)}
+                                                </div>
+                                            </>
+                                        )}
+                                        {activity.kind === "idle" && (
+                                            <div className="mt-1.5 text-muted-fg text-xs">
+                                                next job at {formatOffset(activity.nextStartMins ?? 0)}
+                                            </div>
+                                        )}
+                                        {activity.kind === "finished" && (
+                                            <div className="mt-1.5 text-muted-fg text-xs">all work complete</div>
+                                        )}
+                                    </li>
                                 );
                             })}
-                        </tbody>
-                    </table>
-                </aside>
+                        </ul>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
+                        <CardTitle>Plan playback</CardTitle>
+                        <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
+                            <span className="flex items-center gap-1.5">
+                                <span className="size-2.5 rounded-xs bg-fg/25" />✓ Completed
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <span className="size-2.5 rounded-xs bg-primary" />▶ Running
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <span className="size-2.5 rounded-xs bg-fg/10" />Upcoming
+                            </span>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center gap-3">
+                            <ProgressBar
+                                aria-label="Elapsed share of the plan"
+                                value={overallPct}
+                                className="flex-1"
+                            >
+                                <ProgressBarTrack className="min-w-0" />
+                            </ProgressBar>
+                            <span className="shrink-0 text-muted-fg text-xs">
+                                {completedOps} done · {runningOps} running ·{" "}
+                                {schedule.ops.length - completedOps - runningOps} to go
+                            </span>
+                        </div>
+
+                        <GanttChart
+                            machines={machines}
+                            jobs={jobs}
+                            schedule={schedule}
+                            colors={colors}
+                            mode="simulation"
+                            nowMins={simMins}
+                            selectedJobId={highlightedJobId}
+                            onSelectJob={(jobId) =>
+                                setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
+                            }
+                        />
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Job progress</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <Table
+                            aria-label="Job progress"
+                            selectionMode="single"
+                            selectionBehavior="replace"
+                            selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
+                            onSelectionChange={(keys) => {
+                                if (keys === "all") return;
+                                const [first] = Array.from(keys);
+                                if (typeof first === "string") {
+                                    setHighlightedJobId((previous) => (previous === first ? null : first));
+                                }
+                            }}
+                        >
+                            <TableHeader>
+                                <TableColumn isRowHeader>Job</TableColumn>
+                                <TableColumn>Ops</TableColumn>
+                                <TableColumn>State</TableColumn>
+                            </TableHeader>
+                            <TableBody items={schedule.order.map((id) => ({ id }))}>
+                                {({ id }) => {
+                                    const jobOps = schedule.ops.filter((op) => op.jobId === id);
+                                    const done = jobOps.filter((op) => op.endMins <= simMins).length;
+                                    const finish = schedule.jobFinish[id] ?? 0;
+                                    const start = schedule.jobStart[id] ?? 0;
+                                    const state =
+                                        simMins >= finish ? "Done" : simMins >= start ? "Running" : "Waiting";
+                                    return (
+                                        <TableRow id={id}>
+                                            <TableCell>
+                                                <span className="flex items-center gap-1.5">
+                                                    <span
+                                                        className="size-2.5 shrink-0 rounded-full"
+                                                        style={{ background: jobColor(colors, id).fill }}
+                                                    />
+                                                    {id}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell className="tabular-nums">
+                                                {done}/{jobOps.length}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge intent={STATE_INTENT[state]}>{state}</Badge>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                }}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
             </main>
         </div>
     );

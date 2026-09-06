@@ -1,8 +1,10 @@
 # Frontend
 
-Next.js 16 (App Router) + React 19 + TypeScript. No UI/component library and no
-CSS framework — plain CSS Modules, styled by hand to match the FloorSync visual
-design.
+Next.js 16 (App Router) + React 19 + TypeScript, built on
+[Intent UI](https://intentui.com) — accessible components on React Aria
+Components + Tailwind CSS v4, vendored into `components/ui/` and owned by us.
+The theme in `app/styles.css` is tuned to the FloorSync visual design, so the
+app looks as it always has while the behaviour underneath comes from React Aria.
 
 ## Getting started
 
@@ -88,20 +90,29 @@ and missing-dependency detection) are worth pinning down in tests — see
 ## Project structure
 
 ```text
+components/
+├── theme-provider.tsx             # next-themes wrapper; Intent UI reads useTheme
+└── ui/                            # Vendored Intent UI components — we own these
+    ├── button.tsx  badge.tsx  card.tsx  table.tsx  select.tsx  …
+    └── (re-add more with: pnpm dlx shadcn@latest add @intentui/<name>)
+
+lib/
+└── primitive.ts                   # Intent UI's cx() render-prop class helper
+
 app/
 ├── layout.tsx                     # Root layout, imports styles.css globally
-├── styles.css                     # Global reset ONLY — see "Styling conventions"
-├── page.tsx                       # "/" landing page
-├── home.module.css
+├── providers.tsx                  # ThemeProvider + RouterProvider + <Toast />
+├── styles.css                     # Tailwind entry + the FloorSync theme tokens
+├── page.tsx                       # "/" landing page (navy surface)
 │
 ├── _components/                   # Shared across every route
 │   ├── Logo.tsx                   # <Logo> mark and <Wordmark> home link
-│   ├── Badge.tsx                  # Status/priority pill + tone helpers
-│   └── Badge.module.css
+│   └── icons.tsx                  # CoffeeIcon — the one icon Heroicons lacks
+├── _lib/
+│   └── badge-intent.ts            # priority/status → Intent UI badge intents
 │
 ├── manager/
 │   ├── layout.tsx                 # Wraps every /manager route in PlanningProvider
-│   ├── icons.tsx                  # Inline SVG icon set for the manager area
 │   │
 │   ├── _lib/                      # Pure domain logic — no React
 │   │   ├── types.ts               # JobDef, ScheduledOperation, GeneratedSchedule…
@@ -112,19 +123,15 @@ app/
 │   ├── _components/
 │   │   ├── PlanningProvider.tsx   # Backlog + selection + generated plan (context)
 │   │   ├── SubNav.tsx             # Overview / Jobs / Schedule / Simulation tabs
-│   │   ├── GanttChart.tsx         # The schedule grid, shared by plan + simulation
-│   │   └── *.module.css
+│   │   └── GanttChart.tsx         # The schedule grid, shared by plan + simulation
 │   │
 │   ├── page.tsx                   # /manager — facility KPI overview
-│   ├── manager.module.css
 │   ├── jobs/                      # /manager/jobs — job + dependency builder
 │   ├── scheduler/                 # /manager/scheduler — release & generate
 │   └── simulation/                # /manager/simulation — plan playback
 │
 └── operator/                      # /operator — single-machine job queue
-    ├── page.tsx
-    ├── operator.module.css
-    └── icons.tsx
+    └── page.tsx
 ```
 
 ## Routes
@@ -251,31 +258,51 @@ once the solver is real.
 
 ## Styling conventions
 
-- **One CSS Module per route**, colocated with its `page.tsx`. Each module's
-  outer wrapper class (`.shell`) sets its own background, colour and font so
-  pages don't depend on global state.
-- **`app/styles.css` is a minimal global reset ONLY** (`:root` base
-  colour/font, `box-sizing`, `body` margin). Do **not** add bare element
-  selectors here (`h2 { … }`, `span { … }`, `section { … }`) — it is imported
-  once in `layout.tsx`, so anything added there applies to *every* route,
-  including ones that use those elements for structure rather than styling.
-  This bit us once already: an earlier version had a
-  `section { display: grid; grid-template-columns: … }` rule meant only for the
-  landing page, which silently broke the scheduler timeline grid (also a
-  `<section>`). Page-specific look belongs in that page's own `.module.css`.
-- Shared visual primitives (badges, the logo) live in `app/_components/`;
-  manager-only ones in `app/manager/_components/`.
-- Dynamic class names are composed as template literals against the styles
-  object: ``styles[`pill_${state}`]``. Renaming such a class means grepping for
-  the prefix, not the full name.
-- No charting library and no icon library: the Gantt is CSS-positioned divs and
-  icons are hand-written inline SVG components taking `size` and `color`.
+- **Reach for an Intent UI component before writing markup.** `components/ui/`
+  is vendored source we own — read it, and edit it if a variant is genuinely
+  missing rather than working around it at the call site. Add more with
+  `pnpm dlx shadcn@latest add @intentui/<name>`; unused ones were deleted, so
+  re-adding is expected and cheap.
+- **Style with theme tokens, never raw hex.** `bg-bg`, `text-fg`,
+  `text-muted-fg`, `bg-overlay`, `border`, `bg-primary`, `*-subtle` and friends
+  all resolve through `app/styles.css`. A literal colour in a component is a bug
+  unless it is *data* (see "Job colours" — the Gantt palette is data).
+- **Two surfaces, one token set.** `app/styles.css` defines the light operations
+  palette on `:root` and the navy landing palette on `.theme-navy` (aliased to
+  `.dark`). The landing page opts in by putting `theme-navy` on its wrapper;
+  every Intent UI component then repaints itself with no per-page overrides.
+  This is why there are no longer any bare element selectors to be careful
+  about — the earlier `section { … }` rule that silently broke the scheduler
+  grid has no equivalent in a token-driven theme.
+- **Interaction state comes from React Aria, not from us.** Use `onPress`
+  (not `onClick`), `isDisabled` (not `disabled`), `isSelected`/`onChange` on
+  `CheckboxField`, and `selectedKeys`/`onSelectionChange` on `Table`,
+  `GridList` and `ToggleGroup`. Dismissal, focus restoration, roving tabindex
+  and keyboard nav are already handled — the manager overview's notification
+  popover, for instance, dropped a hand-rolled document-listener effect for
+  Escape and outside clicks when it became an Intent UI `<Popover>`.
+- **Navigation goes through `href`.** `RouterProvider` in `app/providers.tsx`
+  wires every Intent UI `href` to the Next router, so `<Link>`, `<Tab>` and
+  friends do client-side pushes. Without that provider they degrade to full
+  page loads.
+- Icons come from `@heroicons/react/24/outline` (the set Intent UI itself uses)
+  and paint with `currentColor`. The single exception is `CoffeeIcon` in
+  `app/_components/icons.tsx`, which Heroicons does not ship.
+- Transient confirmations use `toast()` from `sonner`; persistent, in-context
+  messages use Intent UI's `<Note>`.
+
+### The Gantt is deliberately still bespoke
+
+Intent UI ships no timeline or Gantt component, so `GanttChart.tsx` remains
+custom. It is not an exception to the system, though: it is built on the same
+React Aria `Button`/`ToggleButton` primitives Intent UI wraps, and paints from
+the same theme tokens. Only its *geometry* is hand-written.
 
 ### Gantt geometry
 
-`GanttChart.module.css` defines two custom properties on its root — `--gutter`
-(the machine-name column) and `--hour` (the width of one hour). Every offset in
-the chart is `calc()`-ed from them:
+`GanttChart.tsx` sets two custom properties on its root via Tailwind arbitrary
+properties — `[--gutter:168px]` (the machine-name column) and `[--hour:124px]`
+(the width of one hour). Every offset in the chart is `calc()`-ed from them:
 
 ```
 left:  calc(var(--hour) * ${startMins / 60})
@@ -308,25 +335,36 @@ Two rules matter when touching it:
 
 ## Accessibility conventions
 
-Applied consistently; keep new work in line with them:
+Most of this is now enforced by React Aria rather than by convention. What that
+means in practice: **do not hand-roll behaviour a component already provides**,
+and do not add ARIA that the component already emits.
 
-- **Anything clickable is a real `<button>` or `<a>`.** Job cards, legend
-  entries and Gantt blocks are buttons; the manager overview's clickable table
-  rows keep their row-level `onClick` as a mouse affordance but carry a
-  focusable chevron button as the keyboard equivalent, so the table keeps its
-  semantics.
-- **Every module ends with a `:focus-visible` block** giving one consistent
-  `2px solid #2563eb` ring to every interactive element on that page.
-- **Modals** carry `role="dialog"`, `aria-modal` and `aria-labelledby`, and
-  close on Escape as well as backdrop click.
-- **Popovers** (the overview's notification bell) set `aria-expanded` and close
-  on Escape or an outside click.
-- **Transient banners and toasts** carry `role="status"`; blocking validation
-  carries `role="alert"`.
-- **Progress bars** carry `role="progressbar"` with `aria-valuenow/min/max`.
+Handled for us by Intent UI / React Aria:
+
+- Roles and ARIA state on `Table`, `GridList`, `Tabs`, `Select`, `Popover`,
+  `ProgressBar`, `Slider`, `Checkbox` and `ToggleGroup` — including
+  `role="progressbar"` with `aria-valuenow/min/max`, and `aria-expanded` plus
+  Escape/outside-click dismissal and focus restoration on overlays.
+- Keyboard navigation: roving tabindex in tab lists and toggle groups, arrow
+  keys and typeahead in tables and lists, full keyboard operation of the
+  scrub slider.
+- A consistent `focus-visible` ring from the shared `--ring` token, so there is
+  no longer a per-page focus block to remember to write.
+
+Still ours to get right:
+
+- **Selection, not click handlers.** Selectable rows and list items use
+  `selectionMode` + `selectedKeys`/`onSelectionChange` so they are reachable by
+  keyboard. Do not put a bare `onClick` on a row.
 - Gantt blocks carry a full `aria-label` (job, operation, machine, offset,
-  duration, state) since their visible label is necessarily abbreviated.
+  duration, state), since their visible label is necessarily abbreviated.
 - Icons are `aria-hidden`; icon-only buttons carry an `aria-label`.
+- Every `Table`, `GridList`, `Select` and `ToggleGroup` needs an `aria-label`
+  (or a visible `<Label>`) — React Aria warns in the console when one is missing.
+- Blocking validation uses `<Note intent="danger" role="alert">`; transient
+  confirmations use `toast()`, which announces politely on its own.
+- Colour is never the only channel: the Gantt pairs every colour with a visible
+  job id and a legend (see "Job colours").
 
 ## Known gaps / next steps
 
@@ -365,11 +403,6 @@ and missing dependencies. The operator queue state machine is the second.
 ids while the planning flow uses `JOB-254`, and the two disagree about the same
 jobs' progress. Worth reconciling before user testing, since testers move between
 the views.
-
-**Duplicated icon sets.** `manager/icons.tsx` and `operator/icons.tsx` both
-define `IconClock`, `IconInfo`, `IconCheckCircle`, `IconUser` and `IconPlay`,
-differing only in default colour. They should be one shared module with the
-colour passed at the call site.
 
 **Responsive coverage.** Every page collapses to fewer columns at its own
 breakpoint, but none has been designed for phone widths, and the Gantt is

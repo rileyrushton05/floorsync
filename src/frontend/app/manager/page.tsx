@@ -1,23 +1,48 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, statusTone } from "../_components/Badge";
+import {
+  ArrowDownTrayIcon,
+  BellIcon,
+  BriefcaseIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  ChevronRightIcon,
+  ClipboardDocumentListIcon,
+  ClockIcon,
+  Cog6ToothIcon,
+  InformationCircleIcon,
+  UserCircleIcon,
+  UsersIcon,
+} from "@heroicons/react/24/outline";
+import { useMemo, useState } from "react";
+import type { Key } from "react-aria-components";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/field";
+import { Link } from "@/components/ui/link";
+import {
+  Popover,
+  PopoverBody,
+  PopoverContent,
+  PopoverHeader,
+  PopoverTitle,
+} from "@/components/ui/popover";
+import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { statusIntent } from "../_lib/badge-intent";
 import { Wordmark } from "../_components/Logo";
 import { SubNav } from "./_components/SubNav";
-import {
-  IconBell,
-  IconBriefcase,
-  IconCalendar,
-  IconCheckCircle,
-  IconChevronDown, IconChevronRight,
-  IconClipboard,
-  IconClock,
-  IconDownload,
-  IconGear, IconInfo, IconUser,
-  IconUsers,
-} from "./icons";
-import styles from "./manager.module.css";
 
 interface JobStep { index: number; total: number; name: string; }
 
@@ -186,39 +211,25 @@ const weeks: WeekData[] = [
   },
 ];
 
+const MACHINE_TILES = [
+  { key: "machinesRunning", label: "Running", className: "border-success/30 bg-success-subtle text-success-subtle-fg" },
+  { key: "machinesIdle", label: "Idle", className: "border-warning/30 bg-warning-subtle text-warning-subtle-fg" },
+  { key: "machinesDown", label: "Down", className: "border-danger/30 bg-danger-subtle text-danger-subtle-fg" },
+  { key: "machinesOffline", label: "Offline", className: "border-border bg-muted text-muted-fg" },
+] as const;
+
 export default function ManagerDashboard() {
-  const [weekId, setWeekId] = useState(weeks[0].id);
-  const week = useMemo(() => weeks.find((w) => w.id === weekId)!, [weekId]);
+  const [weekId, setWeekId] = useState<Key | null>(weeks[0].id);
+  const week = useMemo(() => weeks.find((w) => w.id === weekId) ?? weeks[0], [weekId]);
 
   const [selectedJobId, setSelectedJobId] = useState(week.jobs[0].id);
   const [sequenceExpanded, setSequenceExpanded] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [exportedAt, setExportedAt] = useState<string | null>(null);
-  const notifRef = useRef<HTMLDivElement>(null);
 
   const selectedJob = week.jobs.find((j) => j.id === selectedJobId) ?? week.jobs[0];
 
-  // A popover that only closes by clicking its own trigger is a trap on
-  // touch and for keyboard users, so dismiss on Escape and outside clicks.
-  useEffect(() => {
-    if (!notifOpen) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!notifRef.current?.contains(event.target as Node)) setNotifOpen(false);
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setNotifOpen(false);
-    };
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [notifOpen]);
-
-  function handleWeekChange(id: string) {
+  function handleWeekChange(id: Key | null) {
     setWeekId(id);
-    const newWeek = weeks.find((w) => w.id === id)!;
+    const newWeek = weeks.find((w) => w.id === id) ?? weeks[0];
     setSelectedJobId(newWeek.jobs[0].id);
     setSequenceExpanded(false);
   }
@@ -235,282 +246,360 @@ export default function ManagerDashboard() {
   const operatorDots = Array.from({ length: 10 }, (_, i) => i < Math.round((week.activeOperators / week.totalOperators) * 10));
 
   return (
-    <div className={styles.shell}>
-      <header className={styles.topbar}>
-        <div className={styles.brandGroup}>
+    <div className="flex min-h-dvh flex-col bg-bg text-fg">
+      <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+        <div className="flex items-center gap-2.5">
           <Wordmark />
-          <span className={styles.viewLabel}>Manager</span>
+          <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
+            Manager
+          </span>
         </div>
 
         <SubNav />
 
-        <div className={styles.weekPillWrap}>
-          <IconCalendar />
-          <select
-            className={styles.weekSelect}
-            aria-label="Reporting week"
-            value={week.id}
-            onChange={(e) => handleWeekChange(e.target.value)}
-          >
-            {weeks.map((w) => (
-              <option key={w.id} value={w.id}>{w.label}</option>
-            ))}
-          </select>
-          <IconChevronDown />
-        </div>
-
-        <div className={styles.topbarSpacer} />
-
-        <div className={styles.notifWrap} ref={notifRef}>
-          <button
-            className={styles.bellBtn}
-            aria-label={`Notifications (${week.notifications.length})`}
-            aria-expanded={notifOpen}
-            aria-haspopup="true"
-            onClick={() => setNotifOpen((v) => !v)}
-          >
-            <IconBell />
-            {week.notifications.length > 0 && <span className={styles.bellBadge}>{week.notifications.length}</span>}
-          </button>
-          {notifOpen && (
-            <div className={styles.notifDropdown}>
-              <div className={styles.notifHead}>Notifications</div>
-              {week.notifications.length === 0 && <div className={styles.notifEmpty}>No new notifications.</div>}
-              {week.notifications.map((n, i) => (
-                <div key={i} className={styles.notifItem}>{n}</div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <button
-          className={styles.exportBtn}
-          onClick={() => setExportedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}
+        <Select
+          aria-label="Reporting week"
+          value={week.id}
+          onChange={handleWeekChange}
+          className="w-64"
         >
-          <IconDownload /> Export Report
-        </button>
+          <Label className="sr-only">Reporting week</Label>
+          <SelectTrigger prefix={<CalendarIcon className="size-4" />} />
+          <SelectContent items={weeks}>
+            {(item) => (
+              <SelectItem id={item.id} textValue={item.label}>
+                {item.label}
+              </SelectItem>
+            )}
+          </SelectContent>
+        </Select>
 
-        <div className={styles.userBlock}>
-          <IconUser />
-          <span className={styles.userName}>Manager</span>
+        <div className="flex-1" />
+
+        {/* React Aria's Popover owns dismissal — Escape, outside clicks and
+            focus restoration all come for free, so the hand-rolled document
+            listeners this page used to carry are gone. */}
+        <Popover>
+          <Button
+            intent="outline"
+            size="sq-sm"
+            className="relative"
+            aria-label={`Notifications (${week.notifications.length})`}
+          >
+            <BellIcon />
+            {week.notifications.length > 0 && (
+              <span className="-top-1.5 -right-1.5 absolute flex size-4.5 items-center justify-center rounded-full bg-danger font-bold text-[10px] text-danger-fg">
+                {week.notifications.length}
+              </span>
+            )}
+          </Button>
+          <PopoverContent className="sm:max-w-xs">
+            <PopoverHeader>
+              <PopoverTitle>Notifications</PopoverTitle>
+            </PopoverHeader>
+            <PopoverBody className="pb-4">
+              {week.notifications.length === 0 ? (
+                <p className="text-muted-fg text-sm">No new notifications.</p>
+              ) : (
+                <ul className="divide-y">
+                  {week.notifications.map((n) => (
+                    <li key={n} className="py-2.5 text-sm first:pt-0 last:pb-0">
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PopoverBody>
+          </PopoverContent>
+        </Popover>
+
+        <Button
+          intent="outline"
+          onPress={() =>
+            toast.success(
+              `Report for ${week.label} exported at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`,
+            )
+          }
+        >
+          <ArrowDownTrayIcon /> Export Report
+        </Button>
+
+        <div className="flex items-center gap-2">
+          <UserCircleIcon className="size-7 text-muted-fg" />
+          <span className="font-semibold text-sm">Manager</span>
         </div>
       </header>
 
-      {exportedAt && (
-        <div className={styles.exportToast} role="status">
-          Report for {week.label} exported at {exportedAt}.
-          <button onClick={() => setExportedAt(null)}>Dismiss</button>
-        </div>
-      )}
+      <main className="flex flex-1 flex-col gap-5 p-5">
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 font-medium text-muted-fg text-sm">
+                <ClipboardDocumentListIcon className="size-4.5" />
+                <span>Total Jobs</span>
+              </div>
+              <div className="mt-2 font-bold text-3xl tabular-nums">{week.totalJobs}</div>
+              <ul className="mt-3 space-y-1 text-xs">
+                <li className="flex items-center gap-2">
+                  <span className="size-2 rounded-full bg-success" />
+                  Completed {week.completed} ({completedPct}%)
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="size-2 rounded-full bg-primary" />
+                  In Progress {week.inProgress} ({inProgressPct}%)
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="size-2 rounded-full bg-muted-fg" />
+                  Pending {week.pending} ({pendingPct}%)
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
 
-      <main className={styles.main}>
-        <div className={styles.statRow}>
-          <div className={styles.statCard}>
-            <div className={styles.statHead}><IconClipboard /><span>Total Jobs</span></div>
-            <div className={styles.statBig}>{week.totalJobs}</div>
-            <div className={styles.statLegend}>
-              <span><i style={{ background: "#16a34a" }} /> Completed {week.completed} ({completedPct}%)</span>
-              <span><i style={{ background: "#2563eb" }} /> In Progress {week.inProgress} ({inProgressPct}%)</span>
-              <span><i style={{ background: "#94a3b8" }} /> Pending {week.pending} ({pendingPct}%)</span>
-            </div>
-          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 font-medium text-muted-fg text-sm">
+                <CheckCircleIcon className="size-4.5" />
+                <span>On-Time Completion</span>
+              </div>
+              <div className="mt-2 font-bold text-3xl tabular-nums">{week.onTimePct}%</div>
+              <div className="text-muted-fg text-sm">Completed on schedule</div>
+              <div className="mt-3 flex items-center gap-2 text-sm">
+                <span className="font-bold text-danger text-lg tabular-nums">{week.delayedJobs}</span>
+                <span className="text-muted-fg">Delayed jobs</span>
+              </div>
+            </CardContent>
+          </Card>
 
-          <div className={styles.statCard}>
-            <div className={styles.statHead}><IconCheckCircle /><span>On-Time Completion</span></div>
-            <div className={styles.statBig}>{week.onTimePct}%</div>
-            <div className={styles.statSub}>Completed on schedule</div>
-            <div className={styles.statDangerRow}>
-              <span className={styles.dangerNum}>{week.delayedJobs}</span> Delayed jobs
-            </div>
-          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 font-medium text-muted-fg text-sm">
+                <ClockIcon className="size-4.5" />
+                <span>Machine Utilization</span>
+              </div>
+              <div className="mt-2 font-bold text-3xl tabular-nums">{week.utilizationPct}%</div>
+              <div className="text-muted-fg text-sm">Average utilization</div>
+              <ProgressBar
+                aria-label="Average machine utilization"
+                value={week.utilizationPct}
+                className="mt-3"
+              >
+                <ProgressBarTrack className="min-w-0 [--progress-content-bg:var(--color-warning)]" />
+              </ProgressBar>
+            </CardContent>
+          </Card>
 
-          <div className={styles.statCard}>
-            <div className={styles.statHead}><IconClock /><span>Machine Utilization</span></div>
-            <div className={styles.statBig}>{week.utilizationPct}%</div>
-            <div className={styles.statSub}>Average utilization</div>
-            <div className={styles.progressTrack}>
-              <div className={styles.progressFillAmber} style={{ width: `${week.utilizationPct}%` }} />
-            </div>
-          </div>
-
-          <div className={styles.statCard}>
-            <div className={styles.statHead}><IconUsers /><span>Active Operators</span></div>
-            <div className={styles.statBig}>{week.activeOperators} <span className={styles.statBigUnit}>/ {week.totalOperators}</span></div>
-            <div className={styles.statSub}>Operators online</div>
-            <div className={styles.dotsRow}>
-              {operatorDots.map((filled, i) => (
-                <span key={i} className={`${styles.opDot} ${filled ? styles.opDotFilled : ""}`} />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className={styles.bodyRow}>
-          <section className={styles.jobListPanel}>
-            <div className={styles.panelHead}>
-              <h2 className={styles.panelTitle}>Job List</h2>
-            </div>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Job ID</th>
-                  <th>Job Name</th>
-                  <th>Progress</th>
-                  <th>Status</th>
-                  <th>Current Machine</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {week.jobs.map((job) => (
-                  <tr
-                    key={job.id}
-                    className={`${styles.jobRow} ${selectedJobId === job.id ? styles.jobRowActive : ""}`}
-                    aria-current={selectedJobId === job.id || undefined}
-                    onClick={() => handleSelectJob(job.id)}
-                  >
-                    <td className={styles.jobIdCell}>{job.id}</td>
-                    <td>{job.name}</td>
-                    <td>
-                      <div className={styles.rowProgress}>
-                        <div
-                          className={styles.rowProgressTrack}
-                          role="progressbar"
-                          aria-valuenow={job.progress}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-label={`Job ${job.id} progress`}
-                        >
-                          <div className={styles.rowProgressFill} style={{ width: `${job.progress}%` }} />
-                        </div>
-                        <span>{job.progress}%</span>
-                      </div>
-                    </td>
-                    <td><Badge tone={statusTone(job.status)}>{job.status}</Badge></td>
-                    <td>{job.machine ?? "–"}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className={styles.jobRowBtn}
-                        onClick={() => handleSelectJob(job.id)}
-                        aria-label={`Show details for job ${job.id}, ${job.name}`}
-                      >
-                        <IconChevronRight />
-                      </button>
-                    </td>
-                  </tr>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 font-medium text-muted-fg text-sm">
+                <UsersIcon className="size-4.5" />
+                <span>Active Operators</span>
+              </div>
+              <div className="mt-2 font-bold text-3xl tabular-nums">
+                {week.activeOperators}{" "}
+                <span className="font-normal text-base text-muted-fg">/ {week.totalOperators}</span>
+              </div>
+              <div className="text-muted-fg text-sm">Operators online</div>
+              <div className="mt-3 flex gap-1">
+                {operatorDots.map((filled, i) => (
+                  <span
+                    key={i}
+                    className={`h-2 flex-1 rounded-full ${filled ? "bg-primary" : "bg-secondary"}`}
+                  />
                 ))}
-              </tbody>
-            </table>
-            <Link className={styles.viewAllLink} href="/manager/jobs">
-              Manage the job backlog →
-            </Link>
-          </section>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-          <aside className={styles.detailPanel}>
-            <div className={styles.detailHead}>
+        <div className="grid gap-5 xl:grid-cols-[1.6fr_1fr]">
+          <Card>
+            <CardHeader>
+              <CardTitle>Job List</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table
+                aria-label="Job list"
+                selectionMode="single"
+                selectionBehavior="replace"
+                selectedKeys={new Set([selectedJobId])}
+                onSelectionChange={(keys) => {
+                  if (keys === "all") return;
+                  const [first] = Array.from(keys);
+                  if (typeof first === "string") handleSelectJob(first);
+                }}
+              >
+                <TableHeader>
+                  <TableColumn isRowHeader>Job ID</TableColumn>
+                  <TableColumn>Job Name</TableColumn>
+                  <TableColumn>Progress</TableColumn>
+                  <TableColumn>Status</TableColumn>
+                  <TableColumn>Current Machine</TableColumn>
+                  <TableColumn />
+                </TableHeader>
+                <TableBody items={week.jobs}>
+                  {(job) => (
+                    <TableRow id={job.id}>
+                      <TableCell className="font-semibold">{job.id}</TableCell>
+                      <TableCell>{job.name}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <ProgressBar
+                            aria-label={`Job ${job.id} progress`}
+                            value={job.progress}
+                            className="w-24"
+                          >
+                            <ProgressBarTrack className="min-w-0" />
+                          </ProgressBar>
+                          <span className="text-xs tabular-nums">{job.progress}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge intent={statusIntent(job.status)}>{job.status}</Badge>
+                      </TableCell>
+                      <TableCell>{job.machine ?? "–"}</TableCell>
+                      <TableCell className="text-right">
+                        <ChevronRightIcon className="inline size-4 text-muted-fg" />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+              <Separator className="my-3" />
+              <Link href="/manager/jobs" className="text-primary text-sm">
+                Manage the job backlog →
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-start justify-between gap-3">
               <div>
-                <div className={styles.detailEyebrow}>Job {selectedJob.id}</div>
-                <h2 className={styles.detailTitle}>{selectedJob.name}</h2>
+                <div className="font-medium text-muted-fg text-xs uppercase tracking-[0.06em]">
+                  Job {selectedJob.id}
+                </div>
+                <CardTitle className="mt-1">{selectedJob.name}</CardTitle>
               </div>
-              <Badge tone={statusTone(selectedJob.status)}>{selectedJob.status}</Badge>
-            </div>
+              <Badge intent={statusIntent(selectedJob.status)}>{selectedJob.status}</Badge>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <ProgressBar aria-label="Job progress" value={selectedJob.progress}>
+                <div className="mb-2 flex items-center justify-between text-sm">
+                  <span className="text-muted-fg">Progress</span>
+                  <span className="font-semibold tabular-nums">{selectedJob.progress}%</span>
+                </div>
+                <ProgressBarTrack className="h-2.5 min-w-0" />
+              </ProgressBar>
 
-            <div className={styles.progressBlock}>
-              <div className={styles.progressLabelRow}>
-                <span>Progress</span>
-                <span className={styles.progressPct}>{selectedJob.progress}%</span>
-              </div>
-              <div className={styles.progressTrackLg}>
-                <div className={styles.progressFillBlue} style={{ width: `${selectedJob.progress}%` }} />
-              </div>
-            </div>
-
-            <div className={styles.miniCards}>
-              <div className={styles.miniCard}>
-                <div className={styles.miniCardHead}><IconBriefcase /><span>Currently On</span></div>
-                {selectedJob.currentOp && selectedJob.machine ? (
-                  <>
-                    <div className={styles.miniCardMain}>{selectedJob.machine}</div>
-                    <div className={styles.miniCardSub}>Op {selectedJob.currentOp.index} of {selectedJob.currentOp.total} • {selectedJob.currentOp.name}</div>
-                    <div className={styles.miniCardMeta}>Started: {selectedJob.currentOp.startedAt}</div>
-                  </>
-                ) : (
-                  <div className={styles.miniCardEmpty}>
-                    {selectedJob.status === "Completed" ? "Job complete." : "Not yet started."}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border bg-muted p-3">
+                  <div className="flex items-center gap-2 font-medium text-primary text-xs">
+                    <BriefcaseIcon className="size-4" />
+                    <span>Currently On</span>
                   </div>
-                )}
-              </div>
-
-              <div className={styles.miniCard}>
-                <div className={styles.miniCardHeadAmber}><IconGear /><span>Next Scheduled Step</span></div>
-                {selectedJob.nextOp ? (
-                  <>
-                    <div className={styles.miniCardMain}>Op {selectedJob.nextOp.index} of {selectedJob.nextOp.total} • {selectedJob.nextOp.name}</div>
-                    <div className={styles.miniCardSub}>Est. Start: {selectedJob.nextOp.estStart}</div>
-                    <div className={styles.miniCardMeta}>Machine: {selectedJob.nextOp.machine}</div>
-                  </>
-                ) : (
-                  <div className={styles.miniCardEmpty}>No further steps.</div>
-                )}
-              </div>
-            </div>
-
-            <button className={styles.sequenceLink} onClick={() => setSequenceExpanded((v) => !v)}>
-              {sequenceExpanded ? "Hide full job sequence" : "View full job sequence"} →
-            </button>
-
-            {sequenceExpanded && (
-              <ol className={styles.sequenceList}>
-                {selectedJob.opNames.map((name, i) => {
-                  const idx = i + 1;
-                  const state =
-                    selectedJob.status === "Completed" ? "done"
-                    : selectedJob.currentOp && idx < selectedJob.currentOp.index ? "done"
-                    : selectedJob.currentOp && idx === selectedJob.currentOp.index ? "current"
-                    : "pending";
-                  return (
-                    <li key={idx} className={`${styles.sequenceItem} ${styles[`sequence_${state}`]}`}>
-                      <span className={styles.sequenceIndex}>{state === "done" ? "✓" : idx}</span>
-                      <span>{name}</span>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-
-            <div className={styles.machinesOverview}>
-              <h3 className={styles.machinesTitle}>Machines Overview</h3>
-              <div className={styles.machinesGrid}>
-                <div className={`${styles.machineTile} ${styles.machineTileGreen}`}>
-                  <div className={styles.machineTileNum}>{week.machinesRunning}</div>
-                  <div className={styles.machineTileLabel}>Running</div>
+                  {selectedJob.currentOp && selectedJob.machine ? (
+                    <>
+                      <div className="mt-1.5 font-semibold text-sm">{selectedJob.machine}</div>
+                      <div className="text-muted-fg text-xs">
+                        Op {selectedJob.currentOp.index} of {selectedJob.currentOp.total} •{" "}
+                        {selectedJob.currentOp.name}
+                      </div>
+                      <div className="mt-1 text-muted-fg text-xs">
+                        Started: {selectedJob.currentOp.startedAt}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-1.5 text-muted-fg text-xs">
+                      {selectedJob.status === "Completed" ? "Job complete." : "Not yet started."}
+                    </div>
+                  )}
                 </div>
-                <div className={`${styles.machineTile} ${styles.machineTileAmber}`}>
-                  <div className={styles.machineTileNum}>{week.machinesIdle}</div>
-                  <div className={styles.machineTileLabel}>Idle</div>
-                </div>
-                <div className={`${styles.machineTile} ${styles.machineTileRed}`}>
-                  <div className={styles.machineTileNum}>{week.machinesDown}</div>
-                  <div className={styles.machineTileLabel}>Down</div>
-                </div>
-                <div className={`${styles.machineTile} ${styles.machineTileGray}`}>
-                  <div className={styles.machineTileNum}>{week.machinesOffline}</div>
-                  <div className={styles.machineTileLabel}>Offline</div>
+
+                <div className="rounded-lg border bg-muted p-3">
+                  <div className="flex items-center gap-2 font-medium text-warning-subtle-fg text-xs">
+                    <Cog6ToothIcon className="size-4" />
+                    <span>Next Scheduled Step</span>
+                  </div>
+                  {selectedJob.nextOp ? (
+                    <>
+                      <div className="mt-1.5 font-semibold text-sm">
+                        Op {selectedJob.nextOp.index} of {selectedJob.nextOp.total} •{" "}
+                        {selectedJob.nextOp.name}
+                      </div>
+                      <div className="text-muted-fg text-xs">
+                        Est. Start: {selectedJob.nextOp.estStart}
+                      </div>
+                      <div className="mt-1 text-muted-fg text-xs">
+                        Machine: {selectedJob.nextOp.machine}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-1.5 text-muted-fg text-xs">No further steps.</div>
+                  )}
                 </div>
               </div>
-              <div className={styles.machinesTotal}>{machineTotal} machines total</div>
-            </div>
-          </aside>
+
+              <Button
+                intent="plain"
+                size="sm"
+                className="px-0 text-primary"
+                onPress={() => setSequenceExpanded((v) => !v)}
+              >
+                {sequenceExpanded ? "Hide full job sequence" : "View full job sequence"} →
+              </Button>
+
+              {sequenceExpanded && (
+                <ol className="space-y-1.5">
+                  {selectedJob.opNames.map((name, i) => {
+                    const idx = i + 1;
+                    const state =
+                      selectedJob.status === "Completed" ? "done"
+                      : selectedJob.currentOp && idx < selectedJob.currentOp.index ? "done"
+                      : selectedJob.currentOp && idx === selectedJob.currentOp.index ? "current"
+                      : "pending";
+                    return (
+                      <li key={idx} className="flex items-center gap-2.5 text-sm">
+                        <span
+                          className={`flex size-6 shrink-0 items-center justify-center rounded-full font-semibold text-xs ${
+                            state === "done"
+                              ? "bg-success text-success-fg"
+                              : state === "current"
+                                ? "bg-primary text-primary-fg"
+                                : "bg-secondary text-secondary-fg"
+                          }`}
+                        >
+                          {state === "done" ? "✓" : idx}
+                        </span>
+                        <span className={state === "pending" ? "text-muted-fg" : undefined}>{name}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+
+              <div>
+                <h3 className="font-semibold text-sm">Machines Overview</h3>
+                <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  {MACHINE_TILES.map((tile) => (
+                    <div key={tile.key} className={`rounded-lg border p-3 text-center ${tile.className}`}>
+                      <div className="font-bold text-xl tabular-nums">{week[tile.key]}</div>
+                      <div className="text-xs">{tile.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-muted-fg text-xs">{machineTotal} machines total</div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </main>
 
-      <footer className={styles.footer}>
-        <div className={styles.footerInfo}>
-          <IconInfo />
+      <footer className="flex flex-wrap items-center gap-4 border-t bg-navbar px-7 py-3.5">
+        <div className="flex flex-1 items-center gap-2 text-muted-fg text-sm">
+          <InformationCircleIcon className="size-4.5" />
           <span>Click any job to view details or drill into the machine&rsquo;s operator view.</span>
         </div>
-        <button className={styles.viewAllMachinesBtn}>View All Machines →</button>
+        <Button intent="outline">View All Machines →</Button>
       </footer>
     </div>
   );

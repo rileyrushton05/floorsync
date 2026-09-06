@@ -1,10 +1,31 @@
 "use client";
 
+import {
+  CheckCircleIcon,
+  CheckIcon,
+  ClockIcon,
+  ExclamationTriangleIcon,
+  InformationCircleIcon,
+  PlayIcon,
+  UserCircleIcon,
+} from "@heroicons/react/24/outline";
 import { useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Note } from "@/components/ui/note";
+import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CoffeeIcon } from "../_components/icons";
 import { Wordmark } from "../_components/Logo";
-import { Badge } from "../_components/Badge";
-import { IconClock, IconCoffee, IconCheck, IconPlay, IconWarning, IconInfo, IconCheckCircle, IconUser } from "./icons";
-import styles from "./operator.module.css";
 
 type OpStatus = "completed" | "running" | "pending";
 
@@ -192,201 +213,255 @@ export default function OperatorDashboard() {
   }
 
   return (
-    <div className={styles.shell}>
-      <header className={styles.topbar}>
-        <div className={styles.brandGroup}>
+    <div className="flex min-h-dvh flex-col bg-bg text-fg">
+      <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+        <div className="flex items-center gap-2.5">
           <Wordmark />
-          <span className={styles.viewLabel}>Operator View</span>
+          <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
+            Operator View
+          </span>
         </div>
-        <div className={styles.machineTag}>
-          <span className={styles.machineDot} />
+        <Badge intent="outline" className="gap-x-2 px-3 py-1.5">
+          <span className="size-2 rounded-full bg-success" />
           {machine.name}
-        </div>
-        <div className={styles.topbarSpacer} />
-        <div className={styles.clock}>10:24 AM</div>
-        <div className={styles.userBlock}>
-          <IconUser />
-          <div>
-            <div className={styles.userName}>Operator</div>
-            <div className={styles.userShift}>Shift 1</div>
+        </Badge>
+        <div className="flex-1" />
+        <div className="font-semibold tabular-nums">10:24 AM</div>
+        <div className="flex items-center gap-2">
+          <UserCircleIcon className="size-7 text-muted-fg" />
+          <div className="text-sm leading-tight">
+            <div className="font-semibold">Operator</div>
+            <div className="text-muted-fg text-xs">Shift 1</div>
           </div>
         </div>
       </header>
 
-      <main className={styles.main}>
-        <div className={styles.topRow}>
-          <section className={`${styles.card} ${styles.cardBlue}`}>
-            <div className={styles.cardHead}>
-              <span className={styles.cardLabelBlue}>Current Operation</span>
-              {current && <Badge tone="blue">Running</Badge>}
-            </div>
-            {machine.activeJob && current ? (
-              <>
-                <h2 className={styles.opTitle}>{machine.activeJob.jobId} {machine.activeJob.title}</h2>
-                <div className={styles.opSub}>Op {current.index} of {current.total} • {current.name}</div>
-                <div className={styles.opMeta}>Started {current.startedAt}</div>
-                <button className={styles.primaryBtn} onClick={completeCurrentOperation}>
-                  <IconCheck /> Mark Complete
-                </button>
-              </>
-            ) : (
-              <div className={styles.emptyState}>No active operation on this machine.</div>
-            )}
-          </section>
+      <main className="flex flex-1 flex-col gap-5 p-5">
+        <div className="grid gap-5 xl:grid-cols-[1fr_1fr_minmax(240px,0.7fr)]">
+          <Card className="border-primary/30 bg-primary-subtle/40">
+            <CardHeader className="flex-row items-center justify-between gap-3">
+              <CardTitle className="font-bold text-primary-subtle-fg text-xs uppercase tracking-[0.06em]">
+                Current Operation
+              </CardTitle>
+              {current && <Badge intent="info">Running</Badge>}
+            </CardHeader>
+            <CardContent>
+              {machine.activeJob && current ? (
+                <>
+                  <h2 className="font-semibold text-lg">
+                    {machine.activeJob.jobId} {machine.activeJob.title}
+                  </h2>
+                  <div className="mt-1 text-sm">
+                    Op {current.index} of {current.total} • {current.name}
+                  </div>
+                  <div className="mt-1 text-muted-fg text-sm">Started {current.startedAt}</div>
+                  <Button className="mt-4 w-full" onPress={completeCurrentOperation}>
+                    <CheckIcon /> Mark Complete
+                  </Button>
+                </>
+              ) : (
+                <p className="py-4 text-muted-fg text-sm">No active operation on this machine.</p>
+              )}
+            </CardContent>
+          </Card>
 
-          <section className={`${styles.card} ${styles.cardAmber}`}>
-            <div className={styles.cardHead}>
-              <span className={styles.cardLabelAmber}>Next Operation</span>
-              {nextInfo && <Badge tone="amber">Up Next</Badge>}
-            </div>
-            {nextInfo ? (
-              <>
-                <h2 className={styles.opTitle}>{nextInfo.jobId} {machine.activeJob && nextInfo.kind === "same-job" ? machine.activeJob.title : machine.queue.find((q) => q.jobId === nextInfo.jobId)?.title}</h2>
-                <div className={styles.opSub}>{nextInfo.label}</div>
-                <div className={styles.opMeta}>{nextInfo.estStart ? `Est. Start: ${nextInfo.estStart}` : "Starts immediately after current operation"}</div>
-                <button className={styles.secondaryBtn} onClick={nextInfo.kind === "same-job" ? completeCurrentOperation : () => startQueuedJob(nextInfo.jobId)}>
-                  <IconPlay /> Start Next Operation
-                </button>
-              </>
-            ) : (
-              <div className={styles.emptyState}>No further operations queued.</div>
-            )}
-          </section>
+          <Card className="border-warning/40 bg-warning-subtle/50">
+            <CardHeader className="flex-row items-center justify-between gap-3">
+              <CardTitle className="font-bold text-warning-subtle-fg text-xs uppercase tracking-[0.06em]">
+                Next Operation
+              </CardTitle>
+              {nextInfo && <Badge intent="warning">Up Next</Badge>}
+            </CardHeader>
+            <CardContent>
+              {nextInfo ? (
+                <>
+                  <h2 className="font-semibold text-lg">
+                    {nextInfo.jobId}{" "}
+                    {machine.activeJob && nextInfo.kind === "same-job"
+                      ? machine.activeJob.title
+                      : machine.queue.find((q) => q.jobId === nextInfo.jobId)?.title}
+                  </h2>
+                  <div className="mt-1 text-sm">{nextInfo.label}</div>
+                  <div className="mt-1 text-muted-fg text-sm">
+                    {nextInfo.estStart
+                      ? `Est. Start: ${nextInfo.estStart}`
+                      : "Starts immediately after current operation"}
+                  </div>
+                  <Button
+                    intent="outline"
+                    className="mt-4 w-full bg-overlay"
+                    onPress={
+                      nextInfo.kind === "same-job"
+                        ? completeCurrentOperation
+                        : () => startQueuedJob(nextInfo.jobId)
+                    }
+                  >
+                    <PlayIcon /> Start Next Operation
+                  </Button>
+                </>
+              ) : (
+                <p className="py-4 text-muted-fg text-sm">No further operations queued.</p>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className={styles.sideStack}>
-            <section className={styles.card}>
-              <div className={styles.sideHead}>
-                <IconClock />
-                <span>Shift Time Remaining</span>
-              </div>
-              <div className={styles.sideBig}>
-                {machine.shiftRemaining} <span className={styles.sideBigUnit}>of {machine.shiftTotal} hrs</span>
-              </div>
-              <div
-                className={styles.progressTrack}
-                role="progressbar"
-                aria-valuenow={machine.shiftPct}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="Shift elapsed"
-              >
-                <div className={styles.progressFillGreen} style={{ width: `${machine.shiftPct}%` }} />
-              </div>
-            </section>
-            <section className={styles.card}>
-              <div className={styles.sideHead}>
-                <IconCoffee />
-                <span>Next Break</span>
-              </div>
-              <div className={styles.sideBigRow}>
-                <span className={styles.sideBigPurple}>{machine.nextBreakRemaining}</span>
-                <span className={styles.sideBigUnit}>Until {machine.nextBreakAt}</span>
-              </div>
-            </section>
+          <div className="flex flex-col gap-5">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2 font-medium text-sm">
+                  <ClockIcon className="size-4.5 text-success" />
+                  <span>Shift Time Remaining</span>
+                </div>
+                <div className="mt-2 font-bold text-2xl tabular-nums">
+                  {machine.shiftRemaining}{" "}
+                  <span className="font-normal text-muted-fg text-sm">of {machine.shiftTotal} hrs</span>
+                </div>
+                <ProgressBar
+                  aria-label="Shift elapsed"
+                  value={machine.shiftPct}
+                  className="mt-3"
+                >
+                  <ProgressBarTrack className="min-w-0 [--progress-content-bg:var(--color-success)]" />
+                </ProgressBar>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2 font-medium text-sm">
+                  <CoffeeIcon className="size-4.5 text-primary" />
+                  <span>Next Break</span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="font-bold text-2xl text-primary tabular-nums">
+                    {machine.nextBreakRemaining}
+                  </span>
+                  <span className="text-muted-fg text-sm">Until {machine.nextBreakAt}</span>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
 
-        <div className={styles.bottomRow}>
-          <section className={styles.panel}>
-            <div className={styles.panelHead}>
-              <h2 className={styles.panelTitle}>Pending Operations</h2>
-              <span className={styles.countPill}>{machine.queue.length}</span>
-            </div>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th className={styles.orderCol}>Order</th>
-                  <th>Job ID</th>
-                  <th>Operation</th>
-                  <th>Est. Time</th>
-                  <th>Est. Start</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {machine.queue.map((q, i) => {
-                  const nextOp = firstPendingOp(q.ops);
-                  return (
-                  <tr key={q.jobId}>
-                    <td>
-                      <span className={styles.orderBadge}>{i + 1}</span>
-                    </td>
-                    <td className={styles.jobIdCell}>{q.jobId}</td>
-                    <td>
-                      <div className={styles.opCellTitle}>{q.title}</div>
-                      <div className={styles.opCellSub}>Op {nextOp.index} of {nextOp.total}</div>
-                    </td>
-                    <td>{q.estTime}</td>
-                    <td>{q.estStart}</td>
-                    <td>
-                      <button className={styles.startBtn} onClick={() => startQueuedJob(q.jobId)}>Start</button>
-                    </td>
-                  </tr>
-                  );
-                })}
-                {machine.queue.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className={styles.emptyRow}>Queue is empty.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            <button className={styles.viewAllLink}>View full queue ({machine.queue.length})</button>
-          </section>
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Card>
+            <CardHeader className="flex-row items-center gap-2.5">
+              <CardTitle>Pending Operations</CardTitle>
+              <Badge intent="secondary">{machine.queue.length}</Badge>
+            </CardHeader>
+            <CardContent>
+              <Table aria-label="Pending operations">
+                <TableHeader>
+                  <TableColumn className="w-0">Order</TableColumn>
+                  <TableColumn isRowHeader>Job ID</TableColumn>
+                  <TableColumn>Operation</TableColumn>
+                  <TableColumn>Est. Time</TableColumn>
+                  <TableColumn>Est. Start</TableColumn>
+                  <TableColumn />
+                </TableHeader>
+                <TableBody
+                  items={machine.queue}
+                  renderEmptyState={() => (
+                    <div className="py-6 text-center text-muted-fg text-sm">Queue is empty.</div>
+                  )}
+                >
+                  {(q) => {
+                    const nextOp = firstPendingOp(q.ops);
+                    return (
+                      <TableRow id={q.jobId}>
+                        <TableCell>
+                          <span className="inline-flex size-6 items-center justify-center rounded-full bg-secondary font-semibold text-xs">
+                            {machine.queue.indexOf(q) + 1}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-semibold">{q.jobId}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{q.title}</div>
+                          <div className="text-muted-fg text-xs">
+                            Op {nextOp.index} of {nextOp.total}
+                          </div>
+                        </TableCell>
+                        <TableCell className="tabular-nums">{q.estTime}</TableCell>
+                        <TableCell className="tabular-nums">{q.estStart}</TableCell>
+                        <TableCell className="text-right">
+                          <Button size="xs" onPress={() => startQueuedJob(q.jobId)}>
+                            Start
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }}
+                </TableBody>
+              </Table>
+              <Separator className="my-3" />
+              <Button intent="plain" size="sm" className="px-0 text-primary">
+                View full queue ({machine.queue.length})
+              </Button>
+            </CardContent>
+          </Card>
 
-          <section className={styles.panel}>
-            <div className={styles.panelHead}>
-              <h2 className={styles.panelTitle}>Completed Operations</h2>
-              <span className={`${styles.countPill} ${styles.countPillGreen}`}>{machine.completed.length}</span>
-            </div>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Job ID</th>
-                  <th>Operation</th>
-                  <th>Completed At</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {machine.completed.map((c) => (
-                  <tr key={c.key}>
-                    <td className={styles.jobIdCell}>
-                      <IconCheckCircle size={16} /> {c.jobId}
-                    </td>
-                    <td>{c.label}</td>
-                    <td>{c.completedAt}</td>
-                    <td>{c.duration}</td>
-                  </tr>
-                ))}
-                {machine.completed.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className={styles.emptyRow}>No completed operations yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            <button className={styles.viewAllLink}>View all completed ({machine.completed.length})</button>
-          </section>
+          <Card>
+            <CardHeader className="flex-row items-center gap-2.5">
+              <CardTitle>Completed Operations</CardTitle>
+              <Badge intent="success">{machine.completed.length}</Badge>
+            </CardHeader>
+            <CardContent>
+              <Table aria-label="Completed operations">
+                <TableHeader>
+                  <TableColumn isRowHeader>Job ID</TableColumn>
+                  <TableColumn>Operation</TableColumn>
+                  <TableColumn>Completed At</TableColumn>
+                  <TableColumn>Duration</TableColumn>
+                </TableHeader>
+                <TableBody
+                  items={machine.completed}
+                  renderEmptyState={() => (
+                    <div className="py-6 text-center text-muted-fg text-sm">
+                      No completed operations yet.
+                    </div>
+                  )}
+                >
+                  {(c) => (
+                    <TableRow id={c.key}>
+                      <TableCell className="font-semibold">
+                        <span className="flex items-center gap-1.5">
+                          <CheckCircleIcon className="size-4 text-success" /> {c.jobId}
+                        </span>
+                      </TableCell>
+                      <TableCell>{c.label}</TableCell>
+                      <TableCell className="tabular-nums">{c.completedAt}</TableCell>
+                      <TableCell className="tabular-nums">{c.duration}</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+              <Separator className="my-3" />
+              <Button intent="plain" size="sm" className="px-0 text-primary">
+                View all completed ({machine.completed.length})
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </main>
 
-      <footer className={styles.footer}>
+      <footer className="flex flex-wrap items-center gap-4 border-t bg-navbar px-7 py-3.5">
         {issueBanner ? (
-          <div className={styles.issueBanner} role="status">
-            <IconWarning size={16} color="#b91c1c" />
-            <span>{issueBanner}</span>
-            <button className={styles.dismissBtn} onClick={() => setIssueBanner(null)}>Dismiss</button>
-          </div>
+          <Note intent="danger" role="status" className="flex-1 py-2">
+            <div className="flex items-center gap-3">
+              <span className="flex-1">{issueBanner}</span>
+              <Button intent="plain" size="xs" onPress={() => setIssueBanner(null)}>
+                Dismiss
+              </Button>
+            </div>
+          </Note>
         ) : (
-          <div className={styles.footerInfo}>
-            <IconInfo />
+          <div className="flex flex-1 items-center gap-2 text-muted-fg text-sm">
+            <InformationCircleIcon className="size-4.5" />
             <span>If you encounter any issues, notify your coordinator.</span>
           </div>
         )}
-        <button className={styles.reportBtn} onClick={reportIssue}>
-          <IconWarning /> Report Issue
-        </button>
+        <Button intent="danger" onPress={reportIssue}>
+          <ExclamationTriangleIcon /> Report Issue
+        </Button>
       </footer>
     </div>
   );

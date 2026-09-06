@@ -1,9 +1,10 @@
 "use client";
 
+import { Button } from "react-aria-components/Button";
+import { ToggleButton } from "react-aria-components/ToggleButton";
 import { jobColor, tint, type JobColor } from "../_lib/colors";
 import { formatDuration, formatOffset } from "../_lib/scheduling";
 import type { GeneratedSchedule, JobDef, Machine } from "../_lib/types";
-import styles from "./GanttChart.module.css";
 
 /**
  * The schedule grid, shared by the plan view and the simulation.
@@ -17,6 +18,10 @@ import styles from "./GanttChart.module.css";
  * Geometry comes from two CSS custom properties, `--gutter` and `--hour`, and
  * every offset is `calc()`-ed from them. Nothing is a percentage, so the hour
  * ruler and the blocks underneath it cannot drift apart.
+ *
+ * Intent UI ships no timeline or Gantt component, so this stays bespoke — but
+ * it is built on the same React Aria primitives Intent UI wraps, and paints
+ * itself from the same theme tokens, so it belongs to the same system.
  */
 
 type OperationState = "plan" | "done" | "running" | "upcoming";
@@ -76,25 +81,33 @@ export function GanttChart({
     const scheduledJobIds = schedule.order;
 
     return (
-        <div className={styles.wrap}>
-            <div className={styles.scroller}>
-                <div className={styles.grid} style={{ width: `calc(var(--gutter) + var(--hour) * ${hours})` }}>
-                    <div className={styles.rulerRow}>
-                        <div className={styles.gutterHead}>Elapsed →</div>
+        <div className="flex min-h-0 flex-col [--gutter:168px] [--hour:124px]">
+            <div className="min-h-0 flex-1 overflow-auto rounded-lg border bg-muted">
+                <div
+                    className="relative flex flex-col"
+                    style={{ width: `calc(var(--gutter) + var(--hour) * ${hours})` }}
+                >
+                    <div className="sticky top-0 z-3 flex border-b bg-overlay">
+                        <div className="w-(--gutter) shrink-0 border-e px-2.5 py-2 font-bold text-[0.68rem] text-muted-fg uppercase tracking-[0.05em]">
+                            Elapsed →
+                        </div>
                         {Array.from({ length: hours }, (_, hour) => (
-                            <div key={hour} className={styles.tick}>
+                            <div
+                                key={hour}
+                                className="w-(--hour) shrink-0 border-s py-2 ps-1.5 font-semibold text-muted-fg text-xs tabular-nums"
+                            >
                                 {hour === 0 ? "T+0h" : `${hour}h`}
                             </div>
                         ))}
                     </div>
 
                     {usedMachines.map((machine) => (
-                        <div key={machine.id} className={styles.machineRow}>
-                            <div className={styles.gutter}>
-                                <div className={styles.machineName}>{machine.name}</div>
-                                <div className={styles.operatorName}>{machine.operator}</div>
+                        <div key={machine.id} className="flex border-b bg-overlay last-of-type:border-b-0">
+                            <div className="sticky start-0 z-2 w-(--gutter) shrink-0 border-e bg-muted p-2.5">
+                                <div className="font-bold text-fg text-sm">{machine.name}</div>
+                                <div className="text-muted-fg text-xs">{machine.operator}</div>
                             </div>
-                            <div className={styles.track}>
+                            <div className="relative h-13 flex-1 bg-[repeating-linear-gradient(to_right,var(--color-border)_0,var(--color-border)_1px,transparent_1px,transparent_var(--hour))]">
                                 {schedule.ops
                                     .filter((op) => op.machineId === machine.id)
                                     .map((op) => {
@@ -111,30 +124,30 @@ export function GanttChart({
                                                 : 0;
 
                                         return (
-                                            <button
+                                            <Button
                                                 key={op.opId}
-                                                type="button"
-                                                className={`${styles.block} ${dimmed ? styles.blockDimmed : ""}`}
+                                                className={`absolute top-1.75 flex h-9.5 min-w-1 cursor-pointer items-center overflow-hidden rounded-sm border px-1.5 text-left font-semibold text-xs outline-hidden hover:brightness-95 focus-visible:z-4 focus-visible:outline-2 focus-visible:outline-fg focus-visible:outline-offset-1 ${
+                                                    dimmed ? "opacity-28" : ""
+                                                }`}
                                                 style={{
                                                     ...blockStyle(color, state),
                                                     left: `calc(var(--hour) * ${op.startMins / 60})`,
                                                     width: `calc(var(--hour) * ${durationMins / 60} - 2px)`,
                                                 }}
-                                                onClick={() => onSelectJob?.(op.jobId)}
-                                                title={`${op.jobId} · Op ${op.opIndex}/${op.opTotal} ${op.opName} · ${formatOffset(op.startMins)} for ${formatDuration(durationMins)}`}
+                                                onPress={() => onSelectJob?.(op.jobId)}
                                                 aria-label={`${op.jobId} ${jobName(op.jobId)}, operation ${op.opIndex} of ${op.opTotal}, ${op.opName}, on ${machine.name}, starts ${formatOffset(op.startMins)}, runs ${formatDuration(durationMins)}${state === "plan" ? "" : `, ${state}`}`}
                                             >
-                                                <span className={styles.blockLabel}>
+                                                <span className="block truncate leading-tight">
                                                     {STATE_MARK[state]}
                                                     {compact ? op.jobId : `${op.jobId} · ${op.opName}`}
                                                 </span>
                                                 {state === "running" && (
                                                     <span
-                                                        className={styles.blockProgress}
+                                                        className="absolute bottom-0 left-0 h-[3px] opacity-85"
                                                         style={{ width: `${progressPct}%`, background: color.ink }}
                                                     />
                                                 )}
-                                            </button>
+                                            </Button>
                                         );
                                     })}
                             </div>
@@ -143,31 +156,35 @@ export function GanttChart({
 
                     {now !== null && (
                         <div
-                            className={styles.nowLine}
+                            className="pointer-events-none absolute top-0 bottom-0 z-3 w-0.5 bg-fg"
                             style={{ left: `calc(var(--gutter) + var(--hour) * ${now / 60})` }}
                         >
-                            <span className={styles.nowFlag} />
+                            <span className="absolute top-0 left-[-4px] size-0 border-t-[7px] border-t-fg border-x-[5px] border-x-transparent" />
                         </div>
                     )}
                 </div>
             </div>
 
-            <ul className={styles.legend}>
+            <ul className="mt-2.5 flex list-none flex-wrap gap-x-2.5 gap-y-1 p-0">
                 {scheduledJobIds.map((jobId) => {
                     const color = jobColor(colors, jobId);
                     const dimmed = selectedJobId !== null && selectedJobId !== jobId;
                     return (
                         <li key={jobId}>
-                            <button
-                                type="button"
-                                className={`${styles.legendItem} ${dimmed ? styles.legendDimmed : ""}`}
-                                onClick={() => onSelectJob?.(jobId)}
-                                aria-pressed={selectedJobId === jobId}
+                            <ToggleButton
+                                isSelected={selectedJobId === jobId}
+                                onChange={() => onSelectJob?.(jobId)}
+                                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.75 text-muted-fg text-xs outline-hidden hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 ${
+                                    dimmed ? "opacity-40" : ""
+                                }`}
                             >
-                                <span className={styles.legendSwatch} style={{ background: color.fill }} />
-                                <span className={styles.legendId}>{jobId}</span>
-                                <span className={styles.legendName}>{jobName(jobId)}</span>
-                            </button>
+                                <span
+                                    className="size-2.5 shrink-0 rounded-xs"
+                                    style={{ background: color.fill }}
+                                />
+                                <span className="font-bold text-fg">{jobId}</span>
+                                <span className="text-muted-fg">{jobName(jobId)}</span>
+                            </ToggleButton>
                         </li>
                     );
                 })}

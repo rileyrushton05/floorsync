@@ -1,15 +1,34 @@
 "use client";
 
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  PlusIcon,
+  UserCircleIcon,
+  XMarkIcon,
+} from "@heroicons/react/24/outline";
 import { useMemo, useRef, useState } from "react";
-import { Badge, priorityTone } from "../../_components/Badge";
+import type { Key } from "react-aria-components";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox, CheckboxField } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/field";
+import { GridList, GridListEmptyState, GridListItem } from "@/components/ui/grid-list";
+import { Input } from "@/components/ui/input";
+import { Note } from "@/components/ui/note";
+import { NumberField, NumberInput } from "@/components/ui/number-field";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { TextField } from "@/components/ui/text-field";
+import { priorityIntent } from "../../_lib/badge-intent";
 import { Wordmark } from "../../_components/Logo";
 import { usePlanning } from "../_components/PlanningProvider";
 import { SubNav } from "../_components/SubNav";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { dependentsOf, formatDuration, totalWorkMins, wouldCreateCycle } from "../_lib/scheduling";
 import type { JobDef, OperationDef, Priority } from "../_lib/types";
-import { IconUser } from "../icons";
-import styles from "./jobs.module.css";
 
 /** The job being written, before it is committed to the backlog. */
 interface Draft {
@@ -22,6 +41,8 @@ interface Draft {
 }
 
 const EMPTY_DRAFT: Draft = { id: null, name: "", priority: "Med", operations: [], dependsOn: [] };
+
+const PRIORITIES: { id: Priority }[] = [{ id: "High" }, { id: "Med" }, { id: "Low" }];
 
 function draftFrom(job: JobDef): Draft {
     return {
@@ -37,7 +58,6 @@ export default function JobsPage() {
     const { machines, jobs, createJob, updateJob, deleteJob } = usePlanning();
     const [draft, setDraft] = useState<Draft>(() => (jobs.length > 0 ? draftFrom(jobs[0]) : EMPTY_DRAFT));
     const [errors, setErrors] = useState<string[]>([]);
-    const [savedNotice, setSavedNotice] = useState<string | null>(null);
     // Operations are only ever created by a click, so a plain counter is a safe
     // key source — no ids are generated during render.
     const opCounter = useRef(0);
@@ -51,13 +71,11 @@ export default function JobsPage() {
     function startNewJob() {
         setDraft(EMPTY_DRAFT);
         setErrors([]);
-        setSavedNotice(null);
     }
 
     function editJob(job: JobDef) {
         setDraft(draftFrom(job));
         setErrors([]);
-        setSavedNotice(null);
     }
 
     function addOperation() {
@@ -135,11 +153,11 @@ export default function JobsPage() {
 
         if (draft.id) {
             updateJob(draft.id, payload);
-            setSavedNotice(`${draft.id} saved.`);
+            toast.success(`${draft.id} saved.`);
         } else {
             const id = createJob({ ...payload, dependsOn: payload.dependsOn });
             setDraft((previous) => ({ ...previous, id }));
-            setSavedNotice(`${id} created and added to the selection.`);
+            toast.success(`${id} created and added to the selection.`);
         }
     }
 
@@ -149,255 +167,302 @@ export default function JobsPage() {
         deleteJob(removedId);
         setDraft(EMPTY_DRAFT);
         setErrors([]);
-        setSavedNotice(`${removedId} deleted.`);
+        toast.success(`${removedId} deleted.`);
     }
 
+    const dependencyCandidates = jobs.filter((candidate) => candidate.id !== draft.id);
+
     return (
-        <div className={styles.shell}>
-            <header className={styles.topbar}>
-                <div className={styles.brandGroup}>
+        <div className="flex min-h-dvh flex-col bg-bg text-fg">
+            <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+                <div className="flex items-center gap-2.5">
                     <Wordmark />
-                    <span className={styles.viewLabel}>Manager</span>
+                    <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
+                        Manager
+                    </span>
                 </div>
                 <SubNav />
-                <div className={styles.topbarSpacer} />
-                <button className={styles.newJobBtn} onClick={startNewJob}>+ New job</button>
-                <div className={styles.userBlock}>
-                    <IconUser />
-                    <span className={styles.userName}>Manager</span>
+                <div className="flex-1" />
+                <Button onPress={startNewJob}>
+                    <PlusIcon /> New job
+                </Button>
+                <div className="flex items-center gap-2">
+                    <UserCircleIcon className="size-7 text-muted-fg" />
+                    <span className="font-semibold text-sm">Manager</span>
                 </div>
             </header>
 
-            <main className={styles.main}>
-                <aside className={styles.backlogPanel}>
-                    <div className={styles.panelHead}>
-                        <h2 className={styles.panelTitle}>Job backlog</h2>
-                        <span className={styles.countPill}>{jobs.length}</span>
-                    </div>
-                    <p className={styles.panelHint}>
-                        Jobs defined here are what the scheduler draws from. Nothing is scheduled until you
-                        select jobs and generate a plan.
-                    </p>
+            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_2fr]">
+                <Card>
+                    <CardHeader className="flex-row items-center gap-2.5">
+                        <CardTitle>Job backlog</CardTitle>
+                        <Badge intent="secondary">{jobs.length}</Badge>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="mb-3 text-muted-fg text-sm">
+                            Jobs defined here are what the scheduler draws from. Nothing is scheduled until you
+                            select jobs and generate a plan.
+                        </p>
 
-                    <ul className={styles.backlogList}>
-                        {jobs.map((job) => {
-                            const color = jobColor(colors, job.id);
-                            return (
-                                <li key={job.id}>
-                                    <button
-                                        type="button"
-                                        className={`${styles.backlogCard} ${draft.id === job.id ? styles.backlogCardActive : ""}`}
-                                        onClick={() => editJob(job)}
-                                        aria-current={draft.id === job.id || undefined}
-                                    >
-                                        <span className={styles.backlogSwatch} style={{ background: color.fill }} />
-                                        <span className={styles.backlogBody}>
-                                            <span className={styles.backlogHead}>
-                                                <span className={styles.backlogId}>{job.id}</span>
-                                                <Badge tone={priorityTone(job.priority)}>{job.priority}</Badge>
-                                            </span>
-                                            <span className={styles.backlogName}>{job.name}</span>
-                                            <span className={styles.backlogMeta}>
-                                                {job.operations.length} ops · {formatDuration(totalWorkMins(job))} of work
-                                            </span>
-                                            {job.dependsOn.length > 0 && (
-                                                <span className={styles.backlogDeps}>
-                                                    after {job.dependsOn.join(", ")}
-                                                </span>
-                                            )}
+                        <GridList
+                            aria-label="Job backlog"
+                            selectionMode="single"
+                            selectionBehavior="replace"
+                            items={jobs}
+                            selectedKeys={draft.id ? new Set([draft.id]) : new Set()}
+                            onSelectionChange={(keys) => {
+                                if (keys === "all") return;
+                                const [first] = Array.from(keys);
+                                const job = jobs.find((candidate) => candidate.id === first);
+                                if (job) editJob(job);
+                            }}
+                            renderEmptyState={() => (
+                                <GridListEmptyState>No jobs yet. Create one to get started.</GridListEmptyState>
+                            )}
+                        >
+                            {(job) => (
+                                <GridListItem id={job.id} textValue={`${job.id} ${job.name}`} className="items-start">
+                                    <span
+                                        className="mt-1 size-3 shrink-0 rounded-full"
+                                        style={{ background: jobColor(colors, job.id).fill }}
+                                    />
+                                    <span className="flex min-w-0 flex-col gap-0.5">
+                                        <span className="flex items-center gap-2">
+                                            <span className="font-semibold text-sm">{job.id}</span>
+                                            <Badge intent={priorityIntent(job.priority)}>{job.priority}</Badge>
                                         </span>
-                                    </button>
-                                </li>
-                            );
-                        })}
-                        {jobs.length === 0 && (
-                            <li className={styles.backlogEmpty}>No jobs yet. Create one to get started.</li>
+                                        <span className="truncate text-sm">{job.name}</span>
+                                        <span className="text-muted-fg text-xs">
+                                            {job.operations.length} ops · {formatDuration(totalWorkMins(job))} of work
+                                        </span>
+                                        {job.dependsOn.length > 0 && (
+                                            <span className="text-muted-fg text-xs">
+                                                after {job.dependsOn.join(", ")}
+                                            </span>
+                                        )}
+                                    </span>
+                                </GridListItem>
+                            )}
+                        </GridList>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="flex-row items-center justify-between gap-3">
+                        <CardTitle>{draft.id ? `Edit ${draft.id}` : "New job"}</CardTitle>
+                        {draft.id && (
+                            <span className="text-muted-fg text-sm">{draft.operations.length} operations</span>
                         )}
-                    </ul>
-                </aside>
+                    </CardHeader>
+                    <CardContent className="space-y-5">
+                        {errors.length > 0 && (
+                            <Note intent="danger" role="alert">
+                                <strong>Fix before saving</strong>
+                                <ul className="mt-1 list-disc ps-5">
+                                    {errors.map((error) => (
+                                        <li key={error}>{error}</li>
+                                    ))}
+                                </ul>
+                            </Note>
+                        )}
 
-                <section className={styles.editorPanel}>
-                    <div className={styles.panelHead}>
-                        <h2 className={styles.panelTitle}>
-                            {draft.id ? `Edit ${draft.id}` : "New job"}
-                        </h2>
-                        {draft.id && <span className={styles.editorMeta}>{draft.operations.length} operations</span>}
-                    </div>
-
-                    {errors.length > 0 && (
-                        <div className={styles.errorBox} role="alert">
-                            <strong>Fix before saving</strong>
-                            <ul>
-                                {errors.map((error) => <li key={error}>{error}</li>)}
-                            </ul>
-                        </div>
-                    )}
-                    {savedNotice && errors.length === 0 && (
-                        <div className={styles.noticeBox} role="status">{savedNotice}</div>
-                    )}
-
-                    <div className={styles.formRow}>
-                        <div className={styles.formGroup} style={{ flex: 2 }}>
-                            <label className={styles.formLabel} htmlFor="job-name">Job name</label>
-                            <input
-                                id="job-name"
-                                className={styles.formInput}
+                        <div className="flex flex-col gap-4 sm:flex-row">
+                            <TextField
+                                className="flex-2"
                                 value={draft.name}
-                                onChange={(e) => setDraft((previous) => ({ ...previous, name: e.target.value }))}
-                                placeholder="e.g. Dryer not working"
-                            />
-                        </div>
-                        <div className={styles.formGroup}>
-                            <label className={styles.formLabel} htmlFor="job-priority">Priority</label>
-                            <select
-                                id="job-priority"
-                                className={styles.formSelect}
+                                onChange={(name) => setDraft((previous) => ({ ...previous, name }))}
+                            >
+                                <Label>Job name</Label>
+                                <Input placeholder="e.g. Dryer not working" />
+                            </TextField>
+
+                            <Select
+                                className="flex-1"
                                 value={draft.priority}
-                                onChange={(e) =>
-                                    setDraft((previous) => ({ ...previous, priority: e.target.value as Priority }))
+                                onChange={(priority) =>
+                                    setDraft((previous) => ({ ...previous, priority: priority as Priority }))
                                 }
                             >
-                                <option>High</option>
-                                <option>Med</option>
-                                <option>Low</option>
-                            </select>
+                                <Label>Priority</Label>
+                                <SelectTrigger />
+                                <SelectContent items={PRIORITIES}>
+                                    {(item) => (
+                                        <SelectItem id={item.id} textValue={item.id}>
+                                            {item.id}
+                                        </SelectItem>
+                                    )}
+                                </SelectContent>
+                            </Select>
                         </div>
-                    </div>
 
-                    <div className={styles.sectionHead}>
-                        <h3 className={styles.sectionTitle}>Operations</h3>
-                        <span className={styles.sectionNote}>
-                            Run top to bottom — each step waits for the one above it
-                        </span>
-                    </div>
-
-                    <ol className={styles.opList}>
-                        {draft.operations.map((op, index) => (
-                            <li key={op.id} className={styles.opRow}>
-                                <span className={styles.opIndex}>{index + 1}</span>
-                                <input
-                                    className={styles.opName}
-                                    value={op.name}
-                                    onChange={(e) => patchOperation(index, { name: e.target.value })}
-                                    placeholder="Operation name"
-                                    aria-label={`Operation ${index + 1} name`}
-                                />
-                                <select
-                                    className={styles.opMachine}
-                                    value={op.machineId}
-                                    onChange={(e) => patchOperation(index, { machineId: e.target.value })}
-                                    aria-label={`Operation ${index + 1} machine`}
-                                >
-                                    {machines.map((machine) => (
-                                        <option key={machine.id} value={machine.id}>{machine.name}</option>
-                                    ))}
-                                </select>
-                                <span className={styles.opDurationWrap}>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        step={5}
-                                        className={styles.opDuration}
-                                        value={op.durationMins}
-                                        onChange={(e) => patchOperation(index, { durationMins: Number(e.target.value) })}
-                                        aria-label={`Operation ${index + 1} duration in minutes`}
-                                    />
-                                    <span className={styles.opDurationUnit}>min</span>
+                        <div>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                <h3 className="font-semibold text-sm">Operations</h3>
+                                <span className="text-muted-fg text-xs">
+                                    Run top to bottom — each step waits for the one above it
                                 </span>
-                                <span className={styles.opActions}>
-                                    <button
-                                        type="button"
-                                        className={styles.opMoveBtn}
-                                        onClick={() => moveOperation(index, -1)}
-                                        disabled={index === 0}
-                                        aria-label={`Move operation ${index + 1} earlier`}
-                                    >↑</button>
-                                    <button
-                                        type="button"
-                                        className={styles.opMoveBtn}
-                                        onClick={() => moveOperation(index, 1)}
-                                        disabled={index === draft.operations.length - 1}
-                                        aria-label={`Move operation ${index + 1} later`}
-                                    >↓</button>
-                                    <button
-                                        type="button"
-                                        className={styles.opRemoveBtn}
-                                        onClick={() => removeOperation(index)}
-                                        aria-label={`Remove operation ${index + 1}`}
-                                    >✕</button>
-                                </span>
-                            </li>
-                        ))}
-                        {draft.operations.length === 0 && (
-                            <li className={styles.opEmpty}>No operations yet — a job needs at least one.</li>
-                        )}
-                    </ol>
+                            </div>
 
-                    <button className={styles.addOpBtn} onClick={addOperation}>+ Add operation</button>
+                            <ol className="mt-3 space-y-2.5">
+                                {draft.operations.map((op, index) => (
+                                    <li
+                                        key={op.id}
+                                        className="grid items-end gap-2.5 rounded-lg border bg-muted p-2.5 sm:grid-cols-[auto_2fr_1.2fr_auto_auto]"
+                                    >
+                                        <span className="flex size-6 items-center justify-center self-center rounded-full bg-secondary font-semibold text-xs">
+                                            {index + 1}
+                                        </span>
 
-                    <div className={styles.sectionHead}>
-                        <h3 className={styles.sectionTitle}>Dependencies</h3>
-                        <span className={styles.sectionNote}>
-                            This job cannot start until every job ticked here has finished
-                        </span>
-                    </div>
+                                        <TextField
+                                            aria-label={`Operation ${index + 1} name`}
+                                            value={op.name}
+                                            onChange={(name) => patchOperation(index, { name })}
+                                        >
+                                            <Input placeholder="Operation name" />
+                                        </TextField>
 
-                    <ul className={styles.depList}>
-                        {jobs
-                            .filter((candidate) => candidate.id !== draft.id)
-                            .map((candidate) => {
-                                // Ticking a job that already depends on this one would
-                                // close a loop no ordering can satisfy, so block it here
-                                // rather than failing at generation time.
-                                const cyclic = draft.id !== null && wouldCreateCycle(jobs, draft.id, candidate.id);
-                                const checked = draft.dependsOn.includes(candidate.id);
-                                return (
-                                    <li key={candidate.id}>
-                                        <label className={`${styles.depItem} ${cyclic ? styles.depItemBlocked : ""}`}>
-                                            <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                disabled={cyclic}
-                                                onChange={() => toggleDependency(candidate.id)}
-                                            />
-                                            <span className={styles.depId}>{candidate.id}</span>
-                                            <span className={styles.depName}>{candidate.name}</span>
-                                            {cyclic && (
-                                                <span className={styles.depBlockedNote}>
-                                                    already waits on this job
-                                                </span>
-                                            )}
-                                        </label>
+                                        <Select
+                                            aria-label={`Operation ${index + 1} machine`}
+                                            value={op.machineId}
+                                            onChange={(machineId) =>
+                                                patchOperation(index, { machineId: String(machineId) })
+                                            }
+                                        >
+                                            <SelectTrigger />
+                                            <SelectContent items={machines}>
+                                                {(machine) => (
+                                                    <SelectItem id={machine.id} textValue={machine.name}>
+                                                        {machine.name}
+                                                    </SelectItem>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+
+                                        <NumberField
+                                            aria-label={`Operation ${index + 1} duration in minutes`}
+                                            className="w-38"
+                                            minValue={1}
+                                            step={5}
+                                            value={op.durationMins}
+                                            onChange={(durationMins) => patchOperation(index, { durationMins })}
+                                        >
+                                            <NumberInput />
+                                        </NumberField>
+
+                                        <span className="flex items-center gap-1 self-center">
+                                            <Button
+                                                intent="plain"
+                                                size="sq-xs"
+                                                onPress={() => moveOperation(index, -1)}
+                                                isDisabled={index === 0}
+                                                aria-label={`Move operation ${index + 1} earlier`}
+                                            >
+                                                <ArrowUpIcon />
+                                            </Button>
+                                            <Button
+                                                intent="plain"
+                                                size="sq-xs"
+                                                onPress={() => moveOperation(index, 1)}
+                                                isDisabled={index === draft.operations.length - 1}
+                                                aria-label={`Move operation ${index + 1} later`}
+                                            >
+                                                <ArrowDownIcon />
+                                            </Button>
+                                            <Button
+                                                intent="plain"
+                                                size="sq-xs"
+                                                onPress={() => removeOperation(index)}
+                                                aria-label={`Remove operation ${index + 1}`}
+                                            >
+                                                <XMarkIcon />
+                                            </Button>
+                                        </span>
                                     </li>
-                                );
-                            })}
-                        {jobs.filter((candidate) => candidate.id !== draft.id).length === 0 && (
-                            <li className={styles.depEmpty}>No other jobs to depend on yet.</li>
-                        )}
-                    </ul>
+                                ))}
+                                {draft.operations.length === 0 && (
+                                    <li className="rounded-lg border border-dashed p-4 text-center text-muted-fg text-sm">
+                                        No operations yet — a job needs at least one.
+                                    </li>
+                                )}
+                            </ol>
 
-                    {blockedBy.length > 0 && (
-                        <p className={styles.blocksNote}>
-                            <strong>{blockedBy.length} job{blockedBy.length === 1 ? "" : "s"}</strong> wait on this one:{" "}
-                            {blockedBy.map((job) => job.id).join(", ")}
-                        </p>
-                    )}
-
-                    <div className={styles.editorFooter}>
-                        <div className={styles.draftSummary}>
-                            {draft.operations.length} operations · {formatDuration(draftWorkMins)} of machine time ·{" "}
-                            {new Set(draft.operations.map((op) => machineName(op.machineId))).size} machines
+                            <Button intent="outline" size="sm" className="mt-3" onPress={addOperation}>
+                                <PlusIcon /> Add operation
+                            </Button>
                         </div>
-                        <div className={styles.editorActions}>
-                            {draft.id && (
-                                <button className={styles.deleteBtn} onClick={removeJob}>Delete job</button>
+
+                        <div>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                <h3 className="font-semibold text-sm">Dependencies</h3>
+                                <span className="text-muted-fg text-xs">
+                                    This job cannot start until every job ticked here has finished
+                                </span>
+                            </div>
+
+                            <ul className="mt-3 space-y-1.5">
+                                {dependencyCandidates.map((candidate) => {
+                                    // Ticking a job that already depends on this one would
+                                    // close a loop no ordering can satisfy, so block it here
+                                    // rather than failing at generation time.
+                                    const cyclic = draft.id !== null && wouldCreateCycle(jobs, draft.id, candidate.id);
+                                    return (
+                                        <li key={candidate.id}>
+                                            <CheckboxField
+                                                isSelected={draft.dependsOn.includes(candidate.id)}
+                                                isDisabled={cyclic}
+                                                onChange={() => toggleDependency(candidate.id)}
+                                            >
+                                                <Checkbox>
+                                                    <span className="flex flex-wrap items-center gap-2 text-sm">
+                                                        <span className="font-semibold">{candidate.id}</span>
+                                                        <span>{candidate.name}</span>
+                                                        {cyclic && (
+                                                            <span className="text-muted-fg text-xs">
+                                                                already waits on this job
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                </Checkbox>
+                                            </CheckboxField>
+                                        </li>
+                                    );
+                                })}
+                                {dependencyCandidates.length === 0 && (
+                                    <li className="text-muted-fg text-sm">No other jobs to depend on yet.</li>
+                                )}
+                            </ul>
+
+                            {blockedBy.length > 0 && (
+                                <p className="mt-3 text-muted-fg text-sm">
+                                    <strong className="text-fg">
+                                        {blockedBy.length} job{blockedBy.length === 1 ? "" : "s"}
+                                    </strong>{" "}
+                                    wait on this one: {blockedBy.map((job) => job.id).join(", ")}
+                                </p>
                             )}
-                            <button className={styles.saveBtn} onClick={saveDraft}>
-                                {draft.id ? "Save changes" : "Create job"}
-                            </button>
                         </div>
-                    </div>
-                </section>
+
+                        <Separator />
+
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="text-muted-fg text-sm">
+                                {draft.operations.length} operations · {formatDuration(draftWorkMins)} of machine
+                                time ·{" "}
+                                {new Set(draft.operations.map((op) => machineName(op.machineId))).size} machines
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                {draft.id && (
+                                    <Button intent="danger" onPress={removeJob}>
+                                        Delete job
+                                    </Button>
+                                )}
+                                <Button onPress={saveDraft}>
+                                    {draft.id ? "Save changes" : "Create job"}
+                                </Button>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
             </main>
         </div>
     );

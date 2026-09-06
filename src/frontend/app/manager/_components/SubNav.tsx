@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import styles from "./SubNav.module.css";
+import { Tab, TabList, Tabs } from "@/components/ui/tabs";
 
 const TABS = [
     { href: "/manager", label: "Overview" },
@@ -11,23 +10,27 @@ const TABS = [
     { href: "/manager/simulation", label: "Simulation" },
 ];
 
+/**
+ * Section switcher for the manager routes.
+ *
+ * Built on Intent UI's Tabs rather than a row of links so the group gets the
+ * roving-tabindex and arrow-key behaviour React Aria gives a tablist. The tabs
+ * navigate by `href`, which the RouterProvider in app/providers.tsx turns into
+ * a client-side push.
+ */
 export function SubNav() {
     const pathname = usePathname();
+    const selected = TABS.find((tab) => tab.href === pathname)?.href ?? TABS[0].href;
+
     return (
-        <nav className={styles.nav} aria-label="Manager sections">
-            {TABS.map((tab) => {
-                const active = pathname === tab.href;
-                return (
-                    <Link
-                        key={tab.href}
-                        href={tab.href}
-                        className={`${styles.tab} ${active ? styles.tabActive : ""}`}
-                        aria-current={active ? "page" : undefined}
-                    >
+        <Tabs selectedKey={selected} aria-label="Manager sections" className="w-auto">
+            <TabList items={TABS}>
+                {TABS.map((tab) => (
+                    <Tab key={tab.href} id={tab.href} href={tab.href}>
                         {tab.label}
-                    </Link>
-                );
-            })}
-        </nav>
+                    </Tab>
+                ))}
+            </TabList>
+        </Tabs>
     );
 }
