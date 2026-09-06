@@ -61,6 +61,18 @@ docker compose up --build -d
 make db-upgrade
 ```
 
+Load a scenario to work against — an empty database has no jobs or machines:
+
+```bash
+make db-seed-list          # which scenarios are available
+make db-seed instance=ft06 # load one (replaces whatever was loaded before)
+```
+
+Scenarios are standard job-shop benchmark instances. `ft06` is the smallest; `bel00` is the large,
+awkwardly shaped one. Seeding replaces the current scenario rather than adding to it, so the
+database always holds exactly one. See [`src/database/seed-data/`](src/database/seed-data/README.md)
+for what each instance is and what it does and does not populate.
+
 Open the frontend at <http://localhost:3000>, API health at <http://localhost:8002/health>, and FastAPI docs at <http://localhost:8002/docs>.
 The PostgreSQL and API host ports default to `5433` and `8002`; override
 `POSTGRES_HOST_PORT`, `API_HOST_PORT`, and the matching `NEXT_PUBLIC_API_URL` in `.env`
