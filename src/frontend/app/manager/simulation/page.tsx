@@ -1,0 +1,398 @@
+"use client";
+
+import { PauseIcon, PlayIcon, UserCircleIcon } from "@heroicons/react/24/outline";
+import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/field";
+import { Link } from "@/components/ui/link";
+import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Slider, SliderFill, SliderThumb, SliderTrack } from "@/components/ui/slider";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableColumn,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Wordmark } from "../../_components/Logo";
+import { GanttChart } from "../_components/GanttChart";
+import { usePlanning } from "../_components/PlanningProvider";
+import { SubNav } from "../_components/SubNav";
+import { buildJobColors, jobColor } from "../_lib/colors";
+import { formatDuration, formatOffset } from "../_lib/scheduling";
+import type { GeneratedSchedule } from "../_lib/types";
+
+/**
+ * Simulation.
+ *
+ * Takes whatever plan the scheduler last generated and runs a clock across it.
+ * Nothing here changes the plan — this view answers "what does the shop look
+ * like N minutes in?", where the scheduler answers "what is the plan?".
+ *
+ * Speed is expressed as shop-minutes per real second, so 60x means one hour of
+ * the plan passes every second.
+ */
+
+const SPEEDS = [
+    { value: 1, label: "1×", hint: "1 min/s" },
+    { value: 10, label: "10×", hint: "10 min/s" },
+    { value: 60, label: "60×", hint: "1 hr/s" },
+];
+
+const TICK_MS = 100;
+
+type MachineActivity =
+    | { kind: "running"; jobId: string; opName: string; opIndex: number; opTotal: number; progressPct: number; endMins: number }
+    | { kind: "idle"; nextStartMins: number | null }
+    | { kind: "finished" };
+
+function machineActivity(schedule: GeneratedSchedule, machineId: string, nowMins: number): MachineActivity {
+    const ops = schedule.ops.filter((op) => op.machineId === machineId);
+    const running = ops.find((op) => op.startMins <= nowMins && op.endMins > nowMins);
+    if (running) {
+        return {
+            kind: "running",
+            jobId: running.jobId,
+            opName: running.opName,
+            opIndex: running.opIndex,
+            opTotal: running.opTotal,
+            progressPct: ((nowMins - running.startMins) / (running.endMins - running.startMins)) * 100,
+            endMins: running.endMins,
+        };
+    }
+    const upcoming = ops.filter((op) => op.startMins > nowMins);
+    if (upcoming.length === 0) return { kind: "finished" };
+    return { kind: "idle", nextStartMins: Math.min(...upcoming.map((op) => op.startMins)) };
+}
+
+const ACTIVITY_INTENT = {
+    running: "info",
+    idle: "warning",
+    finished: "success",
+} as const;
+
+const STATE_INTENT = {
+    Done: "success",
+    Running: "info",
+    Waiting: "secondary",
+} as const;
+
+function ManagerTopbar({ children }: { children?: React.ReactNode }) {
+    return (
+        <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+            <div className="flex items-center gap-2.5">
+                <Wordmark />
+                <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
+                    Manager
+                </span>
+            </div>
+            <SubNav />
+            {children}
+            <div className="flex-1" />
+            <div className="flex items-center gap-2">
+                <UserCircleIcon className="size-7 text-muted-fg" />
+                <span className="font-semibold text-sm">Manager</span>
+            </div>
+        </header>
+    );
+}
+
+export default function SimulationPage() {
+    const { machines, jobs, schedule } = usePlanning();
+    const [simMins, setSimMins] = useState(0);
+    const [playing, setPlaying] = useState(false);
+    const [speed, setSpeed] = useState(10);
+    const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+    const [playingPlan, setPlayingPlan] = useState(schedule);
+
+    const colors = useMemo(() => buildJobColors(jobs), [jobs]);
+    const makespan = schedule?.makespanMins ?? 0;
+    const atEnd = schedule !== null && simMins >= makespan;
+    /** Latched "play" only actually advances the clock while there is plan left. */
+    const running = playing && !atEnd;
+
+    // A plan that was cleared or regenerated invalidates the position we were
+    // at. Rewinding during render rather than from an effect avoids painting
+    // one frame of the new plan at the old plan's clock.
+    if (schedule !== playingPlan) {
+        setPlayingPlan(schedule);
+        setSimMins(0);
+        setPlaying(false);
+    }
+
+    // Torn down the moment the clock reaches the makespan, so a finished run
+    // costs nothing rather than ticking against a clamped value.
+    useEffect(() => {
+        if (!running || !schedule) return;
+        const id = setInterval(() => {
+            setSimMins((previous) => Math.min(previous + speed * (TICK_MS / 1000), schedule.makespanMins));
+        }, TICK_MS);
+        return () => clearInterval(id);
+    }, [running, speed, schedule]);
+
+    if (!schedule) {
+        return (
+            <div className="flex min-h-dvh flex-col bg-bg text-fg">
+                <ManagerTopbar />
+                <main className="flex flex-1 items-center justify-center p-5">
+                    <div className="max-w-prose rounded-lg border border-dashed bg-overlay p-8 text-center">
+                        <h2 className="font-semibold text-lg">Nothing to simulate yet</h2>
+                        <p className="mt-2 text-muted-fg text-sm">
+                            The simulation replays a generated plan. Build one first — pick the jobs to
+                            release and generate a schedule.
+                        </p>
+                        <Link href="/manager/scheduler" className="mt-4 inline-block text-primary text-sm">
+                            Go to the scheduler →
+                        </Link>
+                    </div>
+                </main>
+            </div>
+        );
+    }
+
+    const completedOps = schedule.ops.filter((op) => op.endMins <= simMins).length;
+    const runningOps = schedule.ops.filter((op) => op.startMins <= simMins && op.endMins > simMins).length;
+    const overallPct = makespan === 0 ? 0 : Math.round((simMins / makespan) * 100);
+    const usedMachines = machines.filter((machine) => schedule.ops.some((op) => op.machineId === machine.id));
+
+    return (
+        <div className="flex min-h-dvh flex-col bg-bg text-fg">
+            <ManagerTopbar>
+                <div className="flex flex-wrap items-center gap-2.5">
+                    <Button
+                        size="sq-sm"
+                        onPress={() => {
+                            if (atEnd) setSimMins(0);
+                            setPlaying((value) => (atEnd ? true : !value));
+                        }}
+                        aria-label={running ? "Pause simulation" : "Play simulation"}
+                    >
+                        {running ? <PauseIcon /> : <PlayIcon />}
+                    </Button>
+                    <Button
+                        intent="outline"
+                        size="sm"
+                        onPress={() => {
+                            setPlaying(false);
+                            setSimMins(0);
+                        }}
+                    >
+                        Reset
+                    </Button>
+
+                    <ToggleGroup
+                        aria-label="Playback speed"
+                        selectionMode="single"
+                        disallowEmptySelection
+                        selectedKeys={new Set([String(speed)])}
+                        onSelectionChange={(keys) => {
+                            const [first] = Array.from(keys);
+                            if (typeof first === "string") setSpeed(Number(first));
+                        }}
+                    >
+                        {SPEEDS.map((option) => (
+                            <ToggleGroupItem
+                                key={option.value}
+                                id={String(option.value)}
+                                aria-label={`${option.label} speed — ${option.hint}`}
+                            >
+                                {option.label}
+                            </ToggleGroupItem>
+                        ))}
+                    </ToggleGroup>
+
+                    <span className="font-semibold tabular-nums">{formatOffset(simMins)}</span>
+                </div>
+            </ManagerTopbar>
+
+            <div className="flex items-center gap-4 border-b bg-navbar px-7 py-2.5">
+                <Slider
+                    aria-label="Scrub the simulation clock"
+                    className="flex-1"
+                    minValue={0}
+                    maxValue={makespan}
+                    step={1}
+                    value={simMins}
+                    onChange={(value) => {
+                        setPlaying(false);
+                        setSimMins(Array.isArray(value) ? value[0] : value);
+                    }}
+                >
+                    <Label className="sr-only">Scrub</Label>
+                    <SliderTrack>
+                        <SliderFill />
+                        <SliderThumb />
+                    </SliderTrack>
+                </Slider>
+                <span className="shrink-0 text-muted-fg text-sm tabular-nums">
+                    {formatDuration(makespan)}
+                </span>
+            </div>
+
+            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(240px,0.8fr)_2.4fr_minmax(220px,0.7fr)]">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Machines now</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <ul className="space-y-2.5">
+                            {usedMachines.map((machine) => {
+                                const activity = machineActivity(schedule, machine.id, simMins);
+                                return (
+                                    <li key={machine.id} className="rounded-lg border bg-muted p-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="font-semibold text-sm">{machine.name}</span>
+                                            <Badge intent={ACTIVITY_INTENT[activity.kind]}>
+                                                {activity.kind === "running"
+                                                    ? "Running"
+                                                    : activity.kind === "idle"
+                                                      ? "Idle"
+                                                      : "Done"}
+                                            </Badge>
+                                        </div>
+                                        <div className="text-muted-fg text-xs">{machine.operator}</div>
+                                        {activity.kind === "running" && (
+                                            <>
+                                                <div className="mt-2 flex items-center gap-1.5 text-xs">
+                                                    <span
+                                                        className="size-2.5 shrink-0 rounded-full"
+                                                        style={{ background: jobColor(colors, activity.jobId).fill }}
+                                                    />
+                                                    <strong>{activity.jobId}</strong> · Op {activity.opIndex}/
+                                                    {activity.opTotal} {activity.opName}
+                                                </div>
+                                                <ProgressBar
+                                                    aria-label={`${machine.name} current operation progress`}
+                                                    value={activity.progressPct}
+                                                    className="mt-2"
+                                                >
+                                                    <ProgressBarTrack className="min-w-0" />
+                                                </ProgressBar>
+                                                <div className="mt-1.5 text-muted-fg text-xs">
+                                                    finishes {formatOffset(activity.endMins)}
+                                                </div>
+                                            </>
+                                        )}
+                                        {activity.kind === "idle" && (
+                                            <div className="mt-1.5 text-muted-fg text-xs">
+                                                next job at {formatOffset(activity.nextStartMins ?? 0)}
+                                            </div>
+                                        )}
+                                        {activity.kind === "finished" && (
+                                            <div className="mt-1.5 text-muted-fg text-xs">all work complete</div>
+                                        )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
+                        <CardTitle>Plan playback</CardTitle>
+                        <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
+                            <span className="flex items-center gap-1.5">
+                                <span className="size-2.5 rounded-xs bg-fg/25" />✓ Completed
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <span className="size-2.5 rounded-xs bg-primary" />▶ Running
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <span className="size-2.5 rounded-xs bg-fg/10" />Upcoming
+                            </span>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center gap-3">
+                            <ProgressBar
+                                aria-label="Elapsed share of the plan"
+                                value={overallPct}
+                                className="flex-1"
+                            >
+                                <ProgressBarTrack className="min-w-0" />
+                            </ProgressBar>
+                            <span className="shrink-0 text-muted-fg text-xs">
+                                {completedOps} done · {runningOps} running ·{" "}
+                                {schedule.ops.length - completedOps - runningOps} to go
+                            </span>
+                        </div>
+
+                        <GanttChart
+                            machines={machines}
+                            jobs={jobs}
+                            schedule={schedule}
+                            colors={colors}
+                            mode="simulation"
+                            nowMins={simMins}
+                            selectedJobId={highlightedJobId}
+                            onSelectJob={(jobId) =>
+                                setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
+                            }
+                        />
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Job progress</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <Table
+                            aria-label="Job progress"
+                            selectionMode="single"
+                            selectionBehavior="replace"
+                            selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
+                            onSelectionChange={(keys) => {
+                                if (keys === "all") return;
+                                const [first] = Array.from(keys);
+                                if (typeof first === "string") {
+                                    setHighlightedJobId((previous) => (previous === first ? null : first));
+                                }
+                            }}
+                        >
+                            <TableHeader>
+                                <TableColumn isRowHeader>Job</TableColumn>
+                                <TableColumn>Ops</TableColumn>
+                                <TableColumn>State</TableColumn>
+                            </TableHeader>
+                            <TableBody items={schedule.order.map((id) => ({ id }))}>
+                                {({ id }) => {
+                                    const jobOps = schedule.ops.filter((op) => op.jobId === id);
+                                    const done = jobOps.filter((op) => op.endMins <= simMins).length;
+                                    const finish = schedule.jobFinish[id] ?? 0;
+                                    const start = schedule.jobStart[id] ?? 0;
+                                    const state =
+                                        simMins >= finish ? "Done" : simMins >= start ? "Running" : "Waiting";
+                                    return (
+                                        <TableRow id={id}>
+                                            <TableCell>
+                                                <span className="flex items-center gap-1.5">
+                                                    <span
+                                                        className="size-2.5 shrink-0 rounded-full"
+                                                        style={{ background: jobColor(colors, id).fill }}
+                                                    />
+                                                    {id}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell className="tabular-nums">
+                                                {done}/{jobOps.length}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge intent={STATE_INTENT[state]}>{state}</Badge>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                }}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            </main>
+        </div>
+    );
+}
