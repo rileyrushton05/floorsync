@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, Text, Uuid
@@ -13,6 +13,8 @@ from floorsync_common.database.models.mixins import TimestampMixin, UUIDPrimaryK
 
 if TYPE_CHECKING:
     from floorsync_common.database.models.user import User
+
+type ScheduleStatus = Literal["draft", "confirmed", "discarded"]
 
 
 class Schedule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -27,7 +29,7 @@ class Schedule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint("status IN ('draft', 'confirmed', 'discarded')", name="status_valid"),
     )
 
-    status: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ScheduleStatus] = mapped_column(Text, nullable=False)
     strategy: Mapped[str] = mapped_column(Text, nullable=False)
     runtime_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_operation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)

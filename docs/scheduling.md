@@ -64,12 +64,18 @@ downtime later would mutate a historical plan.
 `schedule_dependencies` remains useful for explaining *why* an operation waits (`job_order` or
 `machine_queue`), but is no longer treated as the timeline source of truth.
 
-`SchedulingService.generate_draft()` is the database adapter: it loads the configuration with the
-caller-owned transaction, runs the pure engine, and persists the new draft only on success. The API
-adapter should expose this as a manager-only `POST /api/v1/schedules` command with a
-timezone-aware `starts_at`, returning `201 Created` and the draft schedule. A validation result is
-mapped to RFC 9457 `422` Problem Details with the individual issue codes in an extension field.
-The request handler owns the transaction; the engine itself remains database- and FastAPI-free.
+`POST /api/v1/schedules` is manager-only and accepts a timezone-aware `starts_at`. It publishes a
+`floorsync.schedules.generate` command to the `scheduling` Celery queue, then returns `202 Accepted`
+with a `Location` pointing to `/api/v1/schedules/generations/{generation_id}`. The API process never
+runs ReSched or holds a database transaction during inference.
+
+The worker reads a configuration snapshot in a short transaction, closes it, runs the pure engine,
+then persists the resulting draft in a separate short transaction. `GET` on the generation resource
+reports `pending`, `running`, `completed`, `rejected`, `unavailable` or `failed`. A completed result
+links to `GET /api/v1/schedules/{schedule_id}`, which retrieves the saved version and its planned
+operation timeline. Rejected runs expose their machine-readable validation issues in the status
+resource; queue outages are RFC 9457 `503` Problem Details. The engine itself remains database- and
+FastAPI-free.
 
 ## Evaluation
 

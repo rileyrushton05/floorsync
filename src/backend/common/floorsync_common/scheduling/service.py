@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from time import perf_counter_ns
-from typing import assert_never
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.dependency import Dependency
@@ -24,49 +22,40 @@ from floorsync_common.scheduling.contracts import (
     MachineSpec,
     OperationSpec,
     RouteSpec,
-    ScheduleGenerated,
+    SchedulePlan,
     SchedulingInput,
-    SchedulingInputInvalid,
     UnavailabilitySpec,
 )
-from floorsync_common.scheduling.resched import ReSchedEngine, ReSchedRuntimeUnavailable
+from floorsync_common.scheduling.resched import ReSchedEngine
 
 
 @dataclass(frozen=True, slots=True)
 class ScheduleStored:
-    """A complete draft schedule written in the caller's open transaction."""
+    """A draft schedule written in the caller's open transaction."""
 
     schedule: Schedule
 
 
-type GenerateAndStoreScheduleResult = (
-    ScheduleStored | SchedulingInputInvalid | ReSchedRuntimeUnavailable
-)
-
-
 class SchedulingService:
-    """Load the live configuration, schedule it and write a new draft version.
-
-    The caller owns the transaction. No input row or confirmed schedule is updated by this service.
-    """
+    """Read scheduling inputs and persist generated plans in caller-owned transactions."""
 
     strategy = ReSchedEngine.strategy
 
     @staticmethod
-    async def generate_draft(
-        db: AsyncSession,
+    def load_input(
+        db: Session,
         *,
         starts_at: datetime,
-    ) -> GenerateAndStoreScheduleResult:
-        """Generate one draft from a consistent read of the current floor configuration."""
+    ) -> SchedulingInput:
+        """Snapshot the current floor configuration for a later, transaction-free inference run."""
 
-        machines = list((await db.scalars(select(Machine))).all())
-        operations = list((await db.scalars(select(Operation))).all())
-        routes = list((await db.scalars(select(Compatibility))).all())
-        dependencies = list((await db.scalars(select(Dependency))).all())
-        unavailabilities = list((await db.scalars(select(Unavailability))).all())
+        machines = list(db.scalars(select(Machine)).all())
+        operations = list(db.scalars(select(Operation)).all())
+        routes = list(db.scalars(select(Compatibility)).all())
+        dependencies = list(db.scalars(select(Dependency)).all())
+        unavailabilities = list(db.scalars(select(Unavailability)).all())
 
-        problem = SchedulingInput(
+        return SchedulingInput(
             starts_at=starts_at,
             machines=tuple(
                 MachineSpec(
@@ -104,30 +93,28 @@ class SchedulingService:
                 for window in unavailabilities
             ),
         )
-        started_ns = perf_counter_ns()
-        result = ReSchedEngine.generate(problem)
-        runtime_ms = (perf_counter_ns() - started_ns) // 1_000_000
-        match result:
-            case SchedulingInputInvalid():
-                return result
-            case ReSchedRuntimeUnavailable():
-                return result
-            case ScheduleGenerated(plan=plan):
-                pass
-            case _:
-                assert_never(result)
+
+    @staticmethod
+    def store_draft(
+        db: Session,
+        *,
+        plan: SchedulePlan,
+        runtime_ms: int,
+        input_operation_count: int,
+    ) -> ScheduleStored:
+        """Write one generated plan without re-running inference or changing prior schedules."""
 
         schedule = Schedule(
             status="draft",
             strategy=SchedulingService.strategy,
             runtime_ms=runtime_ms,
-            input_operation_count=len(problem.operations),
+            input_operation_count=input_operation_count,
             makespan=plan.metrics.makespan_minutes,
             total_energy=plan.metrics.total_energy,
             total_labour_cost=plan.metrics.total_labour_cost,
         )
         db.add(schedule)
-        await db.flush()
+        db.flush()
 
         entries_by_operation_id: dict[UUID, ScheduleEntry] = {}
         for assignment in plan.assignments:
@@ -143,17 +130,16 @@ class SchedulingService:
             )
             db.add(entry)
             entries_by_operation_id[assignment.operation_id] = entry
-        await db.flush()
+        db.flush()
 
         for dependency in plan.dependencies:
-            db.add(
-                ScheduleDependency(
-                    schedule_entry_id=entries_by_operation_id[dependency.schedule_operation_id].id,
-                    depends_on_schedule_entry_id=entries_by_operation_id[
-                        dependency.depends_on_operation_id
-                    ].id,
-                    reason=dependency.reason,
-                )
+            schedule_dependency = ScheduleDependency(
+                schedule_entry_id=entries_by_operation_id[dependency.schedule_operation_id].id,
+                depends_on_schedule_entry_id=entries_by_operation_id[
+                    dependency.depends_on_operation_id
+                ].id,
+                reason=dependency.reason,
             )
-        await db.flush()
+            db.add(schedule_dependency)
+        db.flush()
         return ScheduleStored(schedule=schedule)
