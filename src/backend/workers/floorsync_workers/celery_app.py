@@ -1,14 +1,12 @@
-from celery import Celery
 from celery.signals import setup_logging, worker_process_init, worker_process_shutdown
 
 from floorsync_common.observability import configure_logging
 from floorsync_common.settings import settings
+from floorsync_common.task_queue import create_task_queue
 from floorsync_workers.database import dispose_worker_database, initialize_worker_database
 
-celery_app = Celery(
-    "floorsync",
-    broker=settings.celery_broker_url,
-    backend=settings.redis_url,
+celery_app = create_task_queue(
+    include=("floorsync_workers.tasks.schedules",),
 )
 
 

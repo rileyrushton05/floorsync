@@ -19,15 +19,10 @@ if TYPE_CHECKING:
 class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """One operation assigned to one machine within a schedule.
 
-    No start/end time and no queue position -- both are derived from Schedule Dependency at read
-    time, not stored (see docs/database-schema.md). duration/energy/machine_salary are snapshotted
-    from Compatibility/Machine at generation time so a schedule's reported cost never silently
-    changes if that source data changes later.
-
-    energy and machine_salary are nullable because the values they snapshot are: a scenario seeded
-    from an academic benchmark records durations only. A NULL here means the source carried no such
-    cost when the schedule was generated, so cost reporting must exclude the entry rather than sum
-    it as zero. duration stays required -- a schedule entry without one cannot be sequenced.
+    Duration, energy and machine_salary are snapshotted from Compatibility/Machine at generation
+    time so a schedule's reported cost never silently changes. Start/end times and queue position
+    are derived from ScheduleDependency when the schedule is read. Cost snapshots are nullable when
+    the source records durations but no energy or labour cost.
     """
 
     __tablename__ = "schedule_entries"

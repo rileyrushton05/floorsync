@@ -3,6 +3,7 @@ PNPM := corepack pnpm --dir src/frontend
 .PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks db-upgrade db-revision db-seed db-seed-list
 
 bootstrap:
+	git submodule update --init --recursive
 	uv sync
 	$(PNPM) install --frozen-lockfile
 

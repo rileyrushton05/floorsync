@@ -39,7 +39,7 @@ services:
     build:
       context: .
       dockerfile: src/backend/workers/Dockerfile
-    command: celery -A floorsync_workers.celery_app worker --loglevel=INFO
+    command: celery -A floorsync_workers.celery_app worker --loglevel=INFO --queues=scheduling
     env_file: .env
     environment:
       PYTHONPATH: /app/src/backend/common:/app/src/backend/api:/app/src/backend/workers

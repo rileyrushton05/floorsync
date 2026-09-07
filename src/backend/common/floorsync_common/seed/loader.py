@@ -217,7 +217,6 @@ async def _seed_schedule(
                 "duration": operation.duration,
             }
         )
-    await _insert_all(session, ScheduleEntry, entry_rows)
 
     precedence_rows: list[dict[str, Any]] = []
 
@@ -251,6 +250,7 @@ async def _seed_schedule(
                     "reason": "machine_queue",
                 }
             )
+    await _insert_all(session, ScheduleEntry, entry_rows)
 
     await _insert_all(session, ScheduleDependency, precedence_rows)
     return len(entry_rows), len(precedence_rows)

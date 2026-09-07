@@ -185,6 +185,8 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 |---|---|---|
 | status | Text | not null, CHECK status IN ('draft', 'confirmed', 'discarded') |
 | strategy | Text | not null |
+| runtime_ms | Integer | nullable — elapsed engine time only, excluding database/API work |
+| input_operation_count | Integer | nullable — number of operations in this run's input |
 | makespan | Integer | nullable — set once generation completes |
 | total_energy | Numeric(12,2) | nullable — set once generation completes |
 | total_labour_cost | Numeric(12,2) | nullable — set once generation completes |
@@ -198,11 +200,13 @@ who actually handed a schedule off to simulation and when; `ondelete SET NULL` s
 the confirming user's account never threatens the schedule record itself. `total_energy` /
 `total_labour_cost` are written once at generation, summed from `schedule_entries` below — the same
 kind of cached, never-reconciled-against-anything-else value `makespan` already is, needed because
-the objective function is multi-objective now, not makespan alone.
+the objective function is multi-objective now, not makespan alone. `runtime_ms` and
+`input_operation_count` are run metadata used to compare deterministic scheduling strategies over
+the same-sized input.
 
 ## schedule_entries
 
-No start/end time, no queue position — duration and position are derived, not stored (see #125).
+Start/end time and queue position are derived from schedule dependencies when the schedule is read.
 
 | column | type | constraints |
 |---|---|---|
@@ -230,8 +234,8 @@ therefore schedulable and simulatable but not costable, which is the honest outc
 UNIQUE (schedule_id, operation_id)
 ```
 
-`duration` is copied from Compatibility when the schedule is generated, not looked up live — so a
-later edit to Compatibility can't silently reshape a schedule that's already been generated.
+`duration` is copied at generation time rather than calculated from live Compatibility data, so a
+later edit cannot silently reshape a schedule that's already been generated.
 
 ## schedule_dependencies
 
@@ -309,8 +313,8 @@ used for anything real cannot be hard-deleted at all — the FK graph refuses it
 ## Open questions for the team to confirm before the migration lands
 
 - `compatibilities.duration` as `Integer` minutes — confirm the unit before anyone hardcodes it.
-- `schedule_entries.duration` as a snapshot copy: intentional per the "actual start = derive, don't
-  re-look-up" principle, but flag if anyone expected it to track Compatibility live.
+- `schedule_entries.duration` is a snapshot: a confirmed plan must not change when Compatibility is
+  edited later.
 - `users.role` and other small fixed-value columns use a `CHECK` constraint rather than a lookup
   table, per conventions ("a check constraint or lookup table for values likely to change") —
   `category` got a table because it's genuinely open-ended (Pasindu's own set will grow); `role` and
