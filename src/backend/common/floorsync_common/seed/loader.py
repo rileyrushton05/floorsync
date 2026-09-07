@@ -7,7 +7,7 @@ always reflects exactly one instance rather than an accumulation of several.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from itertools import pairwise
 from typing import Any
 from uuid import UUID, uuid4
@@ -33,12 +33,6 @@ from floorsync_common.database.models import (
 )
 from floorsync_common.seed.instances import BenchmarkInstance
 from floorsync_common.seed.solutions import BenchmarkSolution, validate_against
-from floorsync_common.simulation.graph import (
-    PrecedenceEdge,
-    PrecedenceReason,
-    TimelineNode,
-    resolve_start_times,
-)
 
 # Children before parents. Users are handled separately: an operator's login is bound to a machine
 # by a check constraint, so it has to go before the machine it points at.
@@ -210,12 +204,21 @@ async def _seed_schedule(
     # One entry per operation. The machine and duration are the instance's, not the solution's --
     # a solution only decides ordering.
     entry_ids: dict[tuple[int, int], UUID] = {}
+    entry_rows: list[dict[str, Any]] = []
     for operation in instance.operations:
         entry_id = uuid4()
         entry_ids[(operation.job, operation.index)] = entry_id
+        entry_rows.append(
+            {
+                "id": entry_id,
+                "schedule_id": schedule_id,
+                "operation_id": operation_ids[(operation.job, operation.index)],
+                "machine_id": machine_ids[operation.machine],
+                "duration": operation.duration,
+            }
+        )
 
     precedence_rows: list[dict[str, Any]] = []
-    timeline_edges: list[PrecedenceEdge] = []
 
     # job_order: the instance's own precedence chain, restated against this schedule's entries.
     for operations in instance.operations_by_job.values():
@@ -227,13 +230,6 @@ async def _seed_schedule(
                     "depends_on_schedule_entry_id": entry_ids[(earlier.job, earlier.index)],
                     "reason": "job_order",
                 }
-            )
-            timeline_edges.append(
-                PrecedenceEdge(
-                    before=str(entry_ids[(earlier.job, earlier.index)]),
-                    after=str(entry_ids[(later.job, later.index)]),
-                    reason=PrecedenceReason.JOB_ORDER,
-                )
             )
 
     # machine_queue: the ordering the solver actually chose. Each machine works through its jobs in
@@ -254,47 +250,6 @@ async def _seed_schedule(
                     "reason": "machine_queue",
                 }
             )
-            timeline_edges.append(
-                PrecedenceEdge(
-                    before=str(entry_ids[operation_on_machine[(machine, earlier_job)]]),
-                    after=str(entry_ids[operation_on_machine[(machine, later_job)]]),
-                    reason=PrecedenceReason.MACHINE_QUEUE,
-                )
-            )
-
-    planned_starts = resolve_start_times(
-        [
-            TimelineNode(
-                key=str(entry_ids[(operation.job, operation.index)]),
-                job_key=str(operation.job),
-                machine_key=str(operation.machine),
-                duration=operation.duration,
-                job_label=f"Job {operation.job}",
-                machine_label=f"Machine {operation.machine}",
-                operation_label=f"Op {operation.index}",
-            )
-            for operation in instance.operations
-        ],
-        timeline_edges,
-    )
-    plan_origin = datetime.now(UTC)
-    entry_rows = [
-        {
-            "id": entry_ids[(operation.job, operation.index)],
-            "schedule_id": schedule_id,
-            "operation_id": operation_ids[(operation.job, operation.index)],
-            "machine_id": machine_ids[operation.machine],
-            "starts_at": plan_origin
-            + timedelta(minutes=planned_starts[str(entry_ids[(operation.job, operation.index)])]),
-            "ends_at": plan_origin
-            + timedelta(
-                minutes=planned_starts[str(entry_ids[(operation.job, operation.index)])]
-                + operation.duration
-            ),
-            "duration": operation.duration,
-        }
-        for operation in instance.operations
-    ]
     await _insert_all(session, ScheduleEntry, entry_rows)
 
     await _insert_all(session, ScheduleDependency, precedence_rows)

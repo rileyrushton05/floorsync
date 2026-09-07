@@ -206,17 +206,13 @@ the same-sized input.
 
 ## schedule_entries
 
-Queue dependencies remain recorded for explainability, but planned timestamps are authoritative.
-A dependency graph cannot encode idle gaps caused by known downtime, and deriving from edited
-calendar data would mutate a historical schedule.
+Start/end time and queue position are derived from schedule dependencies when the schedule is read.
 
 | column | type | constraints |
 |---|---|---|
 | schedule_id | Uuid | FK -> schedules.id, not null, ondelete RESTRICT, indexed |
 | operation_id | Uuid | FK -> operations.id, not null, ondelete RESTRICT, indexed |
 | machine_id | Uuid | FK -> machines.id, not null, ondelete RESTRICT, indexed |
-| starts_at | DateTime(timezone=True) | not null |
-| ends_at | DateTime(timezone=True) | not null, CHECK ends_at > starts_at |
 | duration | Integer | not null — snapshotted from Compatibility at generation time |
 | energy | Numeric(10,2) | nullable — snapshotted from Compatibility at generation time |
 | machine_salary | Numeric(10,2) | nullable — snapshotted from Machine at generation time |
@@ -238,9 +234,8 @@ therefore schedulable and simulatable but not costable, which is the honest outc
 UNIQUE (schedule_id, operation_id)
 ```
 
-`starts_at`, `ends_at` and `duration` are copied at generation time, not calculated from live
-inputs — a later edit to Compatibility or Unavailability cannot silently reshape a schedule that's
-already been generated.
+`duration` is copied at generation time rather than calculated from live Compatibility data, so a
+later edit cannot silently reshape a schedule that's already been generated.
 
 ## schedule_dependencies
 
@@ -318,8 +313,8 @@ used for anything real cannot be hard-deleted at all — the FK graph refuses it
 ## Open questions for the team to confirm before the migration lands
 
 - `compatibilities.duration` as `Integer` minutes — confirm the unit before anyone hardcodes it.
-- `schedule_entries.duration` and planned timestamps are snapshots: a confirmed plan must not change
-  when Compatibility or Unavailability is edited later.
+- `schedule_entries.duration` is a snapshot: a confirmed plan must not change when Compatibility is
+  edited later.
 - `users.role` and other small fixed-value columns use a `CHECK` constraint rather than a lookup
   table, per conventions ("a check constraint or lookup table for values likely to change") —
   `category` got a table because it's genuinely open-ended (Pasindu's own set will grow); `role` and

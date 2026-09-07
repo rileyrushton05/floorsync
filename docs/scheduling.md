@@ -56,13 +56,11 @@ the explicit `ReSchedRuntimeUnavailable` outcome and writes no schedule.
 
 Each successful run becomes a new `draft` schedule; it never overwrites a confirmed schedule.
 `schedules.strategy`, `runtime_ms`, `input_operation_count`, `makespan`, `total_energy` and
-`total_labour_cost` form the run-history record. `schedule_entries` snapshots the selected route
-and machine cost plus authoritative `starts_at` and `ends_at` timestamps. The timestamps are
-essential: a dependency graph cannot reconstruct idle gaps caused by maintenance, and using live
-downtime later would mutate a historical plan.
+`total_labour_cost` form the run-history record. `schedule_entries` snapshots the selected route,
+duration and machine cost.
 
-`schedule_dependencies` remains useful for explaining *why* an operation waits (`job_order` or
-`machine_queue`), but is no longer treated as the timeline source of truth.
+`schedule_dependencies` records *why* an operation waits (`job_order` or `machine_queue`) and is
+used with snapshotted durations to derive a schedule timeline when it is read.
 
 `POST /api/v1/schedules` is manager-only and accepts a timezone-aware `starts_at`. It publishes a
 `floorsync.schedules.generate` command to the `scheduling` Celery queue, then returns `202 Accepted`
@@ -72,8 +70,8 @@ runs ReSched or holds a database transaction during inference.
 The worker reads a configuration snapshot in a short transaction, closes it, runs the pure engine,
 then persists the resulting draft in a separate short transaction. `GET` on the generation resource
 reports `pending`, `running`, `completed`, `rejected`, `unavailable` or `failed`. A completed result
-links to `GET /api/v1/schedules/{schedule_id}`, which retrieves the saved version and its planned
-operation timeline. Rejected runs expose their machine-readable validation issues in the status
+links to `GET /api/v1/schedules/{schedule_id}`, which retrieves the saved version, entries and
+dependency graph. Rejected runs expose their machine-readable validation issues in the status
 resource; queue outages are RFC 9457 `503` Problem Details. The engine itself remains database- and
 FastAPI-free.
 

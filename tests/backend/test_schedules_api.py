@@ -114,7 +114,7 @@ def schedule_application(user: User, session: FakeScheduleSession) -> FastAPI:
 def schedule_fixture() -> tuple[Schedule, ScheduleEntry, ScheduleDependency]:
     schedule_id = uuid4()
     entry_id = uuid4()
-    starts_at = datetime(2026, 9, 6, 8, tzinfo=UTC)
+    created_at = datetime(2026, 9, 6, 8, tzinfo=UTC)
     schedule = Schedule(
         id=schedule_id,
         status="draft",
@@ -124,16 +124,14 @@ def schedule_fixture() -> tuple[Schedule, ScheduleEntry, ScheduleDependency]:
         makespan=15,
         total_energy=Decimal("2.50"),
         total_labour_cost=Decimal("45.00"),
-        created_at=starts_at,
-        updated_at=starts_at,
+        created_at=created_at,
+        updated_at=created_at,
     )
     entry = ScheduleEntry(
         id=entry_id,
         schedule_id=schedule_id,
         operation_id=uuid4(),
         machine_id=uuid4(),
-        starts_at=starts_at,
-        ends_at=datetime(2026, 9, 6, 8, 15, tzinfo=UTC),
         duration=15,
         energy=Decimal("2.50"),
         machine_salary=Decimal("3.00"),
@@ -152,9 +150,9 @@ def test_manager_can_queue_schedule_generation(monkeypatch: Any) -> None:
     monkeypatch.setattr(schedules_router, "task_queue", queue)
     manager = User(id=uuid4(), name="Manager", role="manager")
 
-    response = TestClient(
-        schedule_application(manager, FakeScheduleSession())
-    ).post("/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"})
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
+    )
 
     expected_status_url = f"/api/v1/schedules/generations/{queue.task_id}"
     assert response.status_code == 202
@@ -176,9 +174,9 @@ def test_operator_cannot_queue_schedule_generation(monkeypatch: Any) -> None:
     monkeypatch.setattr(schedules_router, "task_queue", queue)
     operator = User(id=uuid4(), name="Operator", role="operator", machine_id=uuid4())
 
-    response = TestClient(
-        schedule_application(operator, FakeScheduleSession())
-    ).post("/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"})
+    response = TestClient(schedule_application(operator, FakeScheduleSession())).post(
+        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
+    )
 
     assert response.status_code == 403
     assert queue.sent is None
@@ -190,9 +188,9 @@ def test_broker_outage_returns_a_problem_detail(monkeypatch: Any) -> None:
     monkeypatch.setattr(schedules_router, "task_queue", queue)
     manager = User(id=uuid4(), name="Manager", role="manager")
 
-    response = TestClient(
-        schedule_application(manager, FakeScheduleSession())
-    ).post("/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"})
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
+    )
 
     assert response.status_code == 503
     assert response.headers["content-type"] == "application/problem+json"
@@ -207,9 +205,9 @@ def test_completed_generation_links_to_its_schedule(monkeypatch: Any) -> None:
     monkeypatch.setattr(schedules_router, "task_queue", queue)
     manager = User(id=uuid4(), name="Manager", role="manager")
 
-    response = TestClient(
-        schedule_application(manager, FakeScheduleSession())
-    ).get(f"/api/v1/schedules/generations/{queue.task_id}")
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/generations/{queue.task_id}"
+    )
 
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
@@ -234,9 +232,9 @@ def test_rejected_generation_exposes_its_input_issues(monkeypatch: Any) -> None:
     monkeypatch.setattr(schedules_router, "task_queue", queue)
     manager = User(id=uuid4(), name="Manager", role="manager")
 
-    response = TestClient(
-        schedule_application(manager, FakeScheduleSession())
-    ).get(f"/api/v1/schedules/generations/{queue.task_id}")
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/generations/{queue.task_id}"
+    )
 
     assert response.status_code == 200
     assert response.json()["status"] == "rejected"
@@ -258,14 +256,15 @@ def test_manager_can_read_a_saved_schedule() -> None:
 
     assert response.status_code == 200
     assert response.json()["id"] == str(schedule.id)
-    assert response.json()["entries"][0]["starts_at"] == "2026-09-06T08:00:00Z"
+    assert response.json()["entries"][0]["duration"] == 15
+    assert "starts_at" not in response.json()["entries"][0]
 
 
 def test_reading_a_missing_schedule_returns_not_found() -> None:
     manager = User(id=uuid4(), name="Manager", role="manager")
 
-    response = TestClient(
-        schedule_application(manager, FakeScheduleSession())
-    ).get(f"/api/v1/schedules/{uuid4()}")
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/{uuid4()}"
+    )
 
     assert response.status_code == 404

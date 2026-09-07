@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import (
-    CheckConstraint,
-    DateTime,
-    ForeignKey,
-    Integer,
-    Numeric,
-    UniqueConstraint,
-    Uuid,
-)
+from sqlalchemy import ForeignKey, Integer, Numeric, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from floorsync_common.database.base import Base
@@ -28,18 +19,14 @@ if TYPE_CHECKING:
 class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """One operation assigned to one machine within a schedule.
 
-    Planned timestamps are stored rather than inferred from the dependency graph. A graph alone
-    cannot represent a gap imposed by machine downtime, and recomputing against edited downtime
-    would rewrite historical plans. duration/energy/machine_salary are snapshotted from
-    Compatibility/Machine at generation time so a schedule's reported cost never silently changes.
-    Cost snapshots are nullable when the source records durations but no energy or labour cost.
+    Duration, energy and machine_salary are snapshotted from Compatibility/Machine at generation
+    time so a schedule's reported cost never silently changes. Start/end times and queue position
+    are derived from ScheduleDependency when the schedule is read. Cost snapshots are nullable when
+    the source records durations but no energy or labour cost.
     """
 
     __tablename__ = "schedule_entries"
-    __table_args__ = (
-        UniqueConstraint("schedule_id", "operation_id"),
-        CheckConstraint("ends_at > starts_at", name="ends_after_starts"),
-    )
+    __table_args__ = (UniqueConstraint("schedule_id", "operation_id"),)
 
     schedule_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
@@ -59,8 +46,6 @@ class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
     energy: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     machine_salary: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)

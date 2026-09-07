@@ -122,8 +122,6 @@ class SchedulingService:
                 schedule_id=schedule.id,
                 operation_id=assignment.operation_id,
                 machine_id=assignment.machine_id,
-                starts_at=assignment.starts_at,
-                ends_at=assignment.ends_at,
                 duration=assignment.duration_minutes,
                 energy=assignment.energy,
                 machine_salary=assignment.machine_salary_per_minute,

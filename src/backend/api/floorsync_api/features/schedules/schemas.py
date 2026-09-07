@@ -43,8 +43,6 @@ class ScheduleEntryResponse(ResponseSchema):
     id: UUID
     operation_id: UUID
     machine_id: UUID
-    starts_at: datetime
-    ends_at: datetime
     duration: int
     energy: Decimal | None
     machine_salary: Decimal | None

@@ -91,7 +91,7 @@ async def get_schedule_generation(
     summary="Get a generated schedule",
 )
 async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> ScheduleResponse:
-    """Fetch one immutable schedule version and its planned operation timeline."""
+    """Fetch one immutable schedule version with its entries and dependency graph."""
 
     async with db.begin():
         schedule = await db.get(Schedule, schedule_id)
@@ -102,7 +102,7 @@ async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> Schedule
                 await db.scalars(
                     select(ScheduleEntry)
                     .where(ScheduleEntry.schedule_id == schedule_id)
-                    .order_by(ScheduleEntry.starts_at, ScheduleEntry.id)
+                    .order_by(ScheduleEntry.id)
                 )
             ).all()
         )
