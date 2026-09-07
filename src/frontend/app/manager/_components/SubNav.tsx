@@ -1,7 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import { Tab, TabList, Tabs } from "@/components/ui/tabs";
+import { usePathname } from "next/navigation";
 
 const TABS = [
     { href: "/manager", label: "Overview" },
@@ -20,11 +20,11 @@ const TABS = [
  */
 export function SubNav() {
     const pathname = usePathname();
-    const selected = TABS.find((tab) => tab.href === pathname)?.href ?? TABS[0].href;
+    const selected = TABS.find((tab) => pathname === tab.href)?.href ?? TABS[0].href;
 
     return (
         <Tabs selectedKey={selected} aria-label="Manager sections" className="w-auto">
-            <TabList items={TABS}>
+            <TabList items={TABS} className="ml-15">
                 {TABS.map((tab) => (
                     <Tab key={tab.href} id={tab.href} href={tab.href}>
                         {tab.label}

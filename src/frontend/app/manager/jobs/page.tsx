@@ -1,16 +1,5 @@
 "use client";
 
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  ChevronRightIcon,
-  PlusIcon,
-  UserCircleIcon,
-  XMarkIcon,
-} from "@heroicons/react/24/outline";
-import { useMemo, useRef, useState } from "react";
-import type { Key } from "react-aria-components";
-import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,10 +12,19 @@ import { NumberField, NumberInput } from "@/components/ui/number-field";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
+import {
+    ArrowDownIcon,
+    ArrowUpIcon,
+    ChevronRightIcon,
+    PlusIcon,
+    XMarkIcon
+} from "@heroicons/react/24/outline";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { priorityIntent } from "../../_lib/badge-intent";
-import { usePlanning } from "../_components/PlanningProvider";
 import { ManagerTopbar } from "../_components/ManagerTopbar";
-import { SubNav } from "../_components/SubNav";
+import { usePlanning } from "../_components/PlanningProvider";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { dependentsOf, formatDuration, totalWorkMins, wouldCreateCycle } from "../_lib/scheduling";
 import type { JobDef, OperationDef, Priority } from "../_lib/types";
@@ -56,12 +54,34 @@ function draftFrom(job: JobDef): Draft {
 }
 
 export default function JobsPage() {
+    return (
+        <Suspense>
+            <JobsPageInner />
+        </Suspense>
+    );
+}
+
+function JobsPageInner() {
     const { machines, jobs, createJob, updateJob, deleteJob } = usePlanning();
+    const searchParams = useSearchParams();
     const [draft, setDraft] = useState<Draft>(() => (jobs.length > 0 ? draftFrom(jobs[0]) : EMPTY_DRAFT));
     const [errors, setErrors] = useState<string[]>([]);
     // Operations are only ever created by a click, so a plain counter is a safe
     // key source — no ids are generated during render.
     const opCounter = useRef(0);
+
+    // When routed here with a specific job (?job=<id>), open that job's draft
+    // instead of defaulting to the first backlog job.
+    useEffect(() => {
+        const requested = searchParams.get("job");
+        if (requested) {
+            const match = jobs.find((job) => job.id === requested);
+            if (match) {
+                setDraft(draftFrom(match));
+                setErrors([]);
+            }
+        }
+    }, [searchParams, jobs]);
 
     const colors = useMemo(() => buildJobColors(jobs), [jobs]);
     const machineName = (id: string) => machines.find((machine) => machine.id === id)?.name ?? "—";
@@ -213,7 +233,7 @@ export default function JobsPage() {
                                 <GridListItem
                                     id={job.id}
                                     textValue={`${job.id} ${job.name}`}
-                                    className="items-start hover:bg-muted dark:hover:bg-muted selected:hover:bg-blue-300"
+                                    className="items-start hover:bg-secondary! hover:text-fg! dark:hover:bg-secondary! selected:bg-secondary! dark:selected:bg-secondary! selected:hover:bg-secondary!"
                                 >
                                     <span
                                         className="mt-1 size-3 shrink-0 rounded-full"
@@ -225,18 +245,18 @@ export default function JobsPage() {
                                             <Badge intent={priorityIntent(job.priority)}>{job.priority}</Badge>
                                         </span>
                                         <span className="truncate text-sm">{job.name}</span>
-                                        <span className="text-muted-fg text-xs">
+                                        <span className="text-muted-fg text-xs selected:text-muted-fg!">
                                             {job.operations.length} ops · {formatDuration(totalWorkMins(job))} of work
                                         </span>
                                         {job.dependsOn.length > 0 && (
-                                            <span className="text-muted-fg text-xs">
+                                            <span className="text-muted-fg text-xs selected:text-muted-fg!">
                                                 after {job.dependsOn.join(", ")}
                                             </span>
                                         )}
                                     </span>
                                     <ChevronRightIcon
                                         aria-label={`Open ${job.id} details`}
-                                        className="ml-auto size-4 shrink-0 text-muted-fg transition group-hover:translate-x-0.5 group-hover:text-fg selected:text-primary-subtle-fg"
+                                        className="ml-auto size-4 shrink-0 text-muted-fg transition group-hover:translate-x-0.5 group-hover:text-fg selected:text-fg"
                                     />
                                 </GridListItem>
                             )}
@@ -464,3 +484,4 @@ export default function JobsPage() {
         </div>
     );
 }
+

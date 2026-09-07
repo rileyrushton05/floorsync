@@ -524,7 +524,7 @@ export default function ManagerDashboard() {
                       <TableCell>{job.machine ?? "–"}</TableCell>
                       <TableCell className="text-right">
                         <Link
-                          href="/manager/jobs"
+                          href={`/manager/jobs?job=${encodeURIComponent(`JOB-${job.id.replace("#", "")}`)}`}
                           aria-label={`Open ${job.id} details`}
                           className="inline-flex items-center text-muted-fg transition hover:text-primary"
                         >
@@ -536,7 +536,7 @@ export default function ManagerDashboard() {
                 </TableBody>
               </Table>
               <Separator className="my-3" />
-              <Link href="/manager/jobs" className="text-primary text-sm">
+              <Link href={`/manager/jobs?job=JOB-${selectedJob.id.replace("#", "")}`} className="text-primary text-sm">
                 Manage the job backlog →
               </Link>
             </CardContent>

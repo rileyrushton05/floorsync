@@ -116,7 +116,11 @@ export default function SchedulerPage() {
                                 const checked = selectedJobIds.includes(job.id);
                                 const missingDeps = job.dependsOn.filter((depId) => !selectedJobIds.includes(depId));
                                 return (
-                                    <CheckboxField key={job.id} value={job.id}>
+                                    <CheckboxField
+                                        key={job.id}
+                                        value={job.id}
+                                        className="rounded-lg p-2 transition-colors data-[hovered]:bg-muted"
+                                    >
                                         <Checkbox>
                                             <span className="flex min-w-0 flex-col gap-0.5">
                                                 <span className="flex items-center gap-2">

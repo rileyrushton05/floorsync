@@ -60,8 +60,8 @@ const GridListItem = ({ className, children, ...props }: GridListItemProps) => {
         'group relative min-w-0 px-3 py-2.5 outline-hidden [--me-icon:--spacing(2)]',
         'flex min-w-0 cursor-default items-center gap-2 sm:gap-2.5',
         'dragging:cursor-grab dragging:opacity-70 dragging:**:[[slot=drag]]:text-fg',
-        "hover:bg-blue-100 dark:hover:bg-blue-900/30 **:[svg:not([data-slot='check-indicator'])]:size-5 **:[svg:not([data-slot='check-indicator'])]:shrink-0 **:[svg:not([data-slot='check-indicator'])]:text-muted-fg sm:**:[svg:not([data-slot='check-indicator'])]:size-4",
-        'selected:bg-blue-200 dark:selected:bg-blue-900/50 selected:text-fg selected:hover:bg-blue-300 dark:selected:hover:bg-blue-800/60 selected:**:[.text-muted-fg]:text-blue-900 dark:selected:**:[.text-muted-fg]:text-blue-100',
+        "hover:bg-secondary dark:hover:bg-secondary/60 **:[svg:not([data-slot='check-indicator'])]:size-5 **:[svg:not([data-slot='check-indicator'])]:shrink-0 **:[svg:not([data-slot='check-indicator'])]:text-muted-fg sm:**:[svg:not([data-slot='check-indicator'])]:size-4",
+        'selected:bg-primary/15 dark:selected:bg-primary/15 selected:text-primary-subtle-fg selected:hover:bg-primary/20 dark:selected:hover:bg-primary/20',
         'href' in props && 'cursor-pointer',
         className
       )}

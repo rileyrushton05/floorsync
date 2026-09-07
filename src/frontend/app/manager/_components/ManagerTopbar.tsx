@@ -13,8 +13,8 @@ import { SubNav } from "./SubNav";
  */
 export function ManagerTopbar({ children }: { children?: React.ReactNode }) {
     return (
-        <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-            <div className="flex items-center gap-5">
+        <header className="flex flex-nowrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+            <div className="flex items-center gap-5 flex-shrink-0">
                 <Wordmark />
                 {/* Not clickable — a static section label, deliberately given a
                     gap from the wordmark and no hover/cursor affordance. */}
