@@ -23,14 +23,21 @@ general-purpose rather than glass-cutting-specific.
 
 | column | type | constraints |
 |---|---|---|
-| category_id | Uuid | FK -> categories.id, not null, ondelete RESTRICT, indexed |
+| category_id | Uuid | FK -> categories.id, nullable, ondelete RESTRICT, indexed |
 | name | Text | not null, unique |
-| salary | Numeric(10,2) | not null |
+| salary | Numeric(10,2) | nullable |
 | active | Boolean | not null, default true |
 
 `salary` is the cost of running this machine (including the operator wage it requires), known at
 setup time — not derived from whoever is actually rostered on it. This is what lets the scheduler
 price a schedule the day before, without waiting on rostering to be finalised.
+
+`salary` and `category_id` are nullable because not every source of machine data records them. An
+academic job-shop benchmark (see `src/database/seed-data/`) describes a machine only as an index
+with per-operation durations, so a machine seeded from one has no category and no known cost. **NULL
+means "not recorded by the source this machine came from", not "free" or "uncategorised"** — cost
+reporting must exclude such a machine rather than sum it as zero. Machines entered through the
+coordinator UI are expected to carry both.
 
 `active` exists because a machine can't be deleted once it has any real history (compatibilities,
 schedule entries — see Deletion policy below), so decommissioning one has to be a flag, not a row
@@ -160,7 +167,7 @@ Which machines can run which operations, and what it costs when they do.
 | operation_id | Uuid | FK -> operations.id, not null, ondelete CASCADE, indexed |
 | machine_id | Uuid | FK -> machines.id, not null, ondelete RESTRICT, indexed |
 | duration | Integer | not null — minutes |
-| energy | Numeric(10,2) | not null |
+| energy | Numeric(10,2) | nullable |
 
 ```sql
 UNIQUE (operation_id, machine_id)
@@ -168,6 +175,9 @@ UNIQUE (operation_id, machine_id)
 
 `ondelete RESTRICT` on machine_id — a machine with recorded compatibility history shouldn't
 disappear silently.
+
+`energy` is nullable for the same reason as `machines.salary`: duration is the only cost an academic
+benchmark instance records. NULL means "not recorded by the source", not "draws no power".
 
 ## schedules
 
@@ -200,8 +210,8 @@ No start/end time, no queue position — duration and position are derived, not 
 | operation_id | Uuid | FK -> operations.id, not null, ondelete RESTRICT, indexed |
 | machine_id | Uuid | FK -> machines.id, not null, ondelete RESTRICT, indexed |
 | duration | Integer | not null — snapshotted from Compatibility at generation time |
-| energy | Numeric(10,2) | not null — snapshotted from Compatibility at generation time |
-| machine_salary | Numeric(10,2) | not null — snapshotted from Machine at generation time |
+| energy | Numeric(10,2) | nullable — snapshotted from Compatibility at generation time |
+| machine_salary | Numeric(10,2) | nullable — snapshotted from Machine at generation time |
 
 `operation_id` / `machine_id` preserve **identity** — which real Operation and Machine were
 used — and that's enough for display purposes; a later rename doesn't need to rewrite history.
@@ -210,6 +220,11 @@ if `Machine.salary` changes next month, a schedule generated today has to keep r
 actually cost *today*, not silently recalculate against tomorrow's rate. Same snapshot reasoning
 Compatibility's duration already had, just extended to the other two numbers the objective function
 now uses.
+
+`energy` and `machine_salary` are nullable because what they snapshot is: a scenario seeded from an
+academic benchmark has no cost data to copy. `duration` stays required — an entry without one can't
+be sequenced, and every source records it. A schedule generated from a benchmark scenario is
+therefore schedulable and simulatable but not costable, which is the honest outcome.
 
 ```sql
 UNIQUE (schedule_id, operation_id)

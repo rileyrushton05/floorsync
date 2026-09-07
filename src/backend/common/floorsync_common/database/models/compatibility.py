@@ -25,6 +25,10 @@ class Compatibility(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     machine, not a specific person ("each machine has its own login"), so relief coverage during a
     break is just someone else using the same login. The only thing that ever makes a machine
     unschedulable is Unavailability (genuinely broken or reserved). See docs/database-schema.md.
+
+    energy is nullable because duration is the only cost an academic job-shop benchmark records.
+    NULL means "not recorded by the source this pairing came from", not "draws no power" -- cost
+    reporting must exclude such a pairing rather than treat it as zero.
     """
 
     __tablename__ = "compatibilities"
@@ -43,7 +47,7 @@ class Compatibility(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
-    energy: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    energy: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     operation: Mapped[Operation] = relationship()
     machine: Mapped[Machine] = relationship()
