@@ -32,6 +32,7 @@ class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     cannot represent a gap imposed by machine downtime, and recomputing against edited downtime
     would rewrite historical plans. duration/energy/machine_salary are snapshotted from
     Compatibility/Machine at generation time so a schedule's reported cost never silently changes.
+    Cost snapshots are nullable when the source records durations but no energy or labour cost.
     """
 
     __tablename__ = "schedule_entries"
@@ -61,8 +62,8 @@ class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
-    energy: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    machine_salary: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    energy: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    machine_salary: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     schedule: Mapped[Schedule] = relationship()
     operation: Mapped[Operation] = relationship()

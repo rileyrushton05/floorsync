@@ -46,8 +46,8 @@ class ScheduleEntryResponse(ResponseSchema):
     starts_at: datetime
     ends_at: datetime
     duration: int
-    energy: Decimal
-    machine_salary: Decimal
+    energy: Decimal | None
+    machine_salary: Decimal | None
 
 
 class ScheduleDependencyResponse(ResponseSchema):

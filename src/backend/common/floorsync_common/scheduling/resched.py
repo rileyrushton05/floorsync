@@ -107,7 +107,7 @@ class ReSchedEngine:
                         route.machine_id,
                     )
                 )
-            if route.energy < 0:
+            if route.energy is not None and route.energy < 0:
                 issues.append(
                     SchedulingIssue(
                         "invalid_energy",
@@ -337,18 +337,29 @@ class ReSchedEngine:
             )
         )
         latest_end = max(assignment.ends_at for assignment in ordered)
+        energy_values = [assignment.energy for assignment in ordered]
+        salary_values = [assignment.machine_salary_per_minute for assignment in ordered]
         return SchedulePlan(
             assignments=ordered,
             dependencies=tuple(dependencies),
             metrics=ScheduleMetrics(
                 makespan_minutes=int((latest_end - problem.starts_at).total_seconds() // 60),
-                total_energy=sum((assignment.energy for assignment in ordered), Decimal("0")),
-                total_labour_cost=sum(
-                    (
-                        Decimal(assignment.duration_minutes) * assignment.machine_salary_per_minute
-                        for assignment in ordered
-                    ),
-                    Decimal("0"),
+                total_energy=(
+                    sum((energy for energy in energy_values if energy is not None), Decimal("0"))
+                    if all(energy is not None for energy in energy_values)
+                    else None
+                ),
+                total_labour_cost=(
+                    sum(
+                        (
+                            Decimal(assignment.duration_minutes) * salary
+                            for assignment, salary in zip(ordered, salary_values, strict=True)
+                            if salary is not None
+                        ),
+                        Decimal("0"),
+                    )
+                    if all(salary is not None for salary in salary_values)
+                    else None
                 ),
             ),
         )

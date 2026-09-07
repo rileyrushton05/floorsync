@@ -15,7 +15,7 @@ from floorsync_common.outcomes import ExpectedOutcome
 class MachineSpec:
     id: UUID
     active: bool
-    salary_per_minute: Decimal
+    salary_per_minute: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +31,7 @@ class RouteSpec:
     operation_id: UUID
     machine_id: UUID
     duration_minutes: int
-    energy: Decimal
+    energy: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,8 +77,8 @@ class ScheduledOperation:
     starts_at: datetime
     ends_at: datetime
     duration_minutes: int
-    energy: Decimal
-    machine_salary_per_minute: Decimal
+    energy: Decimal | None
+    machine_salary_per_minute: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +91,8 @@ class ScheduleDependencySpec:
 @dataclass(frozen=True, slots=True)
 class ScheduleMetrics:
     makespan_minutes: int
-    total_energy: Decimal
-    total_labour_cost: Decimal
+    total_energy: Decimal | None
+    total_labour_cost: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)

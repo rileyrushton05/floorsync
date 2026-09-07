@@ -1,0 +1,284 @@
+"""Application operations for schedule timelines and simulation playback.
+
+These are the only modules in the package that touch the database. The resolver
+and the event replay stay pure, so `service.py` is a thin layer that loads rows,
+calls them, and returns typed outcomes.
+
+Transactions are owned by the caller. Nothing here commits or rolls back;
+`flush()` is used only where a generated value or a subsequent read needs it.
+"""
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Final
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from floorsync_common.database.models.simulation import Simulation
+from floorsync_common.database.models.simulation_event import SimulationEvent
+from floorsync_common.simulation import queries
+from floorsync_common.simulation.events import (
+    SimulatedTimePoint,
+    SimulationEventType,
+    derive_simulated_time,
+)
+from floorsync_common.simulation.floorsync import FloorSyncScheduleAdapter
+from floorsync_common.simulation.results import (
+    ControlNotApplicable,
+    ControlRecorded,
+    ControlSpeedRequired,
+    CreateSimulationResult,
+    GetSimulationResult,
+    GetTimelineResult,
+    RecordControlResult,
+    ScheduleNotConfirmed,
+    ScheduleNotFound,
+    ScheduleNotGenerated,
+    SimulationAlreadyExists,
+    SimulationCreated,
+    SimulationNotFound,
+    SimulationPositionResolved,
+    TimelineResolved,
+)
+from floorsync_common.simulation.timeline import Timeline
+
+STATUS_NOT_STARTED: Final = "not_started"
+STATUS_RUNNING: Final = "running"
+STATUS_PAUSED: Final = "paused"
+STATUS_COMPLETE: Final = "complete"
+
+SCHEDULE_CONFIRMED: Final = "confirmed"
+
+_ALLOWED_FROM: Final[dict[SimulationEventType, frozenset[str]]] = {
+    SimulationEventType.STARTED: frozenset({STATUS_NOT_STARTED}),
+    SimulationEventType.PAUSED: frozenset({STATUS_RUNNING}),
+    SimulationEventType.RESUMED: frozenset({STATUS_PAUSED}),
+    SimulationEventType.SPEED_CHANGED: frozenset({STATUS_RUNNING, STATUS_PAUSED}),
+    SimulationEventType.RESET: frozenset(
+        {STATUS_NOT_STARTED, STATUS_RUNNING, STATUS_PAUSED, STATUS_COMPLETE}
+    ),
+    SimulationEventType.COMPLETED: frozenset({STATUS_RUNNING}),
+}
+
+_SPEED_REQUIRED: Final[frozenset[SimulationEventType]] = frozenset(
+    {
+        SimulationEventType.STARTED,
+        SimulationEventType.RESUMED,
+        SimulationEventType.SPEED_CHANGED,
+    }
+)
+
+
+def control_is_applicable(event_type: SimulationEventType, status: str) -> bool:
+    """Return whether a control action is valid from a simulation's current status.
+
+    Pure, so the transition table can be tested without a database.
+    """
+    return status in _ALLOWED_FROM[event_type]
+
+
+def control_requires_speed(event_type: SimulationEventType) -> bool:
+    """Return whether a control action must carry the speed it sets."""
+    return event_type in _SPEED_REQUIRED
+
+
+class ScheduleTimelineService:
+    """Resolve a stored schedule onto the clock. Stateless."""
+
+    @staticmethod
+    async def get_timeline(db: AsyncSession, *, schedule_id: UUID) -> GetTimelineResult:
+        """Resolve a schedule's entries and dependencies into a timeline.
+
+        Args:
+            db: Caller-owned session inside an open transaction.
+            schedule_id: Schedule to resolve.
+
+        Returns:
+            The resolved timeline, or the reason one could not be produced.
+
+        Raises:
+            ScheduleMismatchError: If the dependency cache references entries
+                outside the schedule.
+            CyclicScheduleError: If the stored dependencies deadlock.
+        """
+        schedule = await queries.load_schedule(db, schedule_id)
+        if schedule is None:
+            return ScheduleNotFound(schedule_id=schedule_id)
+
+        entries = await queries.load_schedule_entries(db, schedule_id)
+        if not entries:
+            return ScheduleNotGenerated(schedule_id=schedule_id)
+
+        dependencies = await queries.load_schedule_dependencies(db, schedule_id)
+        timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+        return TimelineResolved(schedule=schedule, timeline=timeline)
+
+
+class SimulationService:
+    """Create, read and control the playback of a confirmed schedule. Stateless."""
+
+    @staticmethod
+    async def create_simulation(db: AsyncSession, *, schedule_id: UUID) -> CreateSimulationResult:
+        """Create the simulation for a confirmed schedule.
+
+        One simulation exists per schedule, so a second request reports the
+        existing one rather than adding another; resetting re-initialises it.
+        """
+        schedule = await queries.load_schedule(db, schedule_id)
+        if schedule is None:
+            return ScheduleNotFound(schedule_id=schedule_id)
+        if schedule.status != SCHEDULE_CONFIRMED:
+            return ScheduleNotConfirmed(schedule_id=schedule_id, status=schedule.status)
+
+        existing = await queries.load_simulation_for_schedule(db, schedule_id)
+        if existing is not None:
+            return SimulationAlreadyExists(schedule_id=schedule_id, simulation_id=existing.id)
+
+        simulation = Simulation(
+            schedule_id=schedule_id,
+            status=STATUS_NOT_STARTED,
+            speed=Decimal("1"),
+        )
+        db.add(simulation)
+        await db.flush()
+        return SimulationCreated(simulation=simulation)
+
+    @staticmethod
+    async def get_simulation(
+        db: AsyncSession, *, simulation_id: UUID, at: datetime | None = None
+    ) -> GetSimulationResult:
+        """Derive where a simulation sits at ``at``, defaulting to now.
+
+        The position comes from replaying the event log, never from
+        ``started_at`` and ``speed`` — see decision 0010.
+        """
+        simulation = await queries.load_simulation(db, simulation_id)
+        if simulation is None:
+            return SimulationNotFound(simulation_id=simulation_id)
+
+        timeline = await SimulationService._resolve_timeline(db, simulation.schedule_id)
+        if timeline is None:
+            return ScheduleNotGenerated(schedule_id=simulation.schedule_id)
+
+        position = await SimulationService._derive_position(
+            db, simulation_id=simulation_id, makespan=timeline.makespan, at=at
+        )
+        return SimulationPositionResolved(
+            simulation=simulation, position=position, makespan=timeline.makespan
+        )
+
+    @staticmethod
+    async def record_control(
+        db: AsyncSession,
+        *,
+        simulation_id: UUID,
+        event_type: SimulationEventType,
+        speed: Decimal | None = None,
+        at: datetime | None = None,
+    ) -> RecordControlResult:
+        """Append a control action to the log and re-derive the position.
+
+        The appended event is the authoritative record; the columns on
+        ``simulations`` are updated alongside it as a readable projection, not as
+        a second source of truth.
+        """
+        occurred_at = at or datetime.now(UTC)
+
+        simulation = await queries.load_simulation(db, simulation_id)
+        if simulation is None:
+            return SimulationNotFound(simulation_id=simulation_id)
+
+        if not control_is_applicable(event_type, simulation.status):
+            return ControlNotApplicable(
+                simulation_id=simulation_id,
+                event_type=event_type,
+                status=simulation.status,
+            )
+
+        if control_requires_speed(event_type) and speed is None:
+            return ControlSpeedRequired(simulation_id=simulation_id, event_type=event_type)
+
+        timeline = await SimulationService._resolve_timeline(db, simulation.schedule_id)
+        if timeline is None:
+            return ScheduleNotGenerated(schedule_id=simulation.schedule_id)
+
+        db.add(
+            SimulationEvent(
+                simulation_id=simulation_id,
+                event_type=str(event_type),
+                occurred_at=occurred_at,
+                speed=speed,
+            )
+        )
+        SimulationService._project_onto_simulation(
+            simulation, event_type=event_type, speed=speed, occurred_at=occurred_at
+        )
+        await db.flush()
+
+        position = await SimulationService._derive_position(
+            db, simulation_id=simulation_id, makespan=timeline.makespan, at=occurred_at
+        )
+        return ControlRecorded(
+            simulation=simulation,
+            event_type=event_type,
+            position=position,
+            makespan=timeline.makespan,
+        )
+
+    # -- internals -------------------------------------------------------
+
+    @staticmethod
+    async def _resolve_timeline(db: AsyncSession, schedule_id: UUID) -> Timeline | None:
+        """Resolve a schedule's timeline, or ``None`` when it has no entries.
+
+        The makespan is recomputed rather than read from ``schedules.makespan``,
+        which is a value cached at generation time. If this read ever becomes
+        hot, that column is the cheaper alternative.
+        """
+        entries = await queries.load_schedule_entries(db, schedule_id)
+        if not entries:
+            return None
+        dependencies = await queries.load_schedule_dependencies(db, schedule_id)
+        return FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+
+    @staticmethod
+    async def _derive_position(
+        db: AsyncSession, *, simulation_id: UUID, makespan: int, at: datetime | None
+    ) -> SimulatedTimePoint:
+        events = await queries.load_simulation_events(db, simulation_id)
+        return derive_simulated_time(events, at=at or datetime.now(UTC), makespan=makespan)
+
+    @staticmethod
+    def _project_onto_simulation(
+        simulation: Simulation,
+        *,
+        event_type: SimulationEventType,
+        speed: Decimal | None,
+        occurred_at: datetime,
+    ) -> None:
+        """Update the readable columns on ``simulations`` to match the new event."""
+        match event_type:
+            case SimulationEventType.STARTED:
+                simulation.status = STATUS_RUNNING
+                simulation.started_at = occurred_at
+                simulation.completed_at = None
+                if speed is not None:
+                    simulation.speed = speed
+            case SimulationEventType.RESUMED:
+                simulation.status = STATUS_RUNNING
+                simulation.completed_at = None
+                if speed is not None:
+                    simulation.speed = speed
+            case SimulationEventType.SPEED_CHANGED:
+                if speed is not None:
+                    simulation.speed = speed
+            case SimulationEventType.PAUSED:
+                simulation.status = STATUS_PAUSED
+            case SimulationEventType.RESET:
+                simulation.status = STATUS_NOT_STARTED
+                simulation.started_at = None
+                simulation.completed_at = None
+            case SimulationEventType.COMPLETED:
+                simulation.status = STATUS_COMPLETE
+                simulation.completed_at = occurred_at

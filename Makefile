@@ -1,6 +1,6 @@
 PNPM := corepack pnpm --dir src/frontend
 
-.PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks db-upgrade db-revision
+.PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks db-upgrade db-revision db-seed db-seed-list
 
 bootstrap:
 	uv sync
@@ -33,5 +33,11 @@ db-upgrade:
 
 db-revision:
 	docker compose run --rm api alembic revision --autogenerate -m "$(name)"
-	uv run ruff check --fix src/database/migrations/versions
-	uv run ruff format src/database/migrations/versions
+	docker compose run --rm api uv run ruff check --fix src/database/migrations/versions
+	docker compose run --rm api uv run ruff format src/database/migrations/versions
+
+db-seed:
+	docker compose run --rm api python -m floorsync_common.seed $(instance)
+
+db-seed-list:
+	docker compose run --rm api python -m floorsync_common.seed --list

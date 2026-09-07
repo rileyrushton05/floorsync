@@ -37,6 +37,9 @@ venv/
 .next/
 coverage/
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Java
 *.class
 target/
