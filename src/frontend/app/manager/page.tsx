@@ -11,11 +11,11 @@ import {
   ClockIcon,
   Cog6ToothIcon,
   InformationCircleIcon,
-  UserCircleIcon,
   UsersIcon,
 } from "@heroicons/react/24/outline";
 import { useMemo, useState } from "react";
 import type { Key } from "react-aria-components";
+import { UserMenu } from "../_components/UserMenu";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -324,10 +324,7 @@ export default function ManagerDashboard() {
           <ArrowDownTrayIcon /> Export Report
         </Button>
 
-        <div className="flex items-center gap-2">
-          <UserCircleIcon className="size-7 text-muted-fg" />
-          <span className="font-semibold text-sm">Manager</span>
-        </div>
+        <UserMenu />
       </header>
 
       <main className="flex flex-1 flex-col gap-5 p-5">

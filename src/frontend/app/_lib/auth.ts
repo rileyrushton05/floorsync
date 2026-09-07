@@ -1,59 +1,91 @@
 import { type AccessToken, authenticate } from "./api";
 
 /**
- * Development-only sign-in.
+ * Where the bearer token lives.
  *
- * Every schedule route requires a bearer token and this app has no sign-in
- * screen yet, so the credentials below come from the environment and the token
- * is fetched silently on first use.
+ * A tiny external store rather than React state, for two reasons. It is read by
+ * plain functions outside the component tree, and `useSyncExternalStore` lets a
+ * component read it without hydrating from an effect — reading `sessionStorage`
+ * during render would disagree with the server's HTML, and doing it in an effect
+ * means a synchronous `setState` that cascades renders.
  *
- * **These credentials are compiled into the client bundle.** Anything prefixed
- * `NEXT_PUBLIC_` is inlined at build time and readable by anyone who opens the
- * page, so this arrangement is for a local database with seeded data and nothing
- * else. It is a placeholder for a real sign-in route, not a shortcut around one —
- * replace it before this is deployed anywhere, and never point it at an account
- * that matters.
+ * **`sessionStorage`, deliberately.** The token survives a reload and navigation
+ * but dies with the tab, so a testing session is never interrupted and a shared
+ * machine keeps nothing afterwards. It is readable by any script on the page,
+ * which is true of every browser-held token; the protection that matters is the
+ * 30-minute expiry the API puts on it.
  *
- * The token is cached in module scope for the tab's lifetime. It is not written
- * to `localStorage`: persisting a shared development credential outlives the
- * problem it solves, and a reload re-fetching it costs one request.
+ * There is no refresh endpoint, so an expired token cannot be renewed — the API
+ * answers 401 and the holder signs in again. `RequireAuth` handles that.
  */
 
-const USERNAME = process.env.NEXT_PUBLIC_DEV_USERNAME ?? "";
-const PASSWORD = process.env.NEXT_PUBLIC_DEV_PASSWORD ?? "";
+const STORAGE_KEY = "floorsync.token";
 
-export class MissingCredentialsError extends Error {
-    constructor() {
-        super(
-            "No development credentials are set. Add NEXT_PUBLIC_DEV_USERNAME and " +
-                "NEXT_PUBLIC_DEV_PASSWORD to src/frontend/.env.local and restart the dev server.",
-        );
-        this.name = "MissingCredentialsError";
+const listeners = new Set<() => void>();
+
+/**
+ * Read once at module load rather than on every snapshot: `getSnapshot` must be
+ * cheap and must return a stable value, and touching storage each call is
+ * neither. `sessionStorage` throws in some privacy modes, so a failure is
+ * treated as "no token" rather than breaking the page.
+ */
+function readStored(): string | null {
+    if (typeof window === "undefined") return null;
+    try {
+        return window.sessionStorage.getItem(STORAGE_KEY);
+    } catch {
+        return null;
     }
 }
 
-let cached: Promise<AccessToken> | null = null;
+let token: string | null = readStored();
 
-/**
- * Return a bearer token, signing in on first call.
- *
- * Concurrent callers share one in-flight request rather than racing to sign in
- * several times. A failure clears the cache so the next attempt retries instead
- * of replaying the rejection forever.
- */
-export function accessToken(): Promise<string> {
-    if (!USERNAME || !PASSWORD) return Promise.reject(new MissingCredentialsError());
-
-    cached ??= authenticate(USERNAME, PASSWORD);
-    return cached
-        .then((token) => token.access_token)
-        .catch((error: unknown) => {
-            cached = null;
-            throw error;
-        });
+function notify(): void {
+    for (const listener of listeners) listener();
 }
 
-/** Discard the cached token, so the next call signs in again. */
-export function forgetToken(): void {
-    cached = null;
+export function subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => {
+        listeners.delete(listener);
+    };
+}
+
+/** The current token. The client snapshot for `useSyncExternalStore`. */
+export function getToken(): string | null {
+    return token;
+}
+
+/**
+ * The server snapshot for `useSyncExternalStore`.
+ *
+ * Always null: the server has no session, so the first paint is always the
+ * signed-out one and React re-renders once hydration finds a stored token.
+ */
+export function getServerToken(): null {
+    return null;
+}
+
+function setToken(value: string | null): void {
+    token = value;
+    try {
+        if (value === null) window.sessionStorage.removeItem(STORAGE_KEY);
+        else window.sessionStorage.setItem(STORAGE_KEY, value);
+    } catch {
+        // Storage can be unavailable; the in-memory token still works for this
+        // page view, it just will not survive a reload.
+    }
+    notify();
+}
+
+/** Sign in and keep the token. Throws `ApiError` if the credentials are refused. */
+export async function signIn(username: string, password: string): Promise<AccessToken> {
+    const issued = await authenticate(username, password);
+    setToken(issued.access_token);
+    return issued;
+}
+
+/** Discard the token. Safe to call when there is none. */
+export function signOut(): void {
+    setToken(null);
 }

@@ -1,14 +1,16 @@
 "use client";
 
-import { ArrowPathIcon, PauseIcon, PlayIcon, UserCircleIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+    ApiError,
     type ScheduleSummary,
     type ScheduleTimeline,
     fetchScheduleTimeline,
     fetchSchedules,
 } from "@/app/_lib/api";
-import { accessToken, forgetToken } from "@/app/_lib/auth";
+import { useAuth } from "@/app/_components/AuthProvider";
+import { UserMenu } from "@/app/_components/UserMenu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,7 +66,9 @@ const TICK_MS = 100;
 type LoadState<Value> =
     | { status: "loading" }
     | { status: "ready"; value: Value }
-    | { status: "error"; message: string };
+    | { status: "error"; message: string }
+    /** Signed in, but this account may not read schedules. */
+    | { status: "forbidden" };
 
 type MachineActivity =
     | { kind: "running"; jobId: string; opName: string; opIndex: number; opTotal: number; progressPct: number; endMins: number }
@@ -142,10 +146,7 @@ function ManagerTopbar({ children }: { children?: React.ReactNode }) {
             <SubNav />
             {children}
             <div className="flex-1" />
-            <div className="flex items-center gap-2">
-                <UserCircleIcon className="size-7 text-muted-fg" />
-                <span className="font-semibold text-sm">Manager</span>
-            </div>
+            <UserMenu />
         </header>
     );
 }
@@ -253,6 +254,7 @@ export default function SimulationPage() {
     const [speed, setSpeed] = useState(10);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
 
+    const { token, user } = useAuth();
     const [schedules, setSchedules] = useState<LoadState<ScheduleSummary[]>>({ status: "loading" });
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [attempt, setAttempt] = useState(0);
@@ -273,13 +275,14 @@ export default function SimulationPage() {
         [selectedId, loaded],
     );
 
-    // Signing in and listing run together: the token exists only to make the
-    // list possible, so a credentials failure and a listing failure are the same
-    // failure as far as this page is concerned.
+    // The route is manager-only, so a 403 here means the signed-in account is an
+    // operator rather than that anything is broken. That reads differently and
+    // is reported differently. A 401 is left alone: AuthProvider owns expiry and
+    // will drop the token and bounce to the login screen on its own.
     useEffect(() => {
+        if (token === null) return;
         let current = true;
-        accessToken()
-            .then(fetchSchedules)
+        fetchSchedules(token)
             .then((value) => {
                 if (!current) return;
                 setSchedules({ status: "ready", value });
@@ -290,15 +293,16 @@ export default function SimulationPage() {
             })
             .catch((error: unknown) => {
                 if (!current) return;
-                // A rejected token is worth discarding — the next attempt should
-                // sign in again rather than replay a credential the API refused.
-                forgetToken();
+                if (error instanceof ApiError && error.isForbidden) {
+                    setSchedules({ status: "forbidden" });
+                    return;
+                }
                 setSchedules({ status: "error", message: errorMessage(error) });
             });
         return () => {
             current = false;
         };
-    }, [attempt]);
+    }, [attempt, token]);
 
     const retrySchedules = useCallback(() => {
         setSchedules({ status: "loading" });
@@ -308,10 +312,9 @@ export default function SimulationPage() {
     // Refetched whenever the selection changes. A timeline is immutable for a
     // given schedule, so this is the only time it is asked for.
     useEffect(() => {
-        if (selectedId === null) return;
+        if (selectedId === null || token === null) return;
         let current = true;
-        accessToken()
-            .then((token) => fetchScheduleTimeline(selectedId, token))
+        fetchScheduleTimeline(selectedId, token)
             .then((value) => {
                 if (current) setLoaded({ id: selectedId, state: { status: "ready", value } });
             })
@@ -326,7 +329,7 @@ export default function SimulationPage() {
         return () => {
             current = false;
         };
-    }, [selectedId]);
+    }, [selectedId, token]);
 
     const plan = useMemo(
         () => (timeline.status === "ready" ? timelineToPlan(timeline.value) : null),
@@ -372,13 +375,25 @@ export default function SimulationPage() {
         );
     }
 
+    if (schedules.status === "forbidden") {
+        return (
+            <Placeholder title="This needs a manager account">
+                <p>
+                    You are signed in as <strong>{user?.name}</strong> ({user?.role}). Reading
+                    schedules is restricted to managers, so there is nothing to simulate here.
+                </p>
+                <p className="mt-2">Sign out and sign in with a manager account to continue.</p>
+            </Placeholder>
+        );
+    }
+
     if (schedules.status === "error") {
         return (
             <Placeholder title="Could not load schedules." danger onRetry={retrySchedules}>
                 <p>{schedules.message}</p>
                 <p className="mt-1 text-muted-fg">
-                    Check the API is running and reachable, that a manager account exists, and that
-                    the development credentials in <code>src/frontend/.env.local</code> match it.
+                    The API answered, but not with a schedule list. Check it is running and that
+                    the database has been migrated.
                 </p>
             </Placeholder>
         );

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { RouterProvider } from "react-aria-components";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toast } from "@/components/ui/toast";
+import { AuthProvider } from "./_components/AuthProvider";
 
 /**
  * App-wide client providers.
@@ -12,6 +13,10 @@ import { Toast } from "@/components/ui/toast";
  * — Link, Tab, MenuItem, GridListItem — navigate through the Next router
  * instead of doing a full page load. Without it those components fall back to
  * plain anchors and the app reloads on every internal navigation.
+ *
+ * `AuthProvider` sits inside it, so signing in and out can navigate, and wraps
+ * everything else because the login page needs the same auth state the guarded
+ * routes do.
  */
 export function Providers({ children }: { children: React.ReactNode }) {
     const router = useRouter();
@@ -19,8 +24,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     return (
         <ThemeProvider>
             <RouterProvider navigate={(href) => router.push(href)}>
-                {children}
-                <Toast position="top-right" />
+                <AuthProvider>
+                    {children}
+                    <Toast position="top-right" />
+                </AuthProvider>
             </RouterProvider>
         </ThemeProvider>
     );

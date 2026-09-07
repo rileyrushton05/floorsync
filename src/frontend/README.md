@@ -106,11 +106,14 @@ app/
 ├── page.tsx                       # "/" landing page (navy surface)
 │
 ├── _components/                   # Shared across every route
+│   ├── AuthProvider.tsx           # Token + signed-in account (context)
+│   ├── RequireAuth.tsx            # Redirects anonymous visitors to /login
+│   ├── UserMenu.tsx               # Signed-in account + sign out, in every topbar
 │   ├── Logo.tsx                   # <Logo> mark and <Wordmark> home link
 │   └── icons.tsx                  # CoffeeIcon — the one icon Heroicons lacks
 ├── _lib/
 │   ├── api.ts                     # FloorSync API client (base URL + typed calls)
-│   ├── auth.ts                    # Development-only sign-in; see the warning inside
+│   ├── auth.ts                    # Token store (sessionStorage) + sign in / out
 │   └── badge-intent.ts            # priority/status → Intent UI badge intents
 │
 ├── manager/
@@ -206,6 +209,14 @@ chart's text equivalent, so the plan is fully readable without relying on colour
 
 ---
 
+### `/login` — Sign in (`app/login/page.tsx`)
+
+Username and password against `POST /api/v1/auth/token`. Redirects anyone already
+signed in, and honours `?next=` — but only for same-origin paths, so a crafted
+link cannot bounce someone off-site straight after they type a password.
+
+---
+
 ### `/manager/simulation` — Schedule playback (`app/manager/simulation/page.tsx`)
 
 **The one page that reads from the API.** Everything on it comes from two calls:
@@ -222,7 +233,7 @@ translates the response into a `GeneratedSchedule` so the existing chart and
 panels draw it unchanged — pure renaming and regrouping, **no re-timing**.
 
 Lane labels are whatever the database stores, so a seeded benchmark reads
-`abz5/J3` and `abz5/M7`. Operators are not shown: the timeline answers what is
+`abz5/J03` and `abz5/M07`. Operators are not shown: the timeline answers what is
 scheduled, not who is standing at the machine.
 
 **Transport** — play/pause, reset, and a speed selector expressed in shop-minutes
@@ -240,9 +251,11 @@ Overall counters above it.
 
 **Job progress (right)** — operations completed per job and its live state.
 
-The page has a state for each way it can have nothing to draw: signing in,
-loading, an API that cannot be reached (with the API's own message and a retry),
-an empty database, and a draft schedule that has no timeline to resolve.
+The page has a state for each way it can have nothing to draw: loading, an API
+that cannot be reached (with the API's own message and a retry), an empty
+database, a draft schedule that has no timeline to resolve, and an account
+without permission — `GET /schedules` is manager-only, so an operator is told
+that plainly rather than shown a raw 403.
 
 ---
 
@@ -287,23 +300,44 @@ RFC 9457 problem details, so the wrapper throws with the `detail` field — the
 message a person should actually be shown — and falls back to the status line
 only when the body is not a problem document.
 
-**Sign-in is a development placeholder.** Every schedule route needs a bearer
-token and there is no sign-in screen, so `app/_lib/auth.ts` trades credentials
-from the environment for one through the ordinary `POST /api/v1/auth/token`
-route. `NEXT_PUBLIC_` values are compiled into the client bundle and readable by
-anyone who opens the page, so this only ever points at a local database. Replace
-it with a real sign-in route before this is deployed anywhere.
-
-Copy the settings into `src/frontend/.env.local` (gitignored):
+Only `NEXT_PUBLIC_API_URL` is needed in `src/frontend/.env.local` (gitignored):
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8002
-NEXT_PUBLIC_DEV_USERNAME=manager
-NEXT_PUBLIC_DEV_PASSWORD=floorsync
 ```
 
-The account has to exist first — seeding creates schedules, not users, and there
-is no registration endpoint. See the repository README for the one-off command.
+### Signing in
+
+`/login` posts to the API's own `POST /api/v1/auth/token` and hands the bearer
+token to `app/_lib/auth.ts`.
+
+That module is a small external store rather than React state, for two reasons:
+plain functions outside the component tree read it, and `useSyncExternalStore`
+lets a component read it without hydrating from an effect — reading storage
+during render would disagree with the server's HTML, and doing it in an effect
+means a synchronous `setState`, which React 19's lint rules reject.
+
+The token lives in **`sessionStorage`**: it survives a reload and navigation but
+dies with the tab, so a testing session is never interrupted and a shared machine
+keeps nothing afterwards. It is readable by any script on the page, as any
+browser-held token is; the protection that matters is the API's 30-minute expiry.
+
+`AuthProvider` turns that token into an account with `GET /api/v1/auth/me`, which
+doubles as the check that it is still valid. There is no refresh endpoint, so an
+expired token cannot be renewed — the API answers 401, the provider discards it,
+and `RequireAuth` sends the visitor to `/login`. A tab left open overnight lands
+on the login screen rather than failing one request at a time. An *unreachable*
+API is treated differently: the token may be perfectly good, so it is kept and
+the outage reported instead of signing anybody out.
+
+`RequireAuth` wraps `/manager` and `/operator` through their layouts, carrying
+the attempted path in `?next=` so signing in returns you there. It is a
+client-side guard over a client-side app — it decides what to render, not what
+the API will serve. The real protection is that every schedule route demands a
+bearer token; this only saves a person from watching each request fail.
+
+There is no sign-up page, because the API has no registration route. Accounts are
+created server-side — see the repository README.
 
 ## Styling conventions
 

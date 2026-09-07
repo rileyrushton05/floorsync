@@ -6,13 +6,34 @@
  * so `detail` is the field a person should be shown — the status line is only a
  * fallback for when the body is not a problem document.
  *
- * **Every schedule route needs a bearer token**, and the app has no sign-in
- * screen, so `authenticate()` trades development credentials for one through the
- * ordinary `POST /auth/token` route. See `auth.ts` for why that is a local-only
- * arrangement.
+ * Failures throw `ApiError`, which carries the status code as well as the
+ * message. Callers need the code to tell "your session has expired" (401) from
+ * "your account may not do that" (403) from everything else, and those three
+ * want different responses rather than one generic error.
  */
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
+
+/** A failed API call, carrying the status so callers can branch on it. */
+export class ApiError extends Error {
+    readonly status: number;
+
+    constructor(status: number, message: string) {
+        super(message);
+        this.name = "ApiError";
+        this.status = status;
+    }
+
+    /** The token is missing, expired or rejected. Signing in again is the fix. */
+    get isUnauthenticated(): boolean {
+        return this.status === 401;
+    }
+
+    /** Authenticated, but this account is not allowed to do it. */
+    get isForbidden(): boolean {
+        return this.status === 403;
+    }
+}
 
 /** A lane in a resolved timeline: a machine row or a job. */
 export interface TimelineLane {
@@ -64,18 +85,33 @@ export interface AccessToken {
     expires_in: number;
 }
 
+/** The safe subset of the signed-in account the API exposes. */
+export interface CurrentUser {
+    id: string;
+    name: string;
+    role: "manager" | "operator";
+    machine_id: string | null;
+}
+
 async function request<Body>(path: string, token: string | null, init?: RequestInit): Promise<Body> {
-    const response = await fetch(`${BASE_URL}${path}`, {
-        ...init,
-        headers: {
-            Accept: "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...init?.headers,
-        },
-    });
+    let response: Response;
+    try {
+        response = await fetch(`${BASE_URL}${path}`, {
+            ...init,
+            headers: {
+                Accept: "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                ...init?.headers,
+            },
+        });
+    } catch {
+        // A network-level failure has no status; 0 is the conventional stand-in
+        // and keeps every caller on one error type.
+        throw new ApiError(0, `Could not reach the API at ${BASE_URL}.`);
+    }
 
     if (!response.ok) {
-        throw new Error(await problemDetail(response));
+        throw new ApiError(response.status, await problemDetail(response));
     }
     return (await response.json()) as Body;
 }
@@ -108,7 +144,12 @@ export function authenticate(username: string, password: string): Promise<Access
     });
 }
 
-/** List every schedule, newest first. */
+/** Read the account a token belongs to. Also the cheapest way to test one. */
+export function fetchCurrentUser(token: string): Promise<CurrentUser> {
+    return request<CurrentUser>("/api/v1/auth/me", token);
+}
+
+/** List every schedule, newest first. Requires a manager account. */
 export function fetchSchedules(token: string): Promise<ScheduleSummary[]> {
     return request<ScheduleSummary[]>("/api/v1/schedules", token);
 }
