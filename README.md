@@ -65,18 +65,66 @@ Load a scenario to work against — an empty database has no jobs or machines:
 
 ```bash
 make db-seed-list          # which scenarios are available
-make db-seed instance=ft06 # load one (replaces whatever was loaded before)
+make db-seed instance=abz5 # load one (replaces whatever was loaded before)
 ```
 
 Scenarios are standard job-shop benchmark instances. `ft06` is the smallest; `bel00` is the large,
-awkwardly shaped one. Seeding replaces the current scenario rather than adding to it, so the
+awkwardly shaped one. **Seed `abz5` to see the simulation** — it is the only instance that ships a
+solved schedule, so it is the only one that gives `/manager/simulation` something to play; the others
+load the problem alone. Seeding replaces the current scenario rather than adding to it, so the
 database always holds exactly one. See [`src/database/seed-data/`](src/database/seed-data/README.md)
 for what each instance is and what it does and does not populate.
+
+### Create an account
+
+There is no sign-up page, because the API has no registration route — the app cannot be signed into
+until an account exists. Create a manager, editing the three constants first:
+
+```bash
+docker compose run --rm api python -c "
+import asyncio
+from floorsync_common.database.models.user import User
+from floorsync_common.database.models.user_credential import UserCredential
+from floorsync_common.database.session import session_scope
+from floorsync_common.users import UserService
+
+NAME = 'Ada Manager'
+USERNAME = 'manager'
+PASSWORD = 'floorsync-dev'
+
+async def main():
+    async with session_scope() as session:
+        user = User(name=NAME, role='manager')
+        session.add(user)
+        await session.flush()
+        session.add(
+            UserCredential(
+                user_id=user.id,
+                username=USERNAME,
+                password_hash=UserService.hash_password(PASSWORD),
+            )
+        )
+        print('created', USERNAME, user.id)
+
+asyncio.run(main())
+"
+```
+
+Sign in with that at <http://localhost:3000/login>. The username must be lowercase, and the password
+is hashed with Argon2 before it is stored.
+
+[docs/accounts.md](docs/accounts.md) covers the rest: machine-bound operator accounts, listing
+accounts, resetting a password, disabling one, and why operators must be created *after* seeding.
 
 Open the frontend at <http://localhost:3000>, API health at <http://localhost:8002/health>, and FastAPI docs at <http://localhost:8002/docs>.
 The PostgreSQL and API host ports default to `5433` and `8002`; override
 `POSTGRES_HOST_PORT`, `API_HOST_PORT`, and the matching `NEXT_PUBLIC_API_URL` in `.env`
-when those ports are unavailable.
+when those ports are unavailable. The frontend's `3000` and Redis's `6379` are fixed in
+`docker-compose.yml`, so a clash there — a stray `pnpm dev`, a local Redis — has to be resolved by
+stopping the other process or editing the compose file.
+
+[deployment/README.md](deployment/README.md) is the full version of this: required software,
+every environment variable, a demo walkthrough, troubleshooting and known limitations.
 
 Dependencies are managed with `uv` and pnpm. Docker uses committed lockfiles with frozen installs. Run the complete local quality gate before opening a PR:
 

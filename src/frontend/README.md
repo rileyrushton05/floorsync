@@ -337,7 +337,7 @@ the API will serve. The real protection is that every schedule route demands a
 bearer token; this only saves a person from watching each request fail.
 
 There is no sign-up page, because the API has no registration route. Accounts are
-created server-side — see the repository README.
+created server-side — see [docs/accounts.md](../../docs/accounts.md).
 
 ## Styling conventions
 
