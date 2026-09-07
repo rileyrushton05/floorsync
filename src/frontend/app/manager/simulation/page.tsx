@@ -1,7 +1,5 @@
 "use client";
 
-import { PauseIcon, PlayIcon, UserCircleIcon } from "@heroicons/react/24/outline";
-import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,10 +16,11 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Wordmark } from "../../_components/Logo";
+import { PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
+import { useEffect, useMemo, useState } from "react";
 import { GanttChart } from "../_components/GanttChart";
+import { ManagerTopbar as SharedTopbar } from "../_components/ManagerTopbar";
 import { usePlanning } from "../_components/PlanningProvider";
-import { SubNav } from "../_components/SubNav";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { formatDuration, formatOffset } from "../_lib/scheduling";
 import type { GeneratedSchedule } from "../_lib/types";
@@ -82,23 +81,7 @@ const STATE_INTENT = {
 } as const;
 
 function ManagerTopbar({ children }: { children?: React.ReactNode }) {
-    return (
-        <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-            <div className="flex items-center gap-2.5">
-                <Wordmark />
-                <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
-                    Manager
-                </span>
-            </div>
-            <SubNav />
-            {children}
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
-                <UserCircleIcon className="size-7 text-muted-fg" />
-                <span className="font-semibold text-sm">Manager</span>
-            </div>
-        </header>
-    );
+    return <SharedTopbar>{children}</SharedTopbar>;
 }
 
 export default function SimulationPage() {

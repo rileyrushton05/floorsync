@@ -1,16 +1,16 @@
 'use client'
 
+import { cx } from '@/lib/primitive'
+import { cn } from 'cn'
 import { Button } from 'react-aria-components/Button'
 import type { GridListItemProps, GridListProps } from 'react-aria-components/GridList'
 import {
-  GridList as GridListPrimitive,
   GridListHeader as GridListHeaderPrimitive,
   GridListItem as GridListItemPrimitive,
+  GridList as GridListPrimitive,
   GridListSection as GridListSectionPrimitive,
 } from 'react-aria-components/GridList'
 import { Text, type TextProps } from 'react-aria-components/Text'
-import { cn } from 'cn'
-import { cx } from '@/lib/primitive'
 import { Checkbox, CheckboxField } from './checkbox'
 
 const GridList = <T extends object>({ className, ...props }: GridListProps<T>) => (
@@ -60,8 +60,8 @@ const GridListItem = ({ className, children, ...props }: GridListItemProps) => {
         'group relative min-w-0 px-3 py-2.5 outline-hidden [--me-icon:--spacing(2)]',
         'flex min-w-0 cursor-default items-center gap-2 sm:gap-2.5',
         'dragging:cursor-grab dragging:opacity-70 dragging:**:[[slot=drag]]:text-fg',
-        "hover:bg-accent/50 **:[svg:not([data-slot='check-indicator'])]:size-5 **:[svg:not([data-slot='check-indicator'])]:shrink-0 **:[svg:not([data-slot='check-indicator'])]:text-muted-fg sm:**:[svg:not([data-slot='check-indicator'])]:size-4",
-        'selected:bg-accent/40 selected:text-fg selected:hover:bg-accent/80 selected:**:[.text-muted-fg]:text-accent-fg/80',
+        "hover:bg-blue-100 dark:hover:bg-blue-900/30 **:[svg:not([data-slot='check-indicator'])]:size-5 **:[svg:not([data-slot='check-indicator'])]:shrink-0 **:[svg:not([data-slot='check-indicator'])]:text-muted-fg sm:**:[svg:not([data-slot='check-indicator'])]:size-4",
+        'selected:bg-blue-200 dark:selected:bg-blue-900/50 selected:text-fg selected:hover:bg-blue-300 dark:selected:hover:bg-blue-800/60 selected:**:[.text-muted-fg]:text-blue-900 dark:selected:**:[.text-muted-fg]:text-blue-100',
         'href' in props && 'cursor-pointer',
         className
       )}
@@ -152,7 +152,6 @@ const GridListDescription = ({ className, ref, ...props }: GridListTextProps) =>
   />
 )
 
-export type { GridListItemProps, GridListProps }
 export {
   GridList,
   GridListDescription,
@@ -162,5 +161,7 @@ export {
   GridListLabel,
   GridListSection,
   GridListSpacer,
-  GridListStart,
+  GridListStart
 }
+export type { GridListItemProps, GridListProps }
+

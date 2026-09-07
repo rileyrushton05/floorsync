@@ -3,6 +3,7 @@
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  ChevronRightIcon,
   PlusIcon,
   UserCircleIcon,
   XMarkIcon,
@@ -23,8 +24,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
 import { priorityIntent } from "../../_lib/badge-intent";
-import { Wordmark } from "../../_components/Logo";
 import { usePlanning } from "../_components/PlanningProvider";
+import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { SubNav } from "../_components/SubNav";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { dependentsOf, formatDuration, totalWorkMins, wouldCreateCycle } from "../_lib/scheduling";
@@ -174,23 +175,11 @@ export default function JobsPage() {
 
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
-            <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-                <div className="flex items-center gap-2.5">
-                    <Wordmark />
-                    <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
-                        Manager
-                    </span>
-                </div>
-                <SubNav />
-                <div className="flex-1" />
+            <ManagerTopbar>
                 <Button onPress={startNewJob}>
                     <PlusIcon /> New job
                 </Button>
-                <div className="flex items-center gap-2">
-                    <UserCircleIcon className="size-7 text-muted-fg" />
-                    <span className="font-semibold text-sm">Manager</span>
-                </div>
-            </header>
+            </ManagerTopbar>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_2fr]">
                 <Card>
@@ -221,7 +210,11 @@ export default function JobsPage() {
                             )}
                         >
                             {(job) => (
-                                <GridListItem id={job.id} textValue={`${job.id} ${job.name}`} className="items-start">
+                                <GridListItem
+                                    id={job.id}
+                                    textValue={`${job.id} ${job.name}`}
+                                    className="items-start hover:bg-muted dark:hover:bg-muted selected:hover:bg-blue-300"
+                                >
                                     <span
                                         className="mt-1 size-3 shrink-0 rounded-full"
                                         style={{ background: jobColor(colors, job.id).fill }}
@@ -241,6 +234,10 @@ export default function JobsPage() {
                                             </span>
                                         )}
                                     </span>
+                                    <ChevronRightIcon
+                                        aria-label={`Open ${job.id} details`}
+                                        className="ml-auto size-4 shrink-0 text-muted-fg transition group-hover:translate-x-0.5 group-hover:text-fg selected:text-primary-subtle-fg"
+                                    />
                                 </GridListItem>
                             )}
                         </GridList>

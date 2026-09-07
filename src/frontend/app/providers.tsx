@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { RouterProvider } from "react-aria-components";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toast } from "@/components/ui/toast";
+import { TransitionProgress } from "@/components/transition-progress";
 
 /**
  * App-wide client providers.
@@ -18,6 +19,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
     return (
         <ThemeProvider>
+            <TransitionProgress />
             <RouterProvider navigate={(href) => router.push(href)}>
                 {children}
                 <Toast position="top-right" />

@@ -1,0 +1,37 @@
+"use client";
+
+import { UserCircleIcon } from "@heroicons/react/24/outline";
+import { Wordmark } from "../../_components/Logo";
+import { SubNav } from "./SubNav";
+
+/**
+ * Shared topbar chrome for every manager route.
+ *
+ * The "Manager" label is a plain, non-interactive heading: it is spaced away
+ * from the wordmark and carries no hover affordance, so it never reads as a
+ * link the way the section tabs next to it do.
+ */
+export function ManagerTopbar({ children }: { children?: React.ReactNode }) {
+    return (
+        <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+            <div className="flex items-center gap-5">
+                <Wordmark />
+                {/* Not clickable — a static section label, deliberately given a
+                    gap from the wordmark and no hover/cursor affordance. */}
+                <span
+                    aria-hidden
+                    className="border-s border-border pl-4 font-bold text-muted-fg text-xs uppercase tracking-[0.06em] select-none"
+                >
+                    Manager
+                </span>
+            </div>
+            <SubNav />
+            <div className="flex-1" />
+            {children}
+            <div className="flex items-center gap-2">
+                <UserCircleIcon className="size-7 text-muted-fg" />
+                <span className="font-semibold text-sm">Manager</span>
+            </div>
+        </header>
+    );
+}

@@ -1,7 +1,5 @@
 "use client";
 
-import { ExclamationCircleIcon, UserCircleIcon } from "@heroicons/react/24/outline";
-import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,11 +16,12 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { useMemo, useState } from "react";
 import { priorityIntent } from "../../_lib/badge-intent";
-import { Wordmark } from "../../_components/Logo";
 import { GanttChart } from "../_components/GanttChart";
+import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { usePlanning } from "../_components/PlanningProvider";
-import { SubNav } from "../_components/SubNav";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { formatDuration, formatOffset, totalWorkMins, validateSelection } from "../_lib/scheduling";
 
@@ -62,15 +61,7 @@ export default function SchedulerPage() {
 
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
-            <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-                <div className="flex items-center gap-2.5">
-                    <Wordmark />
-                    <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
-                        Manager
-                    </span>
-                </div>
-                <SubNav />
-                <div className="flex-1" />
+            <ManagerTopbar>
                 {schedule && (
                     <Button intent="plain" onPress={clearSchedule}>
                         Clear plan
@@ -79,11 +70,7 @@ export default function SchedulerPage() {
                 <Button onPress={generate}>
                     {schedule ? "Regenerate schedule" : "Generate schedule"}
                 </Button>
-                <div className="flex items-center gap-2">
-                    <UserCircleIcon className="size-7 text-muted-fg" />
-                    <span className="font-semibold text-sm">Manager</span>
-                </div>
-            </header>
+            </ManagerTopbar>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_2.2fr_minmax(260px,0.9fr)]">
                 {/* ===== SELECTION ===== */}
