@@ -22,7 +22,8 @@ import { Wordmark } from "../_components/Logo";
  * in returns them there.
  */
 
-const DEFAULT_DESTINATION = "/manager/simulation";
+const DEFAULT_MANAGER_DESTINATION = "/manager/simulation";
+const DEFAULT_OPERATOR_DESTINATION = "/operator";
 
 function LoginForm() {
     const { status, signIn, user } = useAuth();
@@ -38,15 +39,19 @@ function LoginForm() {
     // absolute one would let a crafted link bounce somebody off-site straight
     // after they typed a password.
     const requested = searchParams.get("next");
-    const destination =
-        requested && requested.startsWith("/") && !requested.startsWith("//")
-            ? requested
-            : DEFAULT_DESTINATION;
+    const safeNext =
+        requested && requested.startsWith("/") && !requested.startsWith("//") ? requested : null;
 
-    // Anyone already signed in has no business on this page.
+    // Anyone already signed in has no business on this page. `next` wins when
+    // it points somewhere; otherwise the landing screen depends on the role —
+    // an operator sent to the manager-only simulation view would just bounce
+    // straight off it again.
     useEffect(() => {
-        if (status === "signedIn") router.replace(destination);
-    }, [status, router, destination]);
+        if (status !== "signedIn") return;
+        const destination =
+            safeNext ?? (user?.role === "operator" ? DEFAULT_OPERATOR_DESTINATION : DEFAULT_MANAGER_DESTINATION);
+        router.replace(destination);
+    }, [status, user, router, safeNext]);
 
     async function submit(event: React.FormEvent) {
         event.preventDefault();

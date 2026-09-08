@@ -277,8 +277,9 @@ export default function SimulationPage() {
 
     // The route is manager-only, so a 403 here means the signed-in account is an
     // operator rather than that anything is broken. That reads differently and
-    // is reported differently. A 401 is left alone: AuthProvider owns expiry and
-    // will drop the token and bounce to the login screen on its own.
+    // is reported differently. A 401 is left alone: the API client signs out on
+    // any unauthenticated response, which flips `token` to null and lets
+    // `RequireAuth`/`RequireManager` bounce to the login screen on their own.
     useEffect(() => {
         if (token === null) return;
         let current = true;
@@ -340,6 +341,10 @@ export default function SimulationPage() {
     const [playingPlan, setPlayingPlan] = useState(activeSchedule);
 
     const colors = useMemo(() => buildJobColors(plan?.jobs ?? []), [plan]);
+    const jobLabel = useCallback(
+        (jobId: string) => plan?.jobs.find((job) => job.id === jobId)?.name ?? jobId,
+        [plan],
+    );
     const makespan = activeSchedule?.makespanMins ?? 0;
     const atEnd = activeSchedule !== null && simMins >= makespan;
     /** Latched "play" only actually advances the clock while there is schedule left. */
@@ -568,7 +573,7 @@ export default function SimulationPage() {
                                                         className="size-2.5 shrink-0 rounded-full"
                                                         style={{ background: jobColor(colors, activity.jobId).fill }}
                                                     />
-                                                    <strong>{activity.jobId}</strong> · Op {activity.opIndex}/
+                                                    <strong>{jobLabel(activity.jobId)}</strong> · Op {activity.opIndex}/
                                                     {activity.opTotal} {activity.opName}
                                                 </div>
                                                 <ProgressBar
@@ -682,7 +687,7 @@ export default function SimulationPage() {
                                                         className="size-2.5 shrink-0 rounded-full"
                                                         style={{ background: jobColor(colors, id).fill }}
                                                     />
-                                                    {id}
+                                                    {jobLabel(id)}
                                                 </span>
                                             </TableCell>
                                             <TableCell className="tabular-nums">

@@ -11,9 +11,10 @@ import type { GeneratedSchedule, JobDef, Machine, MachineLoad, ScheduledOperatio
  * placed by the backend's resolver and are passed through untouched, which is
  * the point — the view shows the backend's arithmetic rather than repeating it.
  *
- * **Identity.** Lane labels are the names stored against the schedule's rows, so
- * a seeded benchmark reads `abz5/J03` and `abz5/M07` while a real floor would
- * read whatever it was called. The API's opaque keys stay out of the UI.
+ * **Identity.** Lane keys are the API's unique identifiers and stay the id every
+ * screen keys off; lane labels are only for display — a seeded benchmark reads
+ * `abz5/J03` and `abz5/M07` while a real floor would read whatever it was
+ * called. Two jobs can share a label, so the label can never double as the id.
  *
  * **Operators** are a floor concept the timeline does not carry — it answers what
  * is scheduled, not who is standing at the machine — so the lane shows the
@@ -57,11 +58,11 @@ export function timelineToPlan(timeline: ScheduleTimeline): TimelinePlan {
     // chart rows agree with it rather than with three local sorts.
     for (const lane of timeline.jobs) {
         const chain = byJob.get(lane.key) ?? [];
-        const jobId = lane.label;
+        const jobId = lane.key;
 
         jobs.push({
             id: jobId,
-            name: "",
+            name: lane.label,
             priority: "Med",
             dependsOn: [],
             operations: chain.map((operation) => ({

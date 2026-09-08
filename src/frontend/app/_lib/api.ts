@@ -12,6 +12,8 @@
  * want different responses rather than one generic error.
  */
 
+import { signOut } from "./auth";
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 /** A failed API call, carrying the status so callers can branch on it. */
@@ -111,6 +113,13 @@ async function request<Body>(path: string, token: string | null, init?: RequestI
     }
 
     if (!response.ok) {
+        // A 401 on an authenticated request means the token is dead — expired
+        // or the account disabled — not that this one call went wrong. Drop it
+        // here, centrally, so every caller gets signed out rather than each
+        // needing its own copy of that decision. The login endpoint itself also
+        // answers 401 for bad credentials, but `token` is null for that call so
+        // this is a no-op there.
+        if (response.status === 401 && token !== null) signOut();
         throw new ApiError(response.status, await problemDetail(response));
     }
     return (await response.json()) as Body;
