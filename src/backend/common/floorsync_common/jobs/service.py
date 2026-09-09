@@ -7,7 +7,6 @@ docs/backend-conventions.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
 from uuid import UUID
 
 from sqlalchemy import Select, exists, select, tuple_
@@ -27,18 +26,7 @@ from floorsync_common.jobs.results import (
     UpdateJobResult,
 )
 from floorsync_common.pagination import decode_cursor, encode_cursor
-
-
-class Unset:
-    """Distinguishes a field the caller omitted from one they explicitly set to null."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "UNSET"
-
-
-UNSET: Final = Unset()
+from floorsync_common.partial import UNSET, Unset
 
 
 @dataclass(frozen=True, slots=True)

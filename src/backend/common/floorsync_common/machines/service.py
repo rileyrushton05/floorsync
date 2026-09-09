@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Final
 from uuid import UUID
 
 from sqlalchemy import Select, select, tuple_
@@ -42,22 +41,7 @@ from floorsync_common.machines.results import (
     UpdateMachineResult,
 )
 from floorsync_common.pagination import decode_cursor, encode_cursor
-
-
-class Unset:
-    """Distinguishes a field the caller omitted from one they explicitly set to null.
-
-    A partial update has to tell "leave the salary alone" apart from "this machine has no known
-    salary", and `None` already means the second.
-    """
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "UNSET"
-
-
-UNSET: Final = Unset()
+from floorsync_common.partial import UNSET, Unset
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +257,7 @@ class MachineService:
 
     @staticmethod
     async def _category_exists(db: AsyncSession, category_id: UUID) -> bool:
-        return await db.get(Category, category_id) is not None
+        return (await db.scalar(select(Category.id).where(Category.id == category_id))) is not None
 
 
 class CategoryService:

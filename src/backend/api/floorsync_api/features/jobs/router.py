@@ -23,7 +23,8 @@ from floorsync_common.jobs.results import (
     JobNotFound,
     JobUpdated,
 )
-from floorsync_common.jobs.service import UNSET, JobService
+from floorsync_common.jobs.service import JobService
+from floorsync_common.partial import UNSET
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 Manager = Annotated[User, Depends(require_roles("manager"))]

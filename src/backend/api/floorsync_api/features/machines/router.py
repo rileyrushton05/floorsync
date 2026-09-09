@@ -34,7 +34,8 @@ from floorsync_common.machines.results import (
     MachineUpdated,
     OperationNotFound,
 )
-from floorsync_common.machines.service import UNSET, CategoryService, MachineService
+from floorsync_common.machines.service import CategoryService, MachineService
+from floorsync_common.partial import UNSET
 
 router = APIRouter(prefix="/machines", tags=["machines"])
 categories_router = APIRouter(prefix="/categories", tags=["machines"])
@@ -123,7 +124,7 @@ async def get_machine(machine_id: UUID, db: DbSession, _: Manager) -> MachineDet
                     ],
                 )
             case MachineNotFound():
-                raise _machine_not_found(machine_id)
+                raise _machine_not_found()
             case _:
                 assert_never(result)
 
@@ -166,7 +167,7 @@ async def update_machine(
             case MachineUpdated(machine=machine):
                 return MachineResponse.model_validate(machine)
             case MachineNotFound():
-                raise _machine_not_found(machine_id)
+                raise _machine_not_found()
             case MachineNameAlreadyExists(name=name):
                 return _machine_name_conflict(request, name)
             case CategoryNotFound(category_id=category_id):
@@ -196,7 +197,7 @@ async def list_capabilities(
                     CapabilityResponse.model_validate(capability) for capability in capabilities
                 ]
             case MachineNotFound():
-                raise _machine_not_found(machine_id)
+                raise _machine_not_found()
             case _:
                 assert_never(result)
 
@@ -237,7 +238,7 @@ async def set_capability(
                     )
                 return CapabilityResponse.model_validate(capability)
             case MachineNotFound():
-                raise _machine_not_found(machine_id)
+                raise _machine_not_found()
             case OperationNotFound():
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -326,7 +327,7 @@ async def list_categories(db: DbSession, _: Manager) -> list[CategoryResponse]:
     return [CategoryResponse.model_validate(category) for category in categories]
 
 
-def _machine_not_found(machine_id: UUID) -> HTTPException:
+def _machine_not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.")
 
 
