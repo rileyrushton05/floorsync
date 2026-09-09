@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from floorsync_common.seed.instances import load_instance, parse_instance
+from floorsync_common.seed.instances import available_instances, load_instance, parse_instance
 from floorsync_common.seed.solutions import (
     SolutionError,
     available_solutions,
@@ -155,12 +155,16 @@ def test_available_solutions_lists_solved_instances(tmp_path: Path) -> None:
 
 
 def test_committed_solutions_match_their_committed_instances() -> None:
-    """Vendored solutions are data; verify they actually describe the vendored instances."""
+    """Vendored solutions are data; verify they actually describe the vendored instances.
 
-    solved = available_solutions()
-    assert solved, "no solution files committed"
+    Only classic instances are checked here; solutions for flexible instances are validated by
+    test_seed_flexible.py, which knows how to read them.
+    """
 
-    for name in solved:
+    classic = sorted(set(available_solutions()) & set(available_instances()))
+    assert classic, "no solution files committed for a classic instance"
+
+    for name in classic:
         solution = find_solution(name)
         assert solution is not None
         validate_against(solution, load_instance(name))

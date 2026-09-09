@@ -68,12 +68,16 @@ make db-seed-list          # which scenarios are available
 make db-seed instance=abz5 # load one (replaces whatever was loaded before)
 ```
 
-Scenarios are standard job-shop benchmark instances. `ft06` is the smallest; `bel00` is the large,
-awkwardly shaped one. **Seed `abz5` to see the simulation** — it is the only instance that ships a
-solved schedule, so it is the only one that gives `/manager/simulation` something to play; the others
-load the problem alone. Seeding replaces the current scenario rather than adding to it, so the
-database always holds exactly one. See [`src/database/seed-data/`](src/database/seed-data/README.md)
-for what each instance is and what it does and does not populate.
+Scenarios are standard benchmark instances, in two kinds. **Job shop** instances (`ft06`, `abz5`,
+`bel00`, …) fix each operation to one machine. **Flexible job shop** instances (`fattahi1`,
+`kacem1`, `dafjs01`, `behnke58`) give each operation several machines to choose between, so machine
+selection is part of the scheduling problem. `db-seed-list` groups them by kind.
+
+Seeding replaces the current scenario rather than adding to it, so the database always holds exactly
+one. Where a solved schedule exists for an instance it is loaded too, giving `/manager/simulation`
+something to play — that currently means `abz5`, `fattahi1`, `kacem1`, `dafjs01` and `behnke58`; the
+others load the problem alone. See [`src/database/seed-data/`](src/database/seed-data/README.md) for
+what each instance is and what it does and does not populate.
 
 ### Create an account
 
