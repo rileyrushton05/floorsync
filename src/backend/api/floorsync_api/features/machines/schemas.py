@@ -11,7 +11,7 @@ type ResourceName = Annotated[str, StringConstraints(strip_whitespace=True, min_
 
 
 class MachineCreateRequest(RequestSchema):
-    """A machine a coordinator is adding to the floor.
+    """A machine a manager is adding to the floor.
 
     category_id and salary are optional: nothing in the scheduler reads a machine's category, and a
     machine with no recorded salary is excluded from a schedule's labour total rather than counted

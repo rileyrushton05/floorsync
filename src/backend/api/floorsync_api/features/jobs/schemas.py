@@ -10,7 +10,7 @@ type JobName = Annotated[str, StringConstraints(strip_whitespace=True, min_lengt
 
 
 class JobCreateRequest(RequestSchema):
-    """A job a coordinator is adding to the backlog.
+    """A job a manager is adding to the backlog.
 
     Only a name: the operations inside a job are added separately, and job names are deliberately
     not unique because two real jobs can carry the same description.
