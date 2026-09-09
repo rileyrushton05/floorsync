@@ -106,10 +106,7 @@ async def seed_instance(
     await _insert_all(
         session,
         Job,
-        [
-            {"id": job_id, "name": f"{instance.name}/J{index:0{job_width}d}"}
-            for index, job_id in enumerate(job_ids)
-        ],
+        [{"id": job_id, "name": f"J{index:0{job_width}d}"} for index, job_id in enumerate(job_ids)],
     )
 
     operation_rows: list[dict[str, Any]] = []
@@ -333,10 +330,7 @@ async def seed_flexible_instance(
     await _insert_all(
         session,
         Job,
-        [
-            {"id": job_id, "name": f"{instance.name}/J{label:0{job_width}d}"}
-            for label, job_id in job_ids.items()
-        ],
+        [{"id": job_id, "name": f"J{label:0{job_width}d}"} for label, job_id in job_ids.items()],
     )
 
     operation_ids = {operation.id: uuid4() for operation in instance.operations}
