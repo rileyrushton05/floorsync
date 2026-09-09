@@ -109,7 +109,7 @@ sequenceDiagram
 
     Manager->>UI: Generate at starts_at
     UI->>API: POST /api/v1/schedules
-    API->>API: Validate body; require manager
+    API->>API: Validate body and require manager
     API->>Redis: enqueue floorsync.schedules.generate(starts_at)
     API-->>UI: 202 generation ID + status URL
     loop Until terminal
@@ -162,14 +162,14 @@ sequenceDiagram
     Manager->>UI: Review and choose confirm/discard
     alt Confirm — missing today
         UI->>API: PATCH /schedules/{id} {status: confirmed}
-        API->>DB: Atomically draft -> confirmed; record user/time
+        API->>DB: Atomically confirm draft and record user/time
         API-->>UI: Confirmed schedule
         UI->>API: POST /simulations {schedule_id}
         API->>DB: Create one not_started session
         API-->>UI: 201 simulation
     else Discard — missing today
         UI->>API: PATCH /schedules/{id} {status: discarded}
-        API->>DB: Atomically draft -> discarded
+        API->>DB: Atomically discard draft
         API-->>UI: Discarded schedule
     end
 ```
@@ -199,7 +199,7 @@ sequenceDiagram
     participant OUI as Operator UI
 
     MUI->>API: POST /simulations {confirmed schedule_id}
-    API->>DB: Verify status; create unique simulation
+    API->>DB: Verify confirmed status and create unique simulation
     API-->>MUI: 201 not_started simulation
     MUI->>API: GET /schedules/{schedule_id}/timeline
     API-->>MUI: Immutable operations and lanes
@@ -208,7 +208,7 @@ sequenceDiagram
     API-->>OUI: Authoritative position
     Manager->>MUI: Start at speed
     MUI->>API: POST /simulations/{id}/events {started, speed}
-    API->>DB: Validate; append event; project status/speed
+    API->>DB: Validate then append event and project status/speed
     API-->>MUI: 201 authoritative anchor
     par Smooth local rendering
         MUI->>MUI: Animate from returned anchor
