@@ -26,7 +26,7 @@ from floorsync_common.jobs.results import (
     UpdateJobResult,
 )
 from floorsync_common.pagination import decode_cursor, encode_cursor
-from floorsync_common.partial import UNSET, Unset
+from floorsync_common.partial import UNSET, Unset, is_set
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +106,7 @@ class JobService:
         if job is None:
             return JobNotFound(job_id=job_id)
 
-        if not isinstance(name, Unset):
+        if is_set(name):
             job.name = name.strip()
 
         await db.flush()

@@ -5,7 +5,7 @@ already means the second. Every partial-update service takes `UNSET` as its defa
 field and an explicitly cleared one stay distinguishable all the way down from the request body.
 """
 
-from typing import Final
+from typing import Final, TypeGuard
 
 
 class Unset:
@@ -19,4 +19,17 @@ class Unset:
 
 UNSET: Final = Unset()
 
-__all__ = ["UNSET", "Unset"]
+
+def is_set[T](value: T | Unset) -> TypeGuard[T]:
+    """Report whether the caller supplied this field, narrowing it to its real type if so.
+
+    A `TypeGuard` rather than a function that assigns for you: two of the fields this guards are not
+    plain assignments -- they validate first and return a different outcome when the value is
+    rejected -- and a helper cannot return on its caller's behalf. Narrowing instead keeps one idiom
+    across every field, including those, and avoids naming attributes as strings.
+    """
+
+    return not isinstance(value, Unset)
+
+
+__all__ = ["UNSET", "Unset", "is_set"]

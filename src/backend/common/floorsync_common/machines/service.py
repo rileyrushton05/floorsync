@@ -41,7 +41,7 @@ from floorsync_common.machines.results import (
     UpdateMachineResult,
 )
 from floorsync_common.pagination import decode_cursor, encode_cursor
-from floorsync_common.partial import UNSET, Unset
+from floorsync_common.partial import UNSET, Unset, is_set
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +140,7 @@ class MachineService:
         if machine is None:
             return MachineNotFound(machine_id=machine_id)
 
-        if not isinstance(name, Unset):
+        if is_set(name):
             normalized_name = name.strip()
             if normalized_name != machine.name and await MachineService._machine_name_taken(
                 db, normalized_name
@@ -148,17 +148,17 @@ class MachineService:
                 return MachineNameAlreadyExists(name=normalized_name)
             machine.name = normalized_name
 
-        if not isinstance(category_id, Unset):
+        if is_set(category_id):
             if category_id is not None and not await MachineService._category_exists(
                 db, category_id
             ):
                 return CategoryNotFound(category_id=category_id)
             machine.category_id = category_id
 
-        if not isinstance(salary, Unset):
+        if is_set(salary):
             machine.salary = salary
 
-        if not isinstance(active, Unset):
+        if is_set(active):
             machine.active = active
 
         await db.flush()
