@@ -7,8 +7,6 @@ the database, which is what actually holds under concurrent writes.
 
 from __future__ import annotations
 
-import binascii
-from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final
@@ -43,6 +41,7 @@ from floorsync_common.machines.results import (
     SetCapabilityResult,
     UpdateMachineResult,
 )
+from floorsync_common.pagination import decode_cursor, encode_cursor
 
 
 class Unset:
@@ -59,8 +58,6 @@ class Unset:
 
 
 UNSET: Final = Unset()
-
-_CURSOR_SEPARATOR: Final = "\x00"
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,13 +129,15 @@ class MachineService:
         """
 
         statement: Select[tuple[Machine]] = select(Machine).order_by(Machine.name, Machine.id)
-        position = _decode_cursor(cursor)
+        position = decode_cursor(cursor)
         if position is not None:
             statement = statement.where(tuple_(Machine.name, Machine.id) > position)
 
         rows = (await db.scalars(statement.limit(limit + 1))).all()
         page = tuple(rows[:limit])
-        next_cursor = _encode_cursor(page[-1]) if len(rows) > limit and page else None
+        next_cursor = (
+            encode_cursor(page[-1].name, page[-1].id) if len(rows) > limit and page else None
+        )
         return MachinePage(machines=page, next_cursor=next_cursor)
 
     @staticmethod
@@ -304,27 +303,3 @@ class CategoryService:
 
         categories = (await db.scalars(select(Category).order_by(Category.name))).all()
         return tuple(categories)
-
-
-def _encode_cursor(machine: Machine) -> str:
-    """Encode the ordering key of the last row on a page."""
-
-    raw = f"{machine.name}{_CURSOR_SEPARATOR}{machine.id}".encode()
-    return urlsafe_b64encode(raw).decode()
-
-
-def _decode_cursor(cursor: str | None) -> tuple[str, UUID] | None:
-    """Decode a cursor, treating an unreadable one as the start of the collection.
-
-    A cursor is an opaque continuation token rather than client input worth validating: a malformed
-    one means a stale or hand-edited link, and restarting is friendlier than a 422.
-    """
-
-    if not cursor:
-        return None
-    try:
-        raw = urlsafe_b64decode(cursor.encode()).decode()
-        name, _, identifier = raw.partition(_CURSOR_SEPARATOR)
-        return name, UUID(identifier)
-    except (ValueError, UnicodeDecodeError, binascii.Error):
-        return None

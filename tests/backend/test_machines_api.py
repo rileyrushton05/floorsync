@@ -32,6 +32,7 @@ from floorsync_common.machines.results import (
     OperationNotFound,
 )
 from floorsync_common.machines.service import MachinePage
+from floorsync_common.pagination import decode_cursor, encode_cursor
 from floorsync_common.settings import Settings
 
 CREATED_AT = datetime(2026, 9, 9, 8, tzinfo=UTC)
@@ -408,14 +409,25 @@ def test_update_paths_refresh_database_computed_columns() -> None:
 def test_cursor_round_trips_through_encoding() -> None:
     machine = make_machine(name="Lathe 1")
 
-    cursor = machine_service._encode_cursor(machine)
+    cursor = encode_cursor(machine.name, machine.id)
 
-    assert machine_service._decode_cursor(cursor) == (machine.name, machine.id)
+    assert decode_cursor(cursor) == (machine.name, machine.id)
 
 
 def test_an_unreadable_cursor_restarts_the_collection() -> None:
     """A stale or hand-edited link should show the first page, not a validation error."""
 
-    assert machine_service._decode_cursor("not-a-cursor") is None
-    assert machine_service._decode_cursor("") is None
-    assert machine_service._decode_cursor(None) is None
+    assert decode_cursor("not-a-cursor") is None
+    assert decode_cursor("") is None
+    assert decode_cursor(None) is None
+
+
+def test_a_cursor_survives_a_separator_in_the_sort_value() -> None:
+    """Names are free text, so the encoding must not break on one containing the separator."""
+
+    identifier = uuid4()
+
+    assert decode_cursor(encode_cursor("Lathe 1 / Bay 2", identifier)) == (
+        "Lathe 1 / Bay 2",
+        identifier,
+    )
