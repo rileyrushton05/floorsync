@@ -16,6 +16,7 @@ from floorsync_api.features.schedules.schemas import (
     ScheduleGenerationAcceptedResponse,
     ScheduleGenerationStatusResponse,
     ScheduleResponse,
+    ScheduleSummaryResponse,
     SchedulingIssueResponse,
 )
 from floorsync_api.problems import ProblemDetail, problem_response
@@ -63,6 +64,29 @@ async def create_schedule(
         status="pending",
         status_url=status_url,
     )
+
+
+@router.get(
+    "",
+    response_model=list[ScheduleSummaryResponse],
+    summary="List generated schedules",
+)
+async def list_schedules(db: DbSession, _: Manager) -> list[ScheduleSummaryResponse]:
+    """List every schedule, newest first, without its entries.
+
+    A caller that wants to open one has no other way to learn its identifier:
+    generation reports an id only to whoever queued it, and a seeded schedule
+    reports none at all. Summaries rather than full resources, because entries
+    and dependencies run to hundreds of rows per schedule.
+    """
+
+    async with db.begin():
+        schedules = (
+            await db.scalars(
+                select(Schedule).order_by(Schedule.created_at.desc(), Schedule.id.desc())
+            )
+        ).all()
+    return [ScheduleSummaryResponse.model_validate(schedule) for schedule in schedules]
 
 
 @router.get(

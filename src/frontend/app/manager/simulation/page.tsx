@@ -1,13 +1,23 @@
 "use client";
 
-import { PauseIcon, PlayIcon, UserCircleIcon } from "@heroicons/react/24/outline";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    ApiError,
+    type ScheduleSummary,
+    type ScheduleTimeline,
+    fetchScheduleTimeline,
+    fetchSchedules,
+} from "@/app/_lib/api";
+import { useAuth } from "@/app/_components/AuthProvider";
+import { UserMenu } from "@/app/_components/UserMenu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/field";
-import { Link } from "@/components/ui/link";
+import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Slider, SliderFill, SliderThumb, SliderTrack } from "@/components/ui/slider";
 import {
     Table,
@@ -20,21 +30,29 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Wordmark } from "../../_components/Logo";
 import { GanttChart } from "../_components/GanttChart";
-import { usePlanning } from "../_components/PlanningProvider";
 import { SubNav } from "../_components/SubNav";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { formatDuration, formatOffset } from "../_lib/scheduling";
+import { timelineToPlan } from "../_lib/timeline";
 import type { GeneratedSchedule } from "../_lib/types";
 
 /**
  * Simulation.
  *
- * Takes whatever plan the scheduler last generated and runs a clock across it.
- * Nothing here changes the plan — this view answers "what does the shop look
- * like N minutes in?", where the scheduler answers "what is the plan?".
+ * Runs a clock across a schedule held in the database. Nothing here changes the
+ * schedule — this view answers "what does the shop look like N minutes in?",
+ * where the scheduler answers "what is the plan?".
+ *
+ * Everything on screen comes from two API reads: `GET /schedules` to choose
+ * between the schedules that exist, then `GET /schedules/{id}/timeline` for the
+ * one picked. Every start and end time was computed by the backend's resolver;
+ * this page places bars and moves a clock across them.
+ *
+ * Playback is local. A confirmed schedule's timeline is immutable, so the clock
+ * animates against a payload fetched once rather than polling for a position.
  *
  * Speed is expressed as shop-minutes per real second, so 60x means one hour of
- * the plan passes every second.
+ * the schedule passes every second.
  */
 
 const SPEEDS = [
@@ -44,6 +62,13 @@ const SPEEDS = [
 ];
 
 const TICK_MS = 100;
+
+type LoadState<Value> =
+    | { status: "loading" }
+    | { status: "ready"; value: Value }
+    | { status: "error"; message: string }
+    /** Signed in, but this account may not read schedules. */
+    | { status: "forbidden" };
 
 type MachineActivity =
     | { kind: "running"; jobId: string; opName: string; opIndex: number; opTotal: number; progressPct: number; endMins: number }
@@ -81,6 +106,34 @@ const STATE_INTENT = {
     Waiting: "secondary",
 } as const;
 
+const SCHEDULE_STATUS_INTENT = {
+    confirmed: "success",
+    draft: "warning",
+    discarded: "secondary",
+} as const;
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : "The API could not be reached.";
+}
+
+/** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
+function formatCreated(iso: string): string {
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) return iso;
+    return at.toLocaleString(undefined, {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
+/** How a schedule reads in the picker: what made it, how long it runs, when. */
+function scheduleLabel(schedule: ScheduleSummary): string {
+    const makespan = schedule.makespan === null ? "no makespan" : formatDuration(schedule.makespan);
+    return `${schedule.strategy} · ${makespan} · ${formatCreated(schedule.created_at)}`;
+}
+
 function ManagerTopbar({ children }: { children?: React.ReactNode }) {
     return (
         <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
@@ -93,71 +146,327 @@ function ManagerTopbar({ children }: { children?: React.ReactNode }) {
             <SubNav />
             {children}
             <div className="flex-1" />
-            <div className="flex items-center gap-2">
-                <UserCircleIcon className="size-7 text-muted-fg" />
-                <span className="font-semibold text-sm">Manager</span>
-            </div>
+            <UserMenu />
         </header>
     );
 }
 
+/** Which stored schedule is being simulated, and what it is. */
+function ScheduleBar({
+    schedules,
+    selectedId,
+    onSelect,
+    selected,
+    timeline,
+}: {
+    schedules: ScheduleSummary[];
+    selectedId: string | null;
+    onSelect: (id: string) => void;
+    selected: ScheduleSummary | null;
+    timeline: ScheduleTimeline | null;
+}) {
+    return (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-navbar px-7 py-2.5">
+            <Select
+                aria-label="Which schedule to simulate"
+                className="min-w-[22rem]"
+                selectedKey={selectedId}
+                onSelectionChange={(key) => {
+                    if (typeof key === "string") onSelect(key);
+                }}
+            >
+                <Label className="sr-only">Schedule</Label>
+                <SelectTrigger />
+                <SelectContent items={schedules}>
+                    {(schedule: ScheduleSummary) => (
+                        <SelectItem id={schedule.id} textValue={scheduleLabel(schedule)}>
+                            {scheduleLabel(schedule)}
+                        </SelectItem>
+                    )}
+                </SelectContent>
+            </Select>
+
+            {selected && (
+                <Badge intent={SCHEDULE_STATUS_INTENT[selected.status]}>{selected.status}</Badge>
+            )}
+
+            {timeline && (
+                <span className="text-muted-fg text-xs">
+                    {timeline.jobs.length} jobs × {timeline.machines.length} machines,{" "}
+                    {timeline.operations.length} operations — resolved by the API from the stored
+                    schedule.
+                </span>
+            )}
+        </div>
+    );
+}
+
+/** A full-page state for when there is nothing to draw yet. */
+function Placeholder({
+    title,
+    children,
+    onRetry,
+    danger = false,
+}: {
+    title: string;
+    children: React.ReactNode;
+    onRetry?: () => void;
+    danger?: boolean;
+}) {
+    return (
+        <div className="flex min-h-dvh flex-col bg-bg text-fg">
+            <ManagerTopbar />
+            <main className="flex flex-1 items-center justify-center p-5">
+                <div className="w-full max-w-prose">
+                    {danger ? (
+                        <Note intent="danger" role="alert">
+                            <div>
+                                <strong>{title}</strong>
+                                <div className="mt-1">{children}</div>
+                                {onRetry && (
+                                    <Button
+                                        intent="outline"
+                                        size="sm"
+                                        className="mt-3"
+                                        onPress={onRetry}
+                                    >
+                                        <ArrowPathIcon />
+                                        Try again
+                                    </Button>
+                                )}
+                            </div>
+                        </Note>
+                    ) : (
+                        <div className="rounded-lg border border-dashed bg-overlay p-8 text-center">
+                            <h2 className="font-semibold text-lg">{title}</h2>
+                            <div className="mt-2 text-muted-fg text-sm">{children}</div>
+                        </div>
+                    )}
+                </div>
+            </main>
+        </div>
+    );
+}
+
 export default function SimulationPage() {
-    const { machines, jobs, schedule } = usePlanning();
     const [simMins, setSimMins] = useState(0);
     const [playing, setPlaying] = useState(false);
     const [speed, setSpeed] = useState(10);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
-    const [playingPlan, setPlayingPlan] = useState(schedule);
 
-    const colors = useMemo(() => buildJobColors(jobs), [jobs]);
-    const makespan = schedule?.makespanMins ?? 0;
-    const atEnd = schedule !== null && simMins >= makespan;
-    /** Latched "play" only actually advances the clock while there is plan left. */
+    const { token, user } = useAuth();
+    const [schedules, setSchedules] = useState<LoadState<ScheduleSummary[]>>({ status: "loading" });
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
+
+    // Keyed by the schedule it describes, so "still loading" is derived from a
+    // stale key rather than assigned when the selection changes. That keeps the
+    // effects below free of synchronous state updates, which cascade renders.
+    const [loaded, setLoaded] = useState<{
+        id: string;
+        state: LoadState<ScheduleTimeline>;
+    } | null>(null);
+
+    const timeline = useMemo<LoadState<ScheduleTimeline>>(
+        () =>
+            selectedId !== null && loaded?.id === selectedId
+                ? loaded.state
+                : { status: "loading" },
+        [selectedId, loaded],
+    );
+
+    // The route is manager-only, so a 403 here means the signed-in account is an
+    // operator rather than that anything is broken. That reads differently and
+    // is reported differently. A 401 is left alone: the API client signs out on
+    // any unauthenticated response, which flips `token` to null and lets
+    // `RequireAuth`/`RequireManager` bounce to the login screen on their own.
+    useEffect(() => {
+        if (token === null) return;
+        let current = true;
+        fetchSchedules(token)
+            .then((value) => {
+                if (!current) return;
+                setSchedules({ status: "ready", value });
+                // Prefer a confirmed schedule: it is the only kind simulation
+                // accepts, so opening on a draft would only show an error.
+                const confirmed = value.find((schedule) => schedule.status === "confirmed");
+                setSelectedId((existing) => existing ?? confirmed?.id ?? value[0]?.id ?? null);
+            })
+            .catch((error: unknown) => {
+                if (!current) return;
+                if (error instanceof ApiError && error.isForbidden) {
+                    setSchedules({ status: "forbidden" });
+                    return;
+                }
+                setSchedules({ status: "error", message: errorMessage(error) });
+            });
+        return () => {
+            current = false;
+        };
+    }, [attempt, token]);
+
+    const retrySchedules = useCallback(() => {
+        setSchedules({ status: "loading" });
+        setAttempt((count) => count + 1);
+    }, []);
+
+    // Refetched whenever the selection changes. A timeline is immutable for a
+    // given schedule, so this is the only time it is asked for.
+    useEffect(() => {
+        if (selectedId === null || token === null) return;
+        let current = true;
+        fetchScheduleTimeline(selectedId, token)
+            .then((value) => {
+                if (current) setLoaded({ id: selectedId, state: { status: "ready", value } });
+            })
+            .catch((error: unknown) => {
+                if (current) {
+                    setLoaded({
+                        id: selectedId,
+                        state: { status: "error", message: errorMessage(error) },
+                    });
+                }
+            });
+        return () => {
+            current = false;
+        };
+    }, [selectedId, token]);
+
+    const plan = useMemo(
+        () => (timeline.status === "ready" ? timelineToPlan(timeline.value) : null),
+        [timeline],
+    );
+
+    const activeSchedule = plan?.schedule ?? null;
+    const [playingPlan, setPlayingPlan] = useState(activeSchedule);
+
+    const colors = useMemo(() => buildJobColors(plan?.jobs ?? []), [plan]);
+    const jobLabel = useCallback(
+        (jobId: string) => plan?.jobs.find((job) => job.id === jobId)?.name ?? jobId,
+        [plan],
+    );
+    const makespan = activeSchedule?.makespanMins ?? 0;
+    const atEnd = activeSchedule !== null && simMins >= makespan;
+    /** Latched "play" only actually advances the clock while there is schedule left. */
     const running = playing && !atEnd;
 
-    // A plan that was cleared or regenerated invalidates the position we were
-    // at. Rewinding during render rather than from an effect avoids painting
-    // one frame of the new plan at the old plan's clock.
-    if (schedule !== playingPlan) {
-        setPlayingPlan(schedule);
+    // Switching schedules invalidates the position we were at. Rewinding during
+    // render rather than from an effect avoids painting one frame of the new
+    // schedule at the old schedule's clock.
+    if (activeSchedule !== playingPlan) {
+        setPlayingPlan(activeSchedule);
         setSimMins(0);
         setPlaying(false);
+        setHighlightedJobId(null);
     }
 
     // Torn down the moment the clock reaches the makespan, so a finished run
     // costs nothing rather than ticking against a clamped value.
     useEffect(() => {
-        if (!running || !schedule) return;
+        if (!running || !activeSchedule) return;
         const id = setInterval(() => {
-            setSimMins((previous) => Math.min(previous + speed * (TICK_MS / 1000), schedule.makespanMins));
+            setSimMins((previous) =>
+                Math.min(previous + speed * (TICK_MS / 1000), activeSchedule.makespanMins),
+            );
         }, TICK_MS);
         return () => clearInterval(id);
-    }, [running, speed, schedule]);
+    }, [running, speed, activeSchedule]);
 
-    if (!schedule) {
+    if (schedules.status === "loading") {
+        return (
+            <Placeholder title="Signing in and loading schedules…">
+                Reading <code>GET /api/v1/schedules</code>.
+            </Placeholder>
+        );
+    }
+
+    if (schedules.status === "forbidden") {
+        return (
+            <Placeholder title="This needs a manager account">
+                <p>
+                    You are signed in as <strong>{user?.name}</strong> ({user?.role}). Reading
+                    schedules is restricted to managers, so there is nothing to simulate here.
+                </p>
+                <p className="mt-2">Sign out and sign in with a manager account to continue.</p>
+            </Placeholder>
+        );
+    }
+
+    if (schedules.status === "error") {
+        return (
+            <Placeholder title="Could not load schedules." danger onRetry={retrySchedules}>
+                <p>{schedules.message}</p>
+                <p className="mt-1 text-muted-fg">
+                    The API answered, but not with a schedule list. Check it is running and that
+                    the database has been migrated.
+                </p>
+            </Placeholder>
+        );
+    }
+
+    if (schedules.value.length === 0) {
+        return (
+            <Placeholder title="No schedules in the database">
+                Nothing has been scheduled yet. Seed one with{" "}
+                <code>make db-seed instance=abz5</code>, then reload.
+            </Placeholder>
+        );
+    }
+
+    const selected = schedules.value.find((schedule) => schedule.id === selectedId) ?? null;
+    const scheduleBar = (
+        <ScheduleBar
+            schedules={schedules.value}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            selected={selected}
+            timeline={timeline.status === "ready" ? timeline.value : null}
+        />
+    );
+
+    if (!activeSchedule) {
         return (
             <div className="flex min-h-dvh flex-col bg-bg text-fg">
                 <ManagerTopbar />
+                {scheduleBar}
                 <main className="flex flex-1 items-center justify-center p-5">
-                    <div className="max-w-prose rounded-lg border border-dashed bg-overlay p-8 text-center">
-                        <h2 className="font-semibold text-lg">Nothing to simulate yet</h2>
-                        <p className="mt-2 text-muted-fg text-sm">
-                            The simulation replays a generated plan. Build one first — pick the jobs to
-                            release and generate a schedule.
-                        </p>
-                        <Link href="/manager/scheduler" className="mt-4 inline-block text-primary text-sm">
-                            Go to the scheduler →
-                        </Link>
+                    <div className="w-full max-w-prose">
+                        {timeline.status === "error" ? (
+                            <Note intent="danger" role="alert">
+                                <div>
+                                    <strong>That schedule could not be resolved.</strong>
+                                    <p className="mt-1">{timeline.message}</p>
+                                    <p className="mt-1 text-muted-fg">
+                                        A schedule with no entries has no timeline. Pick another, or
+                                        seed one with <code>make db-seed instance=abz5</code>.
+                                    </p>
+                                </div>
+                            </Note>
+                        ) : (
+                            <div className="rounded-lg border border-dashed bg-overlay p-8 text-center">
+                                <h2 className="font-semibold text-lg">Resolving the schedule…</h2>
+                                <p className="mt-2 text-muted-fg text-sm">
+                                    The backend is placing every operation on the clock from the
+                                    schedule&apos;s entries and dependencies.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </main>
             </div>
         );
     }
 
-    const completedOps = schedule.ops.filter((op) => op.endMins <= simMins).length;
-    const runningOps = schedule.ops.filter((op) => op.startMins <= simMins && op.endMins > simMins).length;
+    const activeMachines = plan?.machines ?? [];
+    const activeJobs = plan?.jobs ?? [];
+    const completedOps = activeSchedule.ops.filter((op) => op.endMins <= simMins).length;
+    const runningOps = activeSchedule.ops.filter(
+        (op) => op.startMins <= simMins && op.endMins > simMins,
+    ).length;
     const overallPct = makespan === 0 ? 0 : Math.round((simMins / makespan) * 100);
-    const usedMachines = machines.filter((machine) => schedule.ops.some((op) => op.machineId === machine.id));
+    const usedMachines = activeMachines.filter((machine) =>
+        activeSchedule.ops.some((op) => op.machineId === machine.id),
+    );
 
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
@@ -209,6 +518,8 @@ export default function SimulationPage() {
                 </div>
             </ManagerTopbar>
 
+            {scheduleBar}
+
             <div className="flex items-center gap-4 border-b bg-navbar px-7 py-2.5">
                 <Slider
                     aria-label="Scrub the simulation clock"
@@ -241,7 +552,7 @@ export default function SimulationPage() {
                     <CardContent>
                         <ul className="space-y-2.5">
                             {usedMachines.map((machine) => {
-                                const activity = machineActivity(schedule, machine.id, simMins);
+                                const activity = machineActivity(activeSchedule, machine.id, simMins);
                                 return (
                                     <li key={machine.id} className="rounded-lg border bg-muted p-3">
                                         <div className="flex items-center justify-between gap-2">
@@ -262,7 +573,7 @@ export default function SimulationPage() {
                                                         className="size-2.5 shrink-0 rounded-full"
                                                         style={{ background: jobColor(colors, activity.jobId).fill }}
                                                     />
-                                                    <strong>{activity.jobId}</strong> · Op {activity.opIndex}/
+                                                    <strong>{jobLabel(activity.jobId)}</strong> · Op {activity.opIndex}/
                                                     {activity.opTotal} {activity.opName}
                                                 </div>
                                                 <ProgressBar
@@ -294,7 +605,7 @@ export default function SimulationPage() {
 
                 <Card>
                     <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
-                        <CardTitle>Plan playback</CardTitle>
+                        <CardTitle>Schedule playback</CardTitle>
                         <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
                             <span className="flex items-center gap-1.5">
                                 <span className="size-2.5 rounded-xs bg-fg/25" />✓ Completed
@@ -310,7 +621,7 @@ export default function SimulationPage() {
                     <CardContent className="space-y-4">
                         <div className="flex items-center gap-3">
                             <ProgressBar
-                                aria-label="Elapsed share of the plan"
+                                aria-label="Elapsed share of the schedule"
                                 value={overallPct}
                                 className="flex-1"
                             >
@@ -318,14 +629,14 @@ export default function SimulationPage() {
                             </ProgressBar>
                             <span className="shrink-0 text-muted-fg text-xs">
                                 {completedOps} done · {runningOps} running ·{" "}
-                                {schedule.ops.length - completedOps - runningOps} to go
+                                {activeSchedule.ops.length - completedOps - runningOps} to go
                             </span>
                         </div>
 
                         <GanttChart
-                            machines={machines}
-                            jobs={jobs}
-                            schedule={schedule}
+                            machines={activeMachines}
+                            jobs={activeJobs}
+                            schedule={activeSchedule}
                             colors={colors}
                             mode="simulation"
                             nowMins={simMins}
@@ -360,12 +671,12 @@ export default function SimulationPage() {
                                 <TableColumn>Ops</TableColumn>
                                 <TableColumn>State</TableColumn>
                             </TableHeader>
-                            <TableBody items={schedule.order.map((id) => ({ id }))}>
+                            <TableBody items={activeSchedule.order.map((id) => ({ id }))}>
                                 {({ id }) => {
-                                    const jobOps = schedule.ops.filter((op) => op.jobId === id);
+                                    const jobOps = activeSchedule.ops.filter((op) => op.jobId === id);
                                     const done = jobOps.filter((op) => op.endMins <= simMins).length;
-                                    const finish = schedule.jobFinish[id] ?? 0;
-                                    const start = schedule.jobStart[id] ?? 0;
+                                    const finish = activeSchedule.jobFinish[id] ?? 0;
+                                    const start = activeSchedule.jobStart[id] ?? 0;
                                     const state =
                                         simMins >= finish ? "Done" : simMins >= start ? "Running" : "Waiting";
                                     return (
@@ -376,7 +687,7 @@ export default function SimulationPage() {
                                                         className="size-2.5 shrink-0 rounded-full"
                                                         style={{ background: jobColor(colors, id).fill }}
                                                     />
-                                                    {id}
+                                                    {jobLabel(id)}
                                                 </span>
                                             </TableCell>
                                             <TableCell className="tabular-nums">

@@ -1,6 +1,6 @@
 "use client";
 
-import { ExclamationCircleIcon, UserCircleIcon } from "@heroicons/react/24/outline";
+import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { priorityIntent } from "../../_lib/badge-intent";
+import { UserMenu } from "../../_components/UserMenu";
 import { Wordmark } from "../../_components/Logo";
 import { GanttChart } from "../_components/GanttChart";
 import { usePlanning } from "../_components/PlanningProvider";
@@ -79,10 +80,7 @@ export default function SchedulerPage() {
                 <Button onPress={generate}>
                     {schedule ? "Regenerate schedule" : "Generate schedule"}
                 </Button>
-                <div className="flex items-center gap-2">
-                    <UserCircleIcon className="size-7 text-muted-fg" />
-                    <span className="font-semibold text-sm">Manager</span>
-                </div>
+                <UserMenu />
             </header>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_2.2fr_minmax(260px,0.9fr)]">

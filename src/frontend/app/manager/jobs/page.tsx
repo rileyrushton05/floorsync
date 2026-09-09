@@ -4,7 +4,6 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   PlusIcon,
-  UserCircleIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useMemo, useRef, useState } from "react";
@@ -23,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
 import { priorityIntent } from "../../_lib/badge-intent";
+import { UserMenu } from "../../_components/UserMenu";
 import { Wordmark } from "../../_components/Logo";
 import { usePlanning } from "../_components/PlanningProvider";
 import { SubNav } from "../_components/SubNav";
@@ -186,10 +186,7 @@ export default function JobsPage() {
                 <Button onPress={startNewJob}>
                     <PlusIcon /> New job
                 </Button>
-                <div className="flex items-center gap-2">
-                    <UserCircleIcon className="size-7 text-muted-fg" />
-                    <span className="font-semibold text-sm">Manager</span>
-                </div>
+                <UserMenu />
             </header>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_2fr]">
