@@ -106,9 +106,14 @@ app/
 ├── page.tsx                       # "/" landing page (navy surface)
 │
 ├── _components/                   # Shared across every route
+│   ├── AuthProvider.tsx           # Token + signed-in account (context)
+│   ├── RequireAuth.tsx            # Redirects anonymous visitors to /login
+│   ├── UserMenu.tsx               # Signed-in account + sign out, in every topbar
 │   ├── Logo.tsx                   # <Logo> mark and <Wordmark> home link
 │   └── icons.tsx                  # CoffeeIcon — the one icon Heroicons lacks
 ├── _lib/
+│   ├── api.ts                     # FloorSync API client (base URL + typed calls)
+│   ├── auth.ts                    # Token store (sessionStorage) + sign in / out
 │   └── badge-intent.ts            # priority/status → Intent UI badge intents
 │
 ├── manager/
@@ -117,6 +122,7 @@ app/
 │   ├── _lib/                      # Pure domain logic — no React
 │   │   ├── types.ts               # JobDef, ScheduledOperation, GeneratedSchedule…
 │   │   ├── scheduling.ts          # generateSchedule + validation + formatting
+│   │   ├── timeline.ts            # API schedule timeline → GeneratedSchedule
 │   │   ├── colors.ts              # Validated categorical palette for job identity
 │   │   └── seed.ts                # Starting machines and backlog
 │   │
@@ -203,9 +209,32 @@ chart's text equivalent, so the plan is fully readable without relying on colour
 
 ---
 
-### `/manager/simulation` — Plan playback (`app/manager/simulation/page.tsx`)
+### `/login` — Sign in (`app/login/page.tsx`)
 
-Runs the last generated plan forward. Nothing here changes the plan.
+Username and password against `POST /api/v1/auth/token`. Redirects anyone already
+signed in, and honours `?next=` — but only for same-origin paths, so a crafted
+link cannot bounce someone off-site straight after they type a password.
+
+---
+
+### `/manager/simulation` — Schedule playback (`app/manager/simulation/page.tsx`)
+
+**The one page that reads from the API.** Everything on it comes from two calls:
+`GET /api/v1/schedules` to list what exists, then
+`GET /api/v1/schedules/{id}/timeline` for the one picked. Every start and end
+time was computed by the backend's simulation resolver from the schedule's
+stored entries and dependencies; this page places bars and moves a clock across
+them. It does not read the in-browser plan from `PlanningProvider` at all.
+
+**Schedule picker** — a select listing every schedule newest-first, labelled by
+strategy, makespan and creation time, with a status badge. A confirmed schedule
+is chosen on load, since simulation refuses anything else. `_lib/timeline.ts`
+translates the response into a `GeneratedSchedule` so the existing chart and
+panels draw it unchanged — pure renaming and regrouping, **no re-timing**.
+
+Lane labels are whatever the database stores, so a seeded benchmark reads
+`abz5/J03` and `abz5/M07`. Operators are not shown: the timeline answers what is
+scheduled, not who is standing at the machine.
 
 **Transport** — play/pause, reset, and a speed selector expressed in shop-minutes
 per real second (`1×` = 1 min/s, `10×`, `60×` = one hour per second). A `T+`
@@ -222,7 +251,11 @@ Overall counters above it.
 
 **Job progress (right)** — operations completed per job and its live state.
 
-If no plan has been generated, the page says so and links to the scheduler.
+The page has a state for each way it can have nothing to draw: loading, an API
+that cannot be reached (with the API's own message and a retry), an empty
+database, a draft schedule that has no timeline to resolve, and an account
+without permission — `GET /schedules` is manager-only, so an operator is told
+that plainly rather than shown a raw 403.
 
 ---
 
@@ -255,6 +288,56 @@ once the solver is real.
 | `manager/_lib/scheduling.ts` | `generateSchedule` | The backend solver |
 | `manager/page.tsx` | `weeks: WeekData[]` | KPI rollup endpoint |
 | `operator/page.tsx` | `initialMachine: MachineState` | Per-machine queue endpoint / WebSocket |
+
+`/manager/simulation` has already crossed that seam — it reads schedules from the
+API rather than from the provider. The jobs and scheduler routes have not.
+
+### Talking to the API
+
+`app/_lib/api.ts` is the whole client: one base URL from `NEXT_PUBLIC_API_URL`,
+one fetch wrapper, and a typed function per endpoint. The API answers failures as
+RFC 9457 problem details, so the wrapper throws with the `detail` field — the
+message a person should actually be shown — and falls back to the status line
+only when the body is not a problem document.
+
+Only `NEXT_PUBLIC_API_URL` is needed in `src/frontend/.env.local` (gitignored):
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8002
+```
+
+### Signing in
+
+`/login` posts to the API's own `POST /api/v1/auth/token` and hands the bearer
+token to `app/_lib/auth.ts`.
+
+That module is a small external store rather than React state, for two reasons:
+plain functions outside the component tree read it, and `useSyncExternalStore`
+lets a component read it without hydrating from an effect — reading storage
+during render would disagree with the server's HTML, and doing it in an effect
+means a synchronous `setState`, which React 19's lint rules reject.
+
+The token lives in **`sessionStorage`**: it survives a reload and navigation but
+dies with the tab, so a testing session is never interrupted and a shared machine
+keeps nothing afterwards. It is readable by any script on the page, as any
+browser-held token is; the protection that matters is the API's 30-minute expiry.
+
+`AuthProvider` turns that token into an account with `GET /api/v1/auth/me`, which
+doubles as the check that it is still valid. There is no refresh endpoint, so an
+expired token cannot be renewed — the API answers 401, the provider discards it,
+and `RequireAuth` sends the visitor to `/login`. A tab left open overnight lands
+on the login screen rather than failing one request at a time. An *unreachable*
+API is treated differently: the token may be perfectly good, so it is kept and
+the outage reported instead of signing anybody out.
+
+`RequireAuth` wraps `/manager` and `/operator` through their layouts, carrying
+the attempted path in `?next=` so signing in returns you there. It is a
+client-side guard over a client-side app — it decides what to render, not what
+the API will serve. The real protection is that every schedule route demands a
+bearer token; this only saves a person from watching each request fail.
+
+There is no sign-up page, because the API has no registration route. Accounts are
+created server-side — see [docs/accounts.md](../../docs/accounts.md).
 
 ## Styling conventions
 
@@ -367,6 +450,11 @@ Still ours to get right:
   job id and a legend (see "Job colours").
 
 ## Known gaps / next steps
+
+**The scheduler's Generate button leads nowhere.** `/manager/simulation` now plays
+schedules from the database, so a plan generated in the browser is no longer
+simulated anywhere. Either generation moves server-side (`POST /api/v1/schedules`
+already queues it) or the two flows need reconciling.
 
 **Not yet connected to the planning flow.** `/manager` (the KPI overview) and
 `/operator` still run on their own hardcoded fixtures. The operator view is the
