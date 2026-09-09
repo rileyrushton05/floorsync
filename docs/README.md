@@ -12,6 +12,7 @@ This folder should help teaching staff understand how the team worked, what deci
 ## Engineering conventions
 
 - [Architecture](architecture.md)
+- [Scheduling and simulation backend](scheduling-simulation-backend.md) — request flows, target journeys, sequence diagrams, and implementation gaps
 - [API conventions](api-conventions.md)
 - [Backend conventions](backend-conventions.md)
 - [Database conventions](database-conventions.md)
