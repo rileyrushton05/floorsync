@@ -81,7 +81,7 @@ export function GanttChart({
     const scheduledJobIds = schedule.order;
 
     return (
-        <div className="flex min-h-0 flex-col [--gutter:168px] [--hour:124px]">
+        <div className="flex min-h-0 min-w-0 flex-col [--gutter:168px] [--hour:124px]">
             <div className="min-h-0 flex-1 overflow-auto rounded-lg border bg-muted">
                 <div
                     className="relative flex flex-col"

@@ -534,7 +534,7 @@ export default function SimulationPage() {
                 </span>
             </div>
 
-            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(240px,0.8fr)_2.4fr_minmax(220px,0.7fr)]">
+            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2.4fr)_minmax(220px,0.7fr)]">
                 <Card>
                     <CardHeader>
                         <CardTitle>Machines now</CardTitle>
@@ -593,7 +593,7 @@ export default function SimulationPage() {
                     </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="min-w-0">
                     <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
                         <CardTitle>Schedule playback</CardTitle>
                         <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">

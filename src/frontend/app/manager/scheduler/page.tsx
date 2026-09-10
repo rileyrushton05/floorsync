@@ -503,7 +503,7 @@ export default function SchedulerPage() {
                 </Button>
             </ManagerTopbar>
 
-            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_2.2fr_minmax(260px,0.9fr)]">
+            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,2.2fr)_minmax(260px,0.9fr)]">
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
                 <Card>
                     <CardHeader className="flex-row items-center gap-2.5">
@@ -570,7 +570,7 @@ export default function SchedulerPage() {
                 </Card>
 
                 {/* ===== PLAN ===== */}
-                <Card>
+                <Card className="min-w-0">
                     <CardHeader className="flex-row items-center justify-between gap-3">
                         <CardTitle>Generated plan</CardTitle>
                         {generation.status === "ready" && schedule && (
