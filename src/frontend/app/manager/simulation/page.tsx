@@ -9,6 +9,7 @@ import {
     fetchScheduleTimeline,
     fetchSchedules,
 } from "@/app/_lib/api";
+import { errorMessage, type LoadState } from "@/app/_lib/load-state";
 import { useAuth } from "@/app/_components/AuthProvider";
 import { UserMenu } from "@/app/_components/UserMenu";
 import { Badge } from "@/components/ui/badge";
@@ -63,13 +64,6 @@ const SPEEDS = [
 
 const TICK_MS = 100;
 
-type LoadState<Value> =
-    | { status: "loading" }
-    | { status: "ready"; value: Value }
-    | { status: "error"; message: string }
-    /** Signed in, but this account may not read schedules. */
-    | { status: "forbidden" };
-
 type MachineActivity =
     | { kind: "running"; jobId: string; opName: string; opIndex: number; opTotal: number; progressPct: number; endMins: number }
     | { kind: "idle"; nextStartMins: number | null }
@@ -111,10 +105,6 @@ const SCHEDULE_STATUS_INTENT = {
     draft: "warning",
     discarded: "secondary",
 } as const;
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : "The API could not be reached.";
-}
 
 /** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
 function formatCreated(iso: string): string {
