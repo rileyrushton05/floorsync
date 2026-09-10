@@ -4,10 +4,14 @@ Replays a **generated** schedule over simulated time so the floor's state at any
 rendered and scrubbed through. Deterministic: no stochastic durations, no breakdowns, no
 re-dispatching. It replays a decision that has already been made.
 
-Two decisions govern this package:
+Three decisions govern this package:
 
 - [0009: derived simulation timeline](../../../../../docs/decisions/0009-derived-simulation-timeline.md)
-  — timing is computed on read, never stored, by one resolver shared by both schedule sources.
+  — benchmark instances, which carry no stored timing, still resolve it on read with a topological
+  longest path.
+- [0011: store FloorSync start times](../../../../../docs/decisions/0011-store-floorsync-start-times.md)
+  — FloorSync schedules carry the scheduler's own start time on `schedule_entries` and it is read
+  as-is; only end time and queue position are still derived.
 - [0010: event-sourced simulated time](../../../../../docs/decisions/0010-event-sourced-simulated-time.md)
   — a stored simulation's position comes from replaying `simulation_events`, not from a clock.
 
@@ -15,9 +19,9 @@ Two decisions govern this package:
 
 | Layer | Module | Responsibility |
 | --- | --- | --- |
-| Core | `graph.py` | `TimelineNode`, `PrecedenceEdge`, `PrecedenceReason` and `resolve_start_times()` — the topological longest path, keyed by opaque strings so it is format-neutral. |
-| Adapter | `floorsync.py` | Translates `schedule_entries` and `schedule_dependencies` rows, whose edges already exist. |
-| Adapter | `builder.py`, `instance.py`, `schedule.py` | Translates a benchmark instance and solver solution, deriving the edges FloorSync stores. |
+| Core | `graph.py` | `TimelineNode`, `PrecedenceEdge`, `PrecedenceReason` and `resolve_start_times()` — the topological longest path used by benchmark instances, keyed by opaque strings so it is format-neutral. |
+| Adapter | `floorsync.py` | Translates `schedule_entries` rows, reading the `start_time` the scheduler already resolved. |
+| Adapter | `builder.py`, `instance.py`, `schedule.py` | Translates a benchmark instance and solver solution, deriving the edges a FloorSync schedule doesn't need. |
 | Playback | `timeline.py`, `state.py` | `Timeline` answers "what is true at time `t`" as `MachineState` / `JobState` / `SimulationSnapshot`. |
 | Playback | `events.py` | `derive_simulated_time()` replays a simulation's control log to find that `t` authoritatively. |
 | Playback | `clock.py`, `engine.py` | `PlaybackClock` and `SimulationEngine` animate locally between derived positions. |
@@ -29,21 +33,21 @@ that import SQLAlchemy, so the resolver and the event replay stay testable witho
 ## FloorSync schedules
 
 `schedule_entries` supply the work, including the `duration` snapshotted from Compatibility at
-generation time. `schedule_dependencies` supply the precedence, already labelled `job_order` or
-`machine_queue`. The adapter takes plain records rather than ORM instances, so a timeline resolves
-without a session and the loading query stays a named `load_schedule_inputs()` read in the service
-layer, per decision 0005.
+generation time and the `start_time` the scheduler resolved at generation time (decision 0011). The
+adapter takes plain records rather than ORM instances, so a timeline builds without a session and
+the loading query stays a named `load_schedule_entries()` read in the service layer, per decision
+0005.
 
 ```python
 from floorsync_common.simulation import FloorSyncScheduleAdapter, SimulationEngine
 
 entries = FloorSyncScheduleAdapter.entries_from_rows(entry_rows)
-dependencies = FloorSyncScheduleAdapter.dependencies_from_rows(dependency_rows)
-timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+timeline = FloorSyncScheduleAdapter.build_timeline(entries)
 ```
 
-Expected row shapes are `entry_id, job_id, machine_id, duration, job_name, machine_name,
-operation_name` and `entry_id, depends_on_entry_id, reason`.
+The expected row shape is `entry_id, job_id, machine_id, duration, job_name, machine_name,
+operation_name, start_time`. `schedule_dependencies` still exists and still backs
+`GET /schedules/{id}`'s dependency-graph response, but this package no longer reads it.
 
 Because names travel with each node, a Gantt lane reads `Cutter` rather than a UUID, and the
 renderer performs no lookups of its own.
@@ -123,7 +127,7 @@ Reads are open to any signed-in account so operators can watch; control actions 
 
 | Error | Meaning |
 | --- | --- |
-| `ScheduleMismatchError` | The rows do not describe one schedule — a stale dependency cache, an unknown reason, or a benchmark sequence that does not match its instance. |
+| `ScheduleMismatchError` | The rows do not describe one schedule — a FloorSync entry with no stored `start_time` (predates decision 0011), or a benchmark sequence that does not match its instance. |
 | `CyclicScheduleError` | Precedence and machine queueing deadlock, so no feasible start times exist. |
 | `SimulationTimelineError` | An event log cannot be replayed — a naive timestamp, a missing or non-positive speed, or an unknown event type. |
 | `InstanceFormatError`, `ScheduleFormatError` | A benchmark document is malformed. |

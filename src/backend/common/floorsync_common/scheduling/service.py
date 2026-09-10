@@ -125,6 +125,7 @@ class SchedulingService:
                 duration=assignment.duration_minutes,
                 energy=assignment.energy,
                 machine_salary=assignment.machine_salary_per_minute,
+                start_time=assignment.starts_at,
             )
             db.add(entry)
             entries_by_operation_id[assignment.operation_id] = entry

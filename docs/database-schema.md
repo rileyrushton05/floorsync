@@ -206,7 +206,11 @@ the same-sized input.
 
 ## schedule_entries
 
-Start/end time and queue position are derived from schedule dependencies when the schedule is read.
+`start_time` is written by the scheduler at generation time and read as-is by the simulation
+package — see decision 0011. It is nullable only because a schedule generated before that decision
+has no value to backfill without the derivation it replaces; such a schedule must be regenerated
+before it can be simulated. End time and queue position are still derived, never stored, as
+`start_time + duration` and by sorting a machine's entries on `start_time`.
 
 | column | type | constraints |
 |---|---|---|
@@ -216,6 +220,7 @@ Start/end time and queue position are derived from schedule dependencies when th
 | duration | Integer | not null — snapshotted from Compatibility at generation time |
 | energy | Numeric(10,2) | nullable — snapshotted from Compatibility at generation time |
 | machine_salary | Numeric(10,2) | nullable — snapshotted from Machine at generation time |
+| start_time | DateTime(timezone=True) | nullable — see above; set on every schedule generated from decision 0011 onward |
 
 `operation_id` / `machine_id` preserve **identity** — which real Operation and Machine were
 used — and that's enough for display purposes; a later rename doesn't need to rewrite history.
@@ -240,7 +245,9 @@ later edit cannot silently reshape a schedule that's already been generated.
 ## schedule_dependencies
 
 Rebuilt from scratch every time a schedule is generated — see #125 for why this is a disposable
-cache and not an independent source of truth.
+cache and not an independent source of truth. It backs `GET /schedules/{id}`'s dependency-graph
+response; the simulation package no longer reads it to place operations on the clock now that
+`schedule_entries.start_time` carries that directly (decision 0011).
 
 | column | type | constraints |
 |---|---|---|
