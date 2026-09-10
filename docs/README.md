@@ -12,6 +12,8 @@ This folder should help teaching staff understand how the team worked, what deci
 ## Engineering conventions
 
 - [Architecture](architecture.md)
+- [Scheduling and simulation backend](scheduling-simulation-backend.md) — request flows, target journeys, sequence diagrams, and implementation gaps
+- [Generated OpenAPI contract](openapi.json) — run `make openapi` after changing the FastAPI API; `make openapi-check` detects an uncommitted update
 - [API conventions](api-conventions.md)
 - [Backend conventions](backend-conventions.md)
 - [Database conventions](database-conventions.md)

@@ -6,6 +6,7 @@ vendor/
 # Environment and secrets
 .env
 .env.local
+.env.production
 *.key
 *.pem
 
@@ -37,6 +38,7 @@ venv/
 # Next.js
 .next/
 coverage/
+.pnpm-store/
 
 # TypeScript incremental build cache
 *.tsbuildinfo

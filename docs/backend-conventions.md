@@ -47,8 +47,7 @@ are not product feature slices.
 ```python
 class UserService:
     @staticmethod
-    async def get_user(db: AsyncSession, user_id: UUID) -> GetUserResult:
-        ...
+    async def get_user(db: AsyncSession, user_id: UUID) -> GetUserResult: ...
 ```
 
 When a service becomes difficult to navigate, split it by cohesive capability and expose the
