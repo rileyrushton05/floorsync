@@ -1,13 +1,13 @@
 PNPM := corepack pnpm --dir src/frontend
 
-.PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks db-upgrade db-revision db-seed db-seed-list
+.PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks openapi openapi-check db-upgrade db-revision db-seed db-seed-list
 
 bootstrap:
 	git submodule update --init --recursive
 	uv sync
 	$(PNPM) install --frozen-lockfile
 
-check: format-check lint typecheck test frontend-build
+check: format-check lint typecheck test frontend-build openapi-check
 
 format-check:
 	uv run ruff format --check .
@@ -28,6 +28,12 @@ frontend-build:
 
 install-hooks:
 	git config core.hooksPath .githooks
+
+openapi:
+	uv run python scripts/export_openapi.py
+
+openapi-check: openapi
+	git diff --exit-code -- docs/openapi.json
 
 db-upgrade:
 	docker compose run --rm api alembic upgrade head

@@ -191,9 +191,10 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## Known limitations
 
-- **No hosted deployment.** Local Docker Compose only. The compose file is a development
-  configuration: source is bind-mounted, the API runs `uvicorn --reload` and the frontend runs
-  `pnpm dev`, none of which belongs in production.
+- **No deployed environment is maintained by this repository.** The checked-in
+  [`docker-compose.yml`](../docker-compose.yml) remains development-only. A documented production
+  configuration is available in [One-Droplet CI and deployment](production.md), but it requires
+  real domains, infrastructure credentials and a separately provisioned environment file.
 - **No account provisioning interface.** Accounts are created by running Python inside the `api`
   container ([docs/accounts.md](../docs/accounts.md)). There is no registration route, admin screen
   or CLI, and no password policy.
@@ -210,3 +211,4 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 - [Accounts and signing in](../docs/accounts.md) — creating and managing logins.
 - [Technical foundation](../docs/architecture.md) — services, boundaries and tooling.
 - [Seed data](../src/database/seed-data/README.md) — what each benchmark instance contains.
+- [One-Droplet CI and deployment](production.md) — production Compose, Jenkins and Caddy setup.
