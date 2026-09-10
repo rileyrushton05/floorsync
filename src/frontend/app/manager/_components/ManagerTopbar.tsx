@@ -1,7 +1,7 @@
 "use client";
 
-import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { Wordmark } from "../../_components/Logo";
+import { UserMenu } from "../../_components/UserMenu";
 import { SubNav } from "./SubNav";
 
 /**
@@ -28,10 +28,7 @@ export function ManagerTopbar({ children }: { children?: React.ReactNode }) {
             <SubNav />
             <div className="flex-1" />
             {children}
-            <div className="flex items-center gap-2">
-                <UserCircleIcon className="size-7 text-muted-fg" />
-                <span className="font-semibold text-sm">Manager</span>
-            </div>
+            <UserMenu />
         </header>
     );
 }

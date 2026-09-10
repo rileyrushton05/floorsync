@@ -6,6 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --extra resched --no-install-project
 COPY src/backend/common ./src/backend/common
 COPY src/backend/workers ./src/backend/workers
+COPY src/backend/third_party/ReSched ./src/backend/third_party/ReSched
+CMD ["celery", "-A", "floorsync_workers.celery_app", "worker", "--loglevel=INFO", "--queues=scheduling"]

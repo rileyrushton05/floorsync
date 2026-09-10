@@ -35,12 +35,20 @@ def _status_title(status_code: int) -> str:
         return "HTTP error"
 
 
-def _problem_response(
-    problem: ProblemDetail, headers: Mapping[str, str] | None = None
+def problem_response(
+    problem: ProblemDetail,
+    *,
+    headers: Mapping[str, str] | None = None,
+    extensions: Mapping[str, object] | None = None,
 ) -> JSONResponse:
+    """Render a problem detail with optional RFC 9457 extension members."""
+
+    content = problem.model_dump(exclude_none=True)
+    if extensions is not None:
+        content.update(extensions)
     return JSONResponse(
         status_code=problem.status,
-        content=problem.model_dump(exclude_none=True),
+        content=content,
         headers=headers,
         media_type=PROBLEM_MEDIA_TYPE,
     )
@@ -57,7 +65,7 @@ async def http_problem_handler(
         detail=detail,
         instance=request.url.path,
     )
-    return _problem_response(problem, exc.headers)
+    return problem_response(problem, headers=exc.headers)
 
 
 async def validation_problem_handler(
@@ -79,7 +87,7 @@ async def validation_problem_handler(
         instance=request.url.path,
         invalid_params=invalid_params,
     )
-    return _problem_response(problem)
+    return problem_response(problem)
 
 
 def install_problem_handlers(app: FastAPI) -> None:

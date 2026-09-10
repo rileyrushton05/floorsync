@@ -1,15 +1,5 @@
 "use client";
 
-import {
-  CheckCircleIcon,
-  CheckIcon,
-  ClockIcon,
-  ExclamationTriangleIcon,
-  InformationCircleIcon,
-  PlayIcon,
-  UserCircleIcon,
-} from "@heroicons/react/24/outline";
-import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +14,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  CheckCircleIcon,
+  CheckIcon,
+  ClockIcon,
+  ExclamationTriangleIcon,
+  InformationCircleIcon,
+  PlayIcon,
+} from "@heroicons/react/24/outline";
+import { useMemo, useState } from "react";
 import { CoffeeIcon } from "../_components/icons";
 import { Wordmark } from "../_components/Logo";
 
@@ -227,13 +226,6 @@ export default function OperatorDashboard() {
         </Badge>
         <div className="flex-1" />
         <div className="font-semibold tabular-nums">10:24 AM</div>
-        <div className="flex items-center gap-2">
-          <UserCircleIcon className="size-7 text-muted-fg" />
-          <div className="text-sm leading-tight">
-            <div className="font-semibold">Operator</div>
-            <div className="text-muted-fg text-xs">Shift 1</div>
-          </div>
-        </div>
       </header>
 
       <main className="flex flex-1 flex-col gap-5 p-5">

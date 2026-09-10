@@ -1,0 +1,19 @@
+services:
+  jenkins:
+    build:
+      context: ./jenkins
+    restart: unless-stopped
+    ports:
+      # IP-only deployments access Jenkins directly. Restrict this port in the
+      # DigitalOcean Cloud Firewall to administrators and GitHub webhook IPs.
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    group_add:
+      - "${DOCKER_GID:?Set this to the host Docker socket group ID}"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  jenkins_home:

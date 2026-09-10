@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """One operation assigned to one machine within a schedule.
 
-    No start/end time and no queue position -- both are derived from Schedule Dependency at read
-    time, not stored (see docs/database-schema.md). duration/energy/machine_salary are snapshotted
-    from Compatibility/Machine at generation time so a schedule's reported cost never silently
-    changes if that source data changes later.
+    Duration, energy and machine_salary are snapshotted from Compatibility/Machine at generation
+    time so a schedule's reported cost never silently changes. Start/end times and queue position
+    are derived from ScheduleDependency when the schedule is read. Cost snapshots are nullable when
+    the source records durations but no energy or labour cost.
     """
 
     __tablename__ = "schedule_entries"
@@ -47,8 +47,8 @@ class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
-    energy: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    machine_salary: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    energy: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    machine_salary: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     schedule: Mapped[Schedule] = relationship()
     operation: Mapped[Operation] = relationship()

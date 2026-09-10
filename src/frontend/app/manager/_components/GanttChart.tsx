@@ -160,7 +160,9 @@ export function GanttChart({
                                             >
                                                 <span className="block truncate leading-tight">
                                                     {STATE_MARK[state]}
-                                                    {compact ? op.jobId : `${op.jobId} · ${op.opName}`}
+                                                    {compact
+                                                        ? jobName(op.jobId)
+                                                        : `${jobName(op.jobId)} · ${op.opName}`}
                                                 </span>
                                                 {state === "running" && (
                                                     <span

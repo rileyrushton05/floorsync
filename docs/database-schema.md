@@ -23,14 +23,21 @@ general-purpose rather than glass-cutting-specific.
 
 | column | type | constraints |
 |---|---|---|
-| category_id | Uuid | FK -> categories.id, not null, ondelete RESTRICT, indexed |
+| category_id | Uuid | FK -> categories.id, nullable, ondelete RESTRICT, indexed |
 | name | Text | not null, unique |
-| salary | Numeric(10,2) | not null |
+| salary | Numeric(10,2) | nullable |
 | active | Boolean | not null, default true |
 
 `salary` is the cost of running this machine (including the operator wage it requires), known at
 setup time — not derived from whoever is actually rostered on it. This is what lets the scheduler
 price a schedule the day before, without waiting on rostering to be finalised.
+
+`salary` and `category_id` are nullable because not every source of machine data records them. An
+academic job-shop benchmark (see `src/database/seed-data/`) describes a machine only as an index
+with per-operation durations, so a machine seeded from one has no category and no known cost. **NULL
+means "not recorded by the source this machine came from", not "free" or "uncategorised"** — cost
+reporting must exclude such a machine rather than sum it as zero. Machines entered through the
+manager UI are expected to carry both.
 
 `active` exists because a machine can't be deleted once it has any real history (compatibilities,
 schedule entries — see Deletion policy below), so decommissioning one has to be a flag, not a row
@@ -160,7 +167,7 @@ Which machines can run which operations, and what it costs when they do.
 | operation_id | Uuid | FK -> operations.id, not null, ondelete CASCADE, indexed |
 | machine_id | Uuid | FK -> machines.id, not null, ondelete RESTRICT, indexed |
 | duration | Integer | not null — minutes |
-| energy | Numeric(10,2) | not null |
+| energy | Numeric(10,2) | nullable |
 
 ```sql
 UNIQUE (operation_id, machine_id)
@@ -169,12 +176,17 @@ UNIQUE (operation_id, machine_id)
 `ondelete RESTRICT` on machine_id — a machine with recorded compatibility history shouldn't
 disappear silently.
 
+`energy` is nullable for the same reason as `machines.salary`: duration is the only cost an academic
+benchmark instance records. NULL means "not recorded by the source", not "draws no power".
+
 ## schedules
 
 | column | type | constraints |
 |---|---|---|
 | status | Text | not null, CHECK status IN ('draft', 'confirmed', 'discarded') |
 | strategy | Text | not null |
+| runtime_ms | Integer | nullable — elapsed engine time only, excluding database/API work |
+| input_operation_count | Integer | nullable — number of operations in this run's input |
 | makespan | Integer | nullable — set once generation completes |
 | total_energy | Numeric(12,2) | nullable — set once generation completes |
 | total_labour_cost | Numeric(12,2) | nullable — set once generation completes |
@@ -188,11 +200,13 @@ who actually handed a schedule off to simulation and when; `ondelete SET NULL` s
 the confirming user's account never threatens the schedule record itself. `total_energy` /
 `total_labour_cost` are written once at generation, summed from `schedule_entries` below — the same
 kind of cached, never-reconciled-against-anything-else value `makespan` already is, needed because
-the objective function is multi-objective now, not makespan alone.
+the objective function is multi-objective now, not makespan alone. `runtime_ms` and
+`input_operation_count` are run metadata used to compare deterministic scheduling strategies over
+the same-sized input.
 
 ## schedule_entries
 
-No start/end time, no queue position — duration and position are derived, not stored (see #125).
+Start/end time and queue position are derived from schedule dependencies when the schedule is read.
 
 | column | type | constraints |
 |---|---|---|
@@ -200,8 +214,8 @@ No start/end time, no queue position — duration and position are derived, not 
 | operation_id | Uuid | FK -> operations.id, not null, ondelete RESTRICT, indexed |
 | machine_id | Uuid | FK -> machines.id, not null, ondelete RESTRICT, indexed |
 | duration | Integer | not null — snapshotted from Compatibility at generation time |
-| energy | Numeric(10,2) | not null — snapshotted from Compatibility at generation time |
-| machine_salary | Numeric(10,2) | not null — snapshotted from Machine at generation time |
+| energy | Numeric(10,2) | nullable — snapshotted from Compatibility at generation time |
+| machine_salary | Numeric(10,2) | nullable — snapshotted from Machine at generation time |
 
 `operation_id` / `machine_id` preserve **identity** — which real Operation and Machine were
 used — and that's enough for display purposes; a later rename doesn't need to rewrite history.
@@ -211,12 +225,17 @@ actually cost *today*, not silently recalculate against tomorrow's rate. Same sn
 Compatibility's duration already had, just extended to the other two numbers the objective function
 now uses.
 
+`energy` and `machine_salary` are nullable because what they snapshot is: a scenario seeded from an
+academic benchmark has no cost data to copy. `duration` stays required — an entry without one can't
+be sequenced, and every source records it. A schedule generated from a benchmark scenario is
+therefore schedulable and simulatable but not costable, which is the honest outcome.
+
 ```sql
 UNIQUE (schedule_id, operation_id)
 ```
 
-`duration` is copied from Compatibility when the schedule is generated, not looked up live — so a
-later edit to Compatibility can't silently reshape a schedule that's already been generated.
+`duration` is copied at generation time rather than calculated from live Compatibility data, so a
+later edit cannot silently reshape a schedule that's already been generated.
 
 ## schedule_dependencies
 
@@ -294,8 +313,8 @@ used for anything real cannot be hard-deleted at all — the FK graph refuses it
 ## Open questions for the team to confirm before the migration lands
 
 - `compatibilities.duration` as `Integer` minutes — confirm the unit before anyone hardcodes it.
-- `schedule_entries.duration` as a snapshot copy: intentional per the "actual start = derive, don't
-  re-look-up" principle, but flag if anyone expected it to track Compatibility live.
+- `schedule_entries.duration` is a snapshot: a confirmed plan must not change when Compatibility is
+  edited later.
 - `users.role` and other small fixed-value columns use a `CHECK` constraint rather than a lookup
   table, per conventions ("a check constraint or lookup table for values likely to change") —
   `category` got a table because it's genuinely open-ended (Pasindu's own set will grow); `role` and

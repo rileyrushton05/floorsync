@@ -18,7 +18,7 @@ import {
     Bars2Icon,
     ChevronRightIcon,
     PlusIcon,
-    XMarkIcon
+    XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useRef, useState } from "react";
@@ -79,7 +79,6 @@ function DeleteConfirmDialog({
                 @keyframes zoom-out { from { opacity: 1; transform: scale(1) } to { opacity: 0; transform: scale(0.92) } }
             `}</style>
             <AriaModal
-                role="alertdialog"
                 aria-label={`Confirm delete ${jobId}`}
                 className={`w-full max-w-sm rounded-2xl border bg-overlay p-5 shadow-lg ${closing ? "animate-[zoom-out_150ms_ease-in_forwards]" : "animate-[zoom-in_150ms_ease-out]"
                     }`}
