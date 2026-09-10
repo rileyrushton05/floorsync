@@ -119,10 +119,10 @@ export default function SchedulerPage() {
                                     <CheckboxField
                                         key={job.id}
                                         value={job.id}
-                                        className="rounded-lg p-2 transition-colors data-[hovered]:bg-muted"
+                                        className="rounded-lg p-2 transition-colors hover:bg-secondary"
                                     >
                                         <Checkbox>
-                                            <span className="flex min-w-0 flex-col gap-0.5">
+                                            <span className="flex min-w-0 flex-col gap-0.5 rounded-lg p-2 transition-colors hover:bg-secondary">
                                                 <span className="flex items-center gap-2">
                                                     <span
                                                         className="size-3 shrink-0 rounded-full"
@@ -291,7 +291,7 @@ export default function SchedulerPage() {
                                     onSelectionChange={(keys) => {
                                         if (keys === "all") return;
                                         const [first] = Array.from(keys);
-                                        if (typeof first === "string") toggleHighlight(first);
+                                        setHighlightedJobId(typeof first === "string" ? first : null);
                                     }}
                                     className="mt-2"
                                 >

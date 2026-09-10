@@ -90,6 +90,8 @@ export default function SimulationPage() {
     const [playing, setPlaying] = useState(false);
     const [speed, setSpeed] = useState(10);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+    // Hovering a machine card tints that machine's row in the plan playback.
+    const [hoveredMachineId, setHoveredMachineId] = useState<string | null>(null);
     const [playingPlan, setPlayingPlan] = useState(schedule);
 
     const colors = useMemo(() => buildJobColors(jobs), [jobs]);
@@ -138,7 +140,7 @@ export default function SimulationPage() {
     }
 
     const completedOps = schedule.ops.filter((op) => op.endMins <= simMins).length;
-    const runningOps = schedule.ops.filter((op) => op.startMins <= simMins && op.endMins > simMins).length;
+    const runningOps = schedule.ops.filter((op) => op.startMins < simMins && op.endMins > simMins).length;
     const overallPct = makespan === 0 ? 0 : Math.round((simMins / makespan) * 100);
     const usedMachines = machines.filter((machine) => schedule.ops.some((op) => op.machineId === machine.id));
 
@@ -226,15 +228,27 @@ export default function SimulationPage() {
                             {usedMachines.map((machine) => {
                                 const activity = machineActivity(schedule, machine.id, simMins);
                                 return (
-                                    <li key={machine.id} className="rounded-lg border bg-muted p-3">
+                                    <li
+                                        key={machine.id}
+                                        className={`rounded-lg border p-3 transition-colors ${hoveredMachineId === machine.id
+                                            ? "border-primary/40 bg-primary/15"
+                                            : "border-border bg-muted"
+                                            }`}
+                                        onMouseEnter={() => setHoveredMachineId(machine.id)}
+                                        onMouseLeave={() =>
+                                            setHoveredMachineId((previous) =>
+                                                previous === machine.id ? null : previous,
+                                            )
+                                        }
+                                    >
                                         <div className="flex items-center justify-between gap-2">
                                             <span className="font-semibold text-sm">{machine.name}</span>
                                             <Badge intent={ACTIVITY_INTENT[activity.kind]}>
                                                 {activity.kind === "running"
                                                     ? "Running"
                                                     : activity.kind === "idle"
-                                                      ? "Idle"
-                                                      : "Done"}
+                                                        ? "Idle"
+                                                        : "Done"}
                                             </Badge>
                                         </div>
                                         <div className="text-muted-fg text-xs">{machine.operator}</div>
@@ -279,14 +293,16 @@ export default function SimulationPage() {
                     <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
                         <CardTitle>Plan playback</CardTitle>
                         <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
-                            <span className="flex items-center gap-1.5">
-                                <span className="size-2.5 rounded-xs bg-fg/25" />✓ Completed
+                            <span className={`flex items-center gap-1.5 transition-colors ${atEnd ? "font-semibold text-success" : ""}`}>
+                                <span className={`size-2.5 rounded-xs transition-colors ${atEnd ? "bg-success" : "bg-fg/25"}`} />✓ Completed
                             </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="size-2.5 rounded-xs bg-primary" />▶ Running
+                            <span className={`flex items-center gap-1.5 transition-colors ${runningOps > 0 ? "font-semibold text-primary" : ""
+                                }`}>
+                                <span className={`size-2.5 rounded-xs transition-colors ${runningOps > 0 ? "bg-primary" : "bg-fg/25"
+                                    }`} />▶ Running
                             </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="size-2.5 rounded-xs bg-fg/10" />Upcoming
+                            <span className={`flex items-center gap-1.5 transition-colors ${simMins <= 0 ? "font-semibold text-warning" : ""}`}>
+                                <span className={`size-2.5 rounded-xs transition-colors ${simMins <= 0 ? "bg-warning" : "bg-fg/10"}`} />Upcoming
                             </span>
                         </div>
                     </CardHeader>
@@ -313,6 +329,7 @@ export default function SimulationPage() {
                             mode="simulation"
                             nowMins={simMins}
                             selectedJobId={highlightedJobId}
+                            highlightedMachineId={hoveredMachineId}
                             onSelectJob={(jobId) =>
                                 setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
                             }
@@ -335,6 +352,8 @@ export default function SimulationPage() {
                                 const [first] = Array.from(keys);
                                 if (typeof first === "string") {
                                     setHighlightedJobId((previous) => (previous === first ? null : first));
+                                } else {
+                                    setHighlightedJobId(null);
                                 }
                             }}
                         >

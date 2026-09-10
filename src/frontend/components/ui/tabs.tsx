@@ -1,5 +1,7 @@
 'use client'
 
+import { cx } from '@/lib/primitive'
+import { cn } from 'cn'
 import { createContext, use } from 'react'
 import { composeRenderProps } from 'react-aria-components/composeRenderProps'
 import { SelectionIndicator } from 'react-aria-components/SelectionIndicator'
@@ -12,15 +14,13 @@ import type {
   TabsProps as TabsPrimitiveProps,
 } from 'react-aria-components/Tabs'
 import {
-  Tab as TabPrimitive,
+  TabPanels as PrimitiveTabPanels,
   TabList as TabListPrimitive,
   TabPanel as TabPanelPrimitive,
-  TabPanels as PrimitiveTabPanels,
-  Tabs as TabsPrimitive,
+  Tab as TabPrimitive,
   TabsContext,
+  Tabs as TabsPrimitive,
 } from 'react-aria-components/Tabs'
-import { cn } from 'cn'
-import { cx } from '@/lib/primitive'
 
 interface TabsProps extends TabsPrimitiveProps {
   ref?: React.RefObject<HTMLDivElement>
@@ -163,5 +163,6 @@ const TabPanel = ({ className, ref, ...props }: TabPanelProps) => {
   )
 }
 
-export type { TabListProps, TabPanelProps, TabProps, TabsProps }
 export { Tab, TabList, TabPanel, TabPanels, Tabs }
+export type { TabListProps, TabPanelProps, TabProps, TabsProps }
+
