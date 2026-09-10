@@ -1,0 +1,11 @@
+# Copy this file to /etc/caddy/Caddyfile on the Droplet for an IP-only deployment.
+# `http://` catches requests to the Droplet's public IP and deliberately disables
+# automatic HTTPS, which needs a domain name with a publicly trusted certificate.
+# Caddy runs on the host, so only the app binds to localhost.
+
+http:// {
+    reverse_proxy /api/* 127.0.0.1:8000
+    reverse_proxy /health* 127.0.0.1:8000
+    reverse_proxy /ws* 127.0.0.1:8000
+    reverse_proxy 127.0.0.1:3000
+}
