@@ -37,7 +37,7 @@ academic job-shop benchmark (see `src/database/seed-data/`) describes a machine 
 with per-operation durations, so a machine seeded from one has no category and no known cost. **NULL
 means "not recorded by the source this machine came from", not "free" or "uncategorised"** — cost
 reporting must exclude such a machine rather than sum it as zero. Machines entered through the
-coordinator UI are expected to carry both.
+manager UI are expected to carry both.
 
 `active` exists because a machine can't be deleted once it has any real history (compatibilities,
 schedule entries — see Deletion policy below), so decommissioning one has to be a flag, not a row
