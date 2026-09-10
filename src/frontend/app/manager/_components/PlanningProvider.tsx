@@ -1,35 +1,30 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { generateSchedule } from "../_lib/scheduling";
 import { SEED_JOBS, SEED_MACHINES } from "../_lib/seed";
-import type { GeneratedSchedule, JobDef, Machine } from "../_lib/types";
+import type { JobDef, Machine } from "../_lib/types";
 
 /**
- * Planning state shared by the manager routes: the job backlog, which jobs are
- * released, and the schedule generated from them.
+ * The job backlog the manager's job builder works on.
  *
  * This lives in memory only — a reload resets it to the seed backlog. It is the
  * seam the API will replace; see the frontend README.
+ *
+ * It used to hold the generated plan too. It does not any more: generation
+ * happens on the backend and the plan is read back from
+ * `GET /api/v1/schedules/{id}/timeline`, so the scheduler and simulation pages
+ * both draw what is actually stored rather than a copy held here. What is left
+ * is the richer local job model — priorities, per-operation durations and
+ * job-level dependencies — that the job builder needs and the API cannot yet
+ * express, since there is no operations endpoint to write it through.
  */
 interface PlanningValue {
     machines: Machine[];
     jobs: JobDef[];
-    selectedJobIds: string[];
-    schedule: GeneratedSchedule | null;
-    scheduleErrors: string[];
-    /** Job definitions changed since `schedule` was generated. */
-    scheduleStale: boolean;
 
     createJob: (job: Omit<JobDef, "id">) => string;
     updateJob: (id: string, patch: Partial<Omit<JobDef, "id">>) => void;
     deleteJob: (id: string) => void;
-
-    setSelectedJobIds: (ids: string[]) => void;
-    toggleJobSelected: (id: string) => void;
-
-    generate: () => void;
-    clearSchedule: () => void;
 }
 
 const PlanningContext = createContext<PlanningValue | null>(null);
@@ -45,28 +40,16 @@ function nextJobId(jobs: JobDef[]): string {
 export function PlanningProvider({ children }: { children: React.ReactNode }) {
     const [machines] = useState<Machine[]>(SEED_MACHINES);
     const [jobs, setJobs] = useState<JobDef[]>(SEED_JOBS);
-    const [selectedJobIds, setSelectedJobIds] = useState<string[]>(SEED_JOBS.map((job) => job.id));
-    const [schedule, setSchedule] = useState<GeneratedSchedule | null>(null);
-    const [scheduleErrors, setScheduleErrors] = useState<string[]>([]);
-    const [scheduleStale, setScheduleStale] = useState(false);
-
-    // Any edit to a job definition invalidates a plan built from it. Rather
-    // than silently regenerating (which would move blocks under the manager's
-    // cursor) the plan is flagged stale and they choose when to rerun it.
-    const markStale = useCallback(() => setScheduleStale(true), []);
 
     const createJob = useCallback((job: Omit<JobDef, "id">) => {
         const id = nextJobId(jobs);
         setJobs((previous) => [...previous, { ...job, id }]);
-        setSelectedJobIds((previous) => [...previous, id]);
-        markStale();
         return id;
-    }, [jobs, markStale]);
+    }, [jobs]);
 
     const updateJob = useCallback((id: string, patch: Partial<Omit<JobDef, "id">>) => {
         setJobs((previous) => previous.map((job) => (job.id === id ? { ...job, ...patch } : job)));
-        markStale();
-    }, [markStale]);
+    }, []);
 
     const deleteJob = useCallback((id: string) => {
         setJobs((previous) =>
@@ -76,51 +59,12 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
                 // state no selection can satisfy.
                 .map((job) => ({ ...job, dependsOn: job.dependsOn.filter((depId) => depId !== id) })),
         );
-        setSelectedJobIds((previous) => previous.filter((jobId) => jobId !== id));
-        markStale();
-    }, [markStale]);
-
-    const toggleJobSelected = useCallback((id: string) => {
-        setSelectedJobIds((previous) =>
-            previous.includes(id) ? previous.filter((jobId) => jobId !== id) : [...previous, id],
-        );
     }, []);
 
-    const generate = useCallback(() => {
-        const result = generateSchedule(jobs, machines, selectedJobIds);
-        if (result.ok) {
-            setSchedule(result.schedule);
-            setScheduleErrors([]);
-            setScheduleStale(false);
-        } else {
-            setScheduleErrors(result.errors);
-        }
-    }, [jobs, machines, selectedJobIds]);
-
-    const clearSchedule = useCallback(() => {
-        setSchedule(null);
-        setScheduleErrors([]);
-        setScheduleStale(false);
-    }, []);
-
-    const value = useMemo<PlanningValue>(() => ({
-        machines,
-        jobs,
-        selectedJobIds,
-        schedule,
-        scheduleErrors,
-        scheduleStale,
-        createJob,
-        updateJob,
-        deleteJob,
-        setSelectedJobIds,
-        toggleJobSelected,
-        generate,
-        clearSchedule,
-    }), [
-        machines, jobs, selectedJobIds, schedule, scheduleErrors, scheduleStale,
-        createJob, updateJob, deleteJob, toggleJobSelected, generate, clearSchedule,
-    ]);
+    const value = useMemo<PlanningValue>(
+        () => ({ machines, jobs, createJob, updateJob, deleteJob }),
+        [machines, jobs, createJob, updateJob, deleteJob],
+    );
 
     return <PlanningContext.Provider value={value}>{children}</PlanningContext.Provider>;
 }
