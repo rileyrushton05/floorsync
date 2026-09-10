@@ -82,13 +82,25 @@ export function GanttChart({
 
     return (
         <div className="flex min-h-0 min-w-0 flex-col [--gutter:168px] [--hour:124px]">
-            <div className="min-h-0 flex-1 overflow-auto rounded-lg border bg-muted">
+            {/* The chart is routinely several screens wide, so the scrollbar is a
+                primary control here and `scroll-rail` gives it a real size and
+                colour. `max-h` keeps the bottom edge — where the horizontal bar
+                lives — on screen instead of pushing it below the fold once a
+                floor has more machines than fit; the header and machine column
+                are sticky, so scrolling inside the box never loses your place.
+                `overscroll-x-contain` stops a trackpad swipe past the end from
+                turning into browser back-navigation. */}
+            <div className="scroll-rail max-h-[68dvh] min-h-0 flex-1 overflow-auto overscroll-x-contain rounded-lg border bg-muted">
                 <div
                     className="relative flex flex-col"
                     style={{ width: `calc(var(--gutter) + var(--hour) * ${hours})` }}
                 >
                     <div className="sticky top-0 z-3 flex border-b bg-overlay">
-                        <div className="w-(--gutter) shrink-0 border-e px-2.5 py-2 font-bold text-[0.68rem] text-muted-fg uppercase tracking-[0.05em]">
+                        {/* Pinned like the machine names below it. Without this the
+                            label scrolls away and the hour ruler slides across to sit
+                            above the frozen column, so the two disagree about what
+                            x = 0 means the moment anyone scrolls right. */}
+                        <div className="sticky start-0 z-1 w-(--gutter) shrink-0 border-e bg-muted px-2.5 py-2 font-bold text-[0.68rem] text-muted-fg uppercase tracking-[0.05em]">
                             Elapsed →
                         </div>
                         {Array.from({ length: hours }, (_, hour) => (
