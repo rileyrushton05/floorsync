@@ -81,6 +81,74 @@ export interface ScheduleSummary {
     confirmed_at: string | null;
 }
 
+/** A page of a cursor-paginated collection. */
+export interface CursorPage<Item> {
+    items: Item[];
+    next_cursor: string | null;
+}
+
+/** A job in the backlog. Its operations are read through `GET /jobs/{id}`. */
+export interface Job {
+    id: string;
+    name: string;
+    created_at: string;
+    updated_at: string;
+}
+
+/**
+ * A machine on the floor.
+ *
+ * `salary` is a decimal on the API and arrives as a **string**: responses are
+ * serialised in JSON mode, where a decimal is rendered as text so no precision
+ * is lost in transit. Integer columns — a schedule's makespan, an operation's
+ * duration — are unaffected and stay numbers.
+ */
+export interface MachineSummary {
+    id: string;
+    name: string;
+    category_id: string | null;
+    salary: string | null;
+    active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+/** One reason the scheduling engine refused an input, safe to show a person. */
+export interface SchedulingIssue {
+    code: string;
+    message: string;
+    operation_id?: string | null;
+    machine_id?: string | null;
+}
+
+/** The receipt for a queued generation command. The schedule does not exist yet. */
+export interface ScheduleGenerationAccepted {
+    id: string;
+    status: "pending";
+    /** `/api/v1/schedules/generations/{id}` — see `fetchScheduleGeneration`. */
+    status_url: string;
+}
+
+/**
+ * How a queued generation command is getting on.
+ *
+ * `pending` and `running` are transient; the other four are terminal.
+ *
+ * `pending` is also what an **unknown** generation id reports, because the task
+ * queue cannot tell "queued, not started" apart from "never existed" — so a
+ * poller needs a ceiling of its own rather than waiting for a state that may
+ * never arrive. See `manager/_lib/generation.ts`.
+ */
+export interface ScheduleGenerationStatus {
+    id: string;
+    status: "pending" | "running" | "completed" | "rejected" | "unavailable" | "failed";
+    /** Set only when `status` is `completed`. */
+    schedule_id?: string | null;
+    schedule_url?: string | null;
+    /** Set only when `status` is `rejected`. */
+    issues?: SchedulingIssue[] | null;
+}
+
 export interface AccessToken {
     access_token: string;
     token_type: string;
@@ -172,4 +240,65 @@ export function fetchScheduleTimeline(
         `/api/v1/schedules/${encodeURIComponent(scheduleId)}/timeline`,
         token,
     );
+}
+
+/**
+ * Queue generation of a new draft schedule.
+ *
+ * Answers 202 the moment the command reaches the queue — nothing has been
+ * planned yet and no schedule exists. Poll `fetchScheduleGeneration` with the
+ * returned id until it reports a terminal state, then read the schedule it
+ * names.
+ *
+ * The engine plans **every operation in the database**; there is no way to
+ * scope a run to a subset of jobs. `startsAt` is the planning origin the engine
+ * may schedule from and must be timezone-aware — `new Date().toISOString()` is.
+ * It never surfaces in a resolved timeline, whose times are minutes from zero
+ * regardless.
+ *
+ * A broker outage answers 503 as a problem document, so the `ApiError` message
+ * is already the sentence to show.
+ */
+export function requestSchedule(
+    startsAt: string,
+    token: string,
+): Promise<ScheduleGenerationAccepted> {
+    return request<ScheduleGenerationAccepted>("/api/v1/schedules", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ starts_at: startsAt }),
+    });
+}
+
+/**
+ * Read the state of a queued generation command.
+ *
+ * The 202 also carries a `status_url` pointing here. It is deliberately not
+ * followed: every other call in this module is a typed function over an id, and
+ * a path threaded through the caller would be the one exception to that.
+ */
+export function fetchScheduleGeneration(
+    generationId: string,
+    token: string,
+): Promise<ScheduleGenerationStatus> {
+    return request<ScheduleGenerationStatus>(
+        `/api/v1/schedules/generations/${encodeURIComponent(generationId)}`,
+        token,
+    );
+}
+
+/**
+ * List the job backlog. Requires a manager account.
+ *
+ * A job is a name and an id; the operations inside it are a separate read, so
+ * nothing here reports how much work a job carries. 100 is the largest page the
+ * API will serve.
+ */
+export function fetchJobs(token: string, limit = 100): Promise<CursorPage<Job>> {
+    return request<CursorPage<Job>>(`/api/v1/jobs?limit=${limit}`, token);
+}
+
+/** List the machines on the floor, active or not. Requires a manager account. */
+export function fetchMachines(token: string, limit = 100): Promise<CursorPage<MachineSummary>> {
+    return request<CursorPage<MachineSummary>>(`/api/v1/machines?limit=${limit}`, token);
 }

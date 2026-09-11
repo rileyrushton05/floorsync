@@ -123,7 +123,6 @@ const SORT_OPTIONS = [
     { id: "Priority", label: "Priority" },
     { id: "Duration", label: "Total work" },
     { id: "Operations", label: "Number of ops" },
-    { id: "Status", label: "Scheduled first" },
 ] as const;
 
 const PRIORITY_RANK: Record<Priority, number> = { High: 0, Med: 1, Low: 2 };
@@ -147,7 +146,7 @@ export default function JobsPage() {
 }
 
 function JobsPageInner() {
-    const { machines, jobs, createJob, updateJob, deleteJob, schedule } = usePlanning();
+    const { machines, jobs, createJob, updateJob, deleteJob } = usePlanning();
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<Draft>(() => (jobs.length > 0 ? draftFrom(jobs[0]) : EMPTY_DRAFT));
     const [errors, setErrors] = useState<string[]>([]);
@@ -175,7 +174,6 @@ function JobsPageInner() {
     // Backlog search / filter / sort state.
     const [query, setQuery] = useState("");
     const [priorityFilter, setPriorityFilter] = useState<(typeof PRIORITIES)[number]["id"] | "All">("All");
-    const [statusFilter, setStatusFilter] = useState<"All" | "Scheduled" | "Unscheduled">("All");
     const [machineFilter, setMachineFilter] = useState<string>("All");
     const [durationFilter, setDurationFilter] = useState<(typeof DURATION_FILTERS)[number]["id"]>("All");
     const [dependencyFilter, setDependencyFilter] = useState<(typeof DEPENDENCY_FILTERS)[number]["id"]>("All");
@@ -209,21 +207,11 @@ function JobsPageInner() {
     const colors = useMemo(() => buildJobColors(jobs), [jobs]);
     const machineName = (id: string) => machines.find((machine) => machine.id === id)?.name ?? "—";
 
-    // Jobs that appear in the currently generated plan.
-    const scheduleValue = schedule;
-    const scheduledJobIds = useMemo(() => {
-        if (!scheduleValue) return new Set<string>();
-        return new Set(scheduleValue.ops.map((op) => op.jobId));
-    }, [scheduleValue]);
-
     const filteredJobs = useMemo(() => {
         const needle = query.trim().toLowerCase();
         const matching = jobs.filter((job) => {
             if (needle && !`${job.id} ${job.name}`.toLowerCase().includes(needle)) return false;
             if (priorityFilter !== "All" && job.priority !== priorityFilter) return false;
-            const isScheduled = scheduledJobIds.has(job.id);
-            if (statusFilter === "Scheduled" && !isScheduled) return false;
-            if (statusFilter === "Unscheduled" && isScheduled) return false;
             if (machineFilter !== "All" && !job.operations.some((op) => op.machineId === machineFilter)) return false;
             const work = totalWorkMins(job);
             if (durationFilter === "Short" && !(work < 60)) return false;
@@ -244,22 +232,16 @@ function JobsPageInner() {
                     return totalWorkMins(b) - totalWorkMins(a);
                 case "Operations":
                     return b.operations.length - a.operations.length;
-                case "Status": {
-                    const aScheduled = scheduledJobIds.has(a.id) ? 0 : 1;
-                    const bScheduled = scheduledJobIds.has(b.id) ? 0 : 1;
-                    return aScheduled - bScheduled || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
-                }
                 default:
                     return 0;
             }
         });
         return sorted;
-    }, [jobs, scheduledJobIds, query, priorityFilter, statusFilter, machineFilter, durationFilter, dependencyFilter, sortBy]);
+    }, [jobs, query, priorityFilter, machineFilter, durationFilter, dependencyFilter, sortBy]);
 
     const filtersActive =
         query.trim() !== "" ||
         priorityFilter !== "All" ||
-        statusFilter !== "All" ||
         machineFilter !== "All" ||
         durationFilter !== "All" ||
         dependencyFilter !== "All";
@@ -267,7 +249,6 @@ function JobsPageInner() {
     function clearFilters() {
         setQuery("");
         setPriorityFilter("All");
-        setStatusFilter("All");
         setMachineFilter("All");
         setDurationFilter("All");
         setDependencyFilter("All");
@@ -463,20 +444,6 @@ function JobsPageInner() {
                                             {option.id}
                                         </SelectItem>
                                     ))}
-                                </SelectContent>
-                            </Select>
-
-                            <Select
-                                aria-label="Filter by status"
-                                className="w-40"
-                                value={statusFilter}
-                                onChange={(value) => setStatusFilter(value as typeof statusFilter)}
-                            >
-                                <SelectTrigger />
-                                <SelectContent>
-                                    <SelectItem id="All" textValue="All">Any status</SelectItem>
-                                    <SelectItem id="Scheduled" textValue="Scheduled">Scheduled</SelectItem>
-                                    <SelectItem id="Unscheduled" textValue="Unscheduled">Not scheduled</SelectItem>
                                 </SelectContent>
                             </Select>
 

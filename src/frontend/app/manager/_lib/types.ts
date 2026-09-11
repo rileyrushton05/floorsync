@@ -64,7 +64,3 @@ export interface GeneratedSchedule {
     makespanMins: number;
     generatedAt: string;
 }
-
-export type ScheduleResult =
-    | { ok: true; schedule: GeneratedSchedule }
-    | { ok: false; errors: string[] };

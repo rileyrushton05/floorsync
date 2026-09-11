@@ -8,6 +8,7 @@ import {
     fetchScheduleTimeline,
     fetchSchedules,
 } from "@/app/_lib/api";
+import { errorMessage, type LoadState } from "@/app/_lib/load-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,13 +62,6 @@ const SPEEDS = [
 
 const TICK_MS = 100;
 
-type LoadState<Value> =
-    | { status: "loading" }
-    | { status: "ready"; value: Value }
-    | { status: "error"; message: string }
-    /** Signed in, but this account may not read schedules. */
-    | { status: "forbidden" };
-
 type MachineActivity =
     | { kind: "running"; jobId: string; opName: string; opIndex: number; opTotal: number; progressPct: number; endMins: number }
     | { kind: "idle"; nextStartMins: number | null }
@@ -109,10 +103,6 @@ const SCHEDULE_STATUS_INTENT = {
     draft: "warning",
     discarded: "secondary",
 } as const;
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : "The API could not be reached.";
-}
 
 /** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
 function formatCreated(iso: string): string {
@@ -532,7 +522,7 @@ export default function SimulationPage() {
                 </span>
             </div>
 
-            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(240px,0.8fr)_2.4fr_minmax(220px,0.7fr)]">
+            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2.4fr)_minmax(220px,0.7fr)]">
                 <Card>
                     <CardHeader>
                         <CardTitle>Machines now</CardTitle>
@@ -603,7 +593,7 @@ export default function SimulationPage() {
                     </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="min-w-0">
                     <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
                         <CardTitle>Schedule playback</CardTitle>
                         <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">

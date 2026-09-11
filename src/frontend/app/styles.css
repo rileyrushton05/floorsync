@@ -265,3 +265,51 @@
     z-index: 9999;
   }
 }
+
+/**
+ * A scroll region whose scrollbars are meant to be used, not kept out of the way.
+ *
+ * The base layer above deliberately makes scrollbars unobtrusive — 4px wide and
+ * the colour of a border on a transparent track. That is right for a page that
+ * scrolls vertically past content you can also reach by other means, and wrong
+ * for something like the Gantt, which is several screens wide and where
+ * dragging the bar is the primary way across.
+ *
+ * Note that the base rule sets `width` but not `height`. In WebKit those are
+ * separate axes — `width` sizes a vertical scrollbar, `height` a horizontal one
+ * — so a horizontal bar inheriting that rule has no height to render at all,
+ * which is why the schedule appeared to have no way to scroll right.
+ *
+ * `scrollbar-width: auto` rather than `thin` so the thumb is a comfortable drag
+ * target, and both track and thumb take visible colours so the bar reads as a
+ * control rather than as an edge.
+ */
+@utility scroll-rail {
+  scrollbar-width: auto;
+  scrollbar-color: var(--muted-fg) var(--secondary);
+
+  &::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--secondary);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--muted-fg);
+    /* A transparent-to-track border insets the thumb rather than shrinking the
+       hit area: the whole 14px stays grabbable. */
+    border: 3px solid var(--secondary);
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--fg);
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: var(--secondary);
+  }
+}
