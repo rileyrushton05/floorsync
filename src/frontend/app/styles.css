@@ -242,6 +242,12 @@
   }
 }
 
+/* Loading bar for client-side route transitions. */
+@keyframes transition-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
+}
+
 @utility touch-target {
   position: relative;
 

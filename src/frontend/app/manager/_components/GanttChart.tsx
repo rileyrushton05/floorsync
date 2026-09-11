@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "react-aria-components/Button";
 import { ToggleButton } from "react-aria-components/ToggleButton";
 import { jobColor, tint, type JobColor } from "../_lib/colors";
@@ -59,6 +60,7 @@ export function GanttChart({
     mode,
     nowMins = null,
     selectedJobId = null,
+    highlightedMachineId = null,
     onSelectJob,
 }: {
     machines: Machine[];
@@ -68,13 +70,13 @@ export function GanttChart({
     mode: "plan" | "simulation";
     nowMins?: number | null;
     selectedJobId?: string | null;
+    highlightedMachineId?: string | null;
     onSelectJob?: (jobId: string) => void;
 }) {
     const now = mode === "simulation" ? nowMins : null;
     const hours = Math.max(1, Math.ceil(schedule.makespanMins / 60));
     const jobName = (jobId: string) => jobs.find((job) => job.id === jobId)?.name ?? jobId;
-
-    // Only machines that actually carry work; an empty row is noise.
+    const [hoveredOpId, setHoveredOpId] = useState<string | null>(null);
     const usedMachines = machines.filter((machine) =>
         schedule.ops.some((op) => op.machineId === machine.id),
     );
@@ -114,8 +116,15 @@ export function GanttChart({
                     </div>
 
                     {usedMachines.map((machine) => (
-                        <div key={machine.id} className="flex border-b bg-overlay last-of-type:border-b-0">
-                            <div className="sticky start-0 z-2 w-(--gutter) shrink-0 border-e bg-muted p-2.5">
+                        <div
+                            key={machine.id}
+                            className={`flex border-b last-of-type:border-b-0 ${highlightedMachineId === machine.id ? "bg-primary/10" : "bg-overlay"
+                                }`}
+                        >
+                            <div
+                                className={`sticky start-0 z-2 w-(--gutter) shrink-0 border-e p-2.5 ${highlightedMachineId === machine.id ? "bg-primary/15" : "bg-muted"
+                                    }`}
+                            >
                                 <div className="font-bold text-fg text-sm">{machine.name}</div>
                                 <div className="text-muted-fg text-xs">{machine.operator}</div>
                             </div>
@@ -135,17 +144,29 @@ export function GanttChart({
                                                 ? ((now - op.startMins) / durationMins) * 100
                                                 : 0;
 
+                                        const hovered = hoveredOpId === op.opId;
+
                                         return (
                                             <Button
                                                 key={op.opId}
-                                                className={`absolute top-1.75 flex h-9.5 min-w-1 cursor-pointer items-center overflow-hidden rounded-sm border px-1.5 text-left font-semibold text-xs outline-hidden hover:brightness-95 focus-visible:z-4 focus-visible:outline-2 focus-visible:outline-fg focus-visible:outline-offset-1 ${
-                                                    dimmed ? "opacity-28" : ""
-                                                }`}
+                                                className={`absolute top-1.75 flex h-9.5 min-w-1 cursor-pointer items-center overflow-hidden rounded-sm border px-1.5 text-left font-semibold text-xs outline-hidden transition-colors focus-visible:z-4 focus-visible:outline-2 focus-visible:outline-fg focus-visible:outline-offset-1 ${dimmed ? "opacity-28" : ""
+                                                    }`}
                                                 style={{
                                                     ...blockStyle(color, state),
+                                                    // Hover lightens the block to a wash of its own
+                                                    // colour, keeping the job identifiable.
+                                                    ...(hovered
+                                                        ? {
+                                                            background: tint(color.fill, 0.45),
+                                                            borderColor: tint(color.fill, 0.55),
+                                                            color: "#334155",
+                                                        }
+                                                        : {}),
                                                     left: `calc(var(--hour) * ${op.startMins / 60})`,
                                                     width: `calc(var(--hour) * ${durationMins / 60} - 2px)`,
                                                 }}
+                                                onHoverStart={() => setHoveredOpId(op.opId)}
+                                                onHoverEnd={() => setHoveredOpId(null)}
                                                 onPress={() => onSelectJob?.(op.jobId)}
                                                 aria-label={`${op.jobId} ${jobName(op.jobId)}, operation ${op.opIndex} of ${op.opTotal}, ${op.opName}, on ${machine.name}, starts ${formatOffset(op.startMins)}, runs ${formatDuration(durationMins)}${state === "plan" ? "" : `, ${state}`}`}
                                             >
@@ -188,9 +209,8 @@ export function GanttChart({
                             <ToggleButton
                                 isSelected={selectedJobId === jobId}
                                 onChange={() => onSelectJob?.(jobId)}
-                                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.75 text-muted-fg text-xs outline-hidden hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 ${
-                                    dimmed ? "opacity-40" : ""
-                                }`}
+                                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.75 text-muted-fg text-xs outline-hidden hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 ${dimmed ? "opacity-40" : ""
+                                    }`}
                             >
                                 <span
                                     className="size-2.5 shrink-0 rounded-xs"

@@ -1,9 +1,10 @@
 "use client";
 
+import { ThemeProvider } from "@/components/theme-provider";
+import { TransitionProgress } from "@/components/transition-progress";
+import { Toast } from "@/components/ui/toast";
 import { useRouter } from "next/navigation";
 import { RouterProvider } from "react-aria-components";
-import { ThemeProvider } from "@/components/theme-provider";
-import { Toast } from "@/components/ui/toast";
 import { AuthProvider } from "./_components/AuthProvider";
 
 /**
@@ -23,6 +24,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
     return (
         <ThemeProvider>
+            <TransitionProgress />
             <RouterProvider navigate={(href) => router.push(href)}>
                 <AuthProvider>
                     {children}

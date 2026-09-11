@@ -32,10 +32,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { UserMenu } from "../../_components/UserMenu";
-import { Wordmark } from "../../_components/Logo";
 import { GanttChart } from "../_components/GanttChart";
-import { SubNav } from "../_components/SubNav";
+import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { GenerationTimeout, awaitGeneration } from "../_lib/generation";
 import { formatDuration, formatOffset } from "../_lib/scheduling";
@@ -108,23 +106,6 @@ function formatCreated(iso: string): string {
 /** The first segment of a UUID: enough to quote a run, short enough to read. */
 function shortId(id: string): string {
     return id.split("-")[0] ?? id;
-}
-
-function ManagerTopbar({ children }: { children?: React.ReactNode }) {
-    return (
-        <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-            <div className="flex items-center gap-2.5">
-                <Wordmark />
-                <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
-                    Manager
-                </span>
-            </div>
-            <SubNav />
-            <div className="flex-1" />
-            {children}
-            <UserMenu />
-        </header>
-    );
 }
 
 /** A full-page state for when the floor itself could not be read. */
@@ -527,7 +508,11 @@ export default function SchedulerPage() {
                             className="mt-3"
                         >
                             {jobs.map((job) => (
-                                <CheckboxField key={job.id} value={job.id}>
+                                <CheckboxField
+                                    key={job.id}
+                                    value={job.id}
+                                    className="rounded-lg p-2 transition-colors hover:bg-secondary"
+                                >
                                     <Checkbox>
                                         <span className="flex min-w-0 flex-col gap-0.5">
                                             <span className="flex items-center gap-2">
@@ -661,7 +646,7 @@ export default function SchedulerPage() {
                                     onSelectionChange={(keys) => {
                                         if (keys === "all") return;
                                         const [first] = Array.from(keys);
-                                        if (typeof first === "string") toggleHighlight(first);
+                                        setHighlightedJobId(typeof first === "string" ? first : null);
                                     }}
                                     className="mt-2"
                                 >
@@ -698,7 +683,10 @@ export default function SchedulerPage() {
                                 </Table>
 
                                 <Separator className="my-3" />
-                                <Link href="/manager/simulation" className="text-primary text-sm">
+                                <Link
+                                    href="/manager/simulation"
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#15803D] px-4 py-2 font-semibold text-sm text-[#DCFCE7] transition-colors hover:bg-[#166534] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803D]"
+                                >
                                     Run this plan in the simulation →
                                 </Link>
                             </>
