@@ -32,9 +32,9 @@ from floorsync_common.machines.results import (
     MachineNameAlreadyExists,
     MachineNotFound,
     MachineUpdated,
-    OperationNotFound,
 )
 from floorsync_common.machines.service import CategoryService, MachineService
+from floorsync_common.operations.results import OperationNotFound
 from floorsync_common.partial import UNSET
 
 router = APIRouter(prefix="/machines", tags=["machines"])
