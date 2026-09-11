@@ -1,6 +1,9 @@
 'use client'
 
+import { Label } from '@/components/ui/field'
+import { cx } from '@/lib/primitive'
 import { CheckIcon, MinusIcon } from '@heroicons/react/20/solid'
+import { cn } from 'cn'
 import {
   CheckboxButton,
   type CheckboxButtonProps,
@@ -12,9 +15,6 @@ import {
   type CheckboxGroupProps,
 } from 'react-aria-components/CheckboxGroup'
 import { composeRenderProps } from 'react-aria-components/composeRenderProps'
-import { cn } from 'cn'
-import { cx } from '@/lib/primitive'
-import { Label } from '@/components/ui/field'
 
 export function CheckboxGroup({ className, ...props }: CheckboxGroupProps) {
   return (
@@ -71,7 +71,7 @@ export function Checkbox({ className, ...props }: CheckboxButtonProps) {
               <span
                 data-slot="indicator"
                 className={cn([
-                  'col-start-1 row-start-1 relative inset-ring inset-ring-input isolate flex shrink-0 items-center justify-center rounded bg-(--control-bg,transparent) text-bg transition group-hover:inset-ring-muted-fg/30 group-focus-visible:inset-ring-ring',
+                  'col-start-1 row-start-1 relative inset-ring inset-ring-input isolate flex shrink-0 items-center justify-center rounded bg-(--control-bg,transparent) text-bg transition group-hover:inset-ring-primary/50 group-hover:bg-primary/25 group-focus-visible:inset-ring-ring-ring',
                   'size-4.5 *:data-[slot=check-indicator]:size-4 sm:size-4 sm:*:data-[slot=check-indicator]:size-3.5',
                   'in-disabled:bg-muted',
                   (isSelected || isIndeterminate) && [
@@ -79,7 +79,7 @@ export function Checkbox({ className, ...props }: CheckboxButtonProps) {
                     'group-invalid:inset-ring/70 group-invalid:bg-danger group-invalid:text-danger-fg dark:group-invalid:inset-ring-danger-subtle-fg/70',
                   ],
                   isInvalid &&
-                    'inset-ring-danger-subtle-fg/70 bg-danger-subtle/5 text-danger-fg ring-danger-subtle-fg/20 group-hover:inset-ring-danger-subtle-fg/70',
+                  'inset-ring-danger-subtle-fg/70 bg-danger-subtle/5 text-danger-fg ring-danger-subtle-fg/20 group-hover:inset-ring-danger-subtle-fg/70',
                 ])}
               >
                 {indicator}

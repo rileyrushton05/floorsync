@@ -3,6 +3,21 @@ node_modules/
 .pnpm-store/
 vendor/
 
+# Lockfiles from other package managers (this repo uses pnpm)
+package-lock.json
+npm-shrinkwrap.json
+yarn.lock
+bun.lockb
+bun.lock
+
+# Package manager caches and debug logs
+.npm/
+.yarn/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
 # Environment and secrets
 .env
 .env.local

@@ -1,7 +1,5 @@
 "use client";
 
-import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
-import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,12 +16,12 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { useMemo, useState } from "react";
 import { priorityIntent } from "../../_lib/badge-intent";
-import { UserMenu } from "../../_components/UserMenu";
-import { Wordmark } from "../../_components/Logo";
 import { GanttChart } from "../_components/GanttChart";
+import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { usePlanning } from "../_components/PlanningProvider";
-import { SubNav } from "../_components/SubNav";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { formatDuration, formatOffset, totalWorkMins, validateSelection } from "../_lib/scheduling";
 
@@ -63,15 +61,7 @@ export default function SchedulerPage() {
 
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
-            <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-                <div className="flex items-center gap-2.5">
-                    <Wordmark />
-                    <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
-                        Manager
-                    </span>
-                </div>
-                <SubNav />
-                <div className="flex-1" />
+            <ManagerTopbar>
                 {schedule && (
                     <Button intent="plain" onPress={clearSchedule}>
                         Clear plan
@@ -80,8 +70,7 @@ export default function SchedulerPage() {
                 <Button onPress={generate}>
                     {schedule ? "Regenerate schedule" : "Generate schedule"}
                 </Button>
-                <UserMenu />
-            </header>
+            </ManagerTopbar>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_2.2fr_minmax(260px,0.9fr)]">
                 {/* ===== SELECTION ===== */}
@@ -127,9 +116,13 @@ export default function SchedulerPage() {
                                 const checked = selectedJobIds.includes(job.id);
                                 const missingDeps = job.dependsOn.filter((depId) => !selectedJobIds.includes(depId));
                                 return (
-                                    <CheckboxField key={job.id} value={job.id}>
+                                    <CheckboxField
+                                        key={job.id}
+                                        value={job.id}
+                                        className="rounded-lg p-2 transition-colors hover:bg-secondary"
+                                    >
                                         <Checkbox>
-                                            <span className="flex min-w-0 flex-col gap-0.5">
+                                            <span className="flex min-w-0 flex-col gap-0.5 rounded-lg p-2 transition-colors hover:bg-secondary">
                                                 <span className="flex items-center gap-2">
                                                     <span
                                                         className="size-3 shrink-0 rounded-full"
@@ -298,7 +291,7 @@ export default function SchedulerPage() {
                                     onSelectionChange={(keys) => {
                                         if (keys === "all") return;
                                         const [first] = Array.from(keys);
-                                        if (typeof first === "string") toggleHighlight(first);
+                                        setHighlightedJobId(typeof first === "string" ? first : null);
                                     }}
                                     className="mt-2"
                                 >
@@ -340,7 +333,10 @@ export default function SchedulerPage() {
                                 </Table>
 
                                 <Separator className="my-3" />
-                                <Link href="/manager/simulation" className="text-primary text-sm">
+                                <Link
+                                    href="/manager/simulation"
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#15803D] px-4 py-2 font-semibold text-sm text-[#DCFCE7] transition-colors hover:bg-[#166534] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803D]"
+                                >
                                     Run this plan in the simulation →
                                 </Link>
                             </>

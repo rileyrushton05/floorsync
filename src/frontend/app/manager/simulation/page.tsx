@@ -1,7 +1,6 @@
 "use client";
 
-import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/app/_components/AuthProvider";
 import {
     ApiError,
     type ScheduleSummary,
@@ -9,8 +8,6 @@ import {
     fetchScheduleTimeline,
     fetchSchedules,
 } from "@/app/_lib/api";
-import { useAuth } from "@/app/_components/AuthProvider";
-import { UserMenu } from "@/app/_components/UserMenu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,9 +25,10 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Wordmark } from "../../_components/Logo";
+import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { GanttChart } from "../_components/GanttChart";
-import { SubNav } from "../_components/SubNav";
+import { ManagerTopbar as SharedTopbar } from "../_components/ManagerTopbar";
 import { buildJobColors, jobColor } from "../_lib/colors";
 import { formatDuration, formatOffset } from "../_lib/scheduling";
 import { timelineToPlan } from "../_lib/timeline";
@@ -135,20 +133,7 @@ function scheduleLabel(schedule: ScheduleSummary): string {
 }
 
 function ManagerTopbar({ children }: { children?: React.ReactNode }) {
-    return (
-        <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-            <div className="flex items-center gap-2.5">
-                <Wordmark />
-                <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
-                    Manager
-                </span>
-            </div>
-            <SubNav />
-            {children}
-            <div className="flex-1" />
-            <UserMenu />
-        </header>
-    );
+    return <SharedTopbar>{children}</SharedTopbar>;
 }
 
 /** Which stored schedule is being simulated, and what it is. */
@@ -348,6 +333,9 @@ export default function SimulationPage() {
     const makespan = activeSchedule?.makespanMins ?? 0;
     const atEnd = activeSchedule !== null && simMins >= makespan;
     /** Latched "play" only actually advances the clock while there is schedule left. */
+    // Hovering a machine card tints that machine's row in the plan playback.
+    const [hoveredMachineId, setHoveredMachineId] = useState<string | null>(null);
+    
     const running = playing && !atEnd;
 
     // Switching schedules invalidates the position we were at. Rewinding during
@@ -461,7 +449,7 @@ export default function SimulationPage() {
     const activeJobs = plan?.jobs ?? [];
     const completedOps = activeSchedule.ops.filter((op) => op.endMins <= simMins).length;
     const runningOps = activeSchedule.ops.filter(
-        (op) => op.startMins <= simMins && op.endMins > simMins,
+        (op) => op.startMins < simMins && op.endMins > simMins,
     ).length;
     const overallPct = makespan === 0 ? 0 : Math.round((simMins / makespan) * 100);
     const usedMachines = activeMachines.filter((machine) =>
@@ -554,15 +542,27 @@ export default function SimulationPage() {
                             {usedMachines.map((machine) => {
                                 const activity = machineActivity(activeSchedule, machine.id, simMins);
                                 return (
-                                    <li key={machine.id} className="rounded-lg border bg-muted p-3">
+                                    <li
+                                        key={machine.id}
+                                        className={`rounded-lg border p-3 transition-colors ${hoveredMachineId === machine.id
+                                            ? "border-primary/40 bg-primary/15"
+                                            : "border-border bg-muted"
+                                            }`}
+                                        onMouseEnter={() => setHoveredMachineId(machine.id)}
+                                        onMouseLeave={() =>
+                                            setHoveredMachineId((previous) =>
+                                                previous === machine.id ? null : previous,
+                                            )
+                                        }
+                                    >
                                         <div className="flex items-center justify-between gap-2">
                                             <span className="font-semibold text-sm">{machine.name}</span>
                                             <Badge intent={ACTIVITY_INTENT[activity.kind]}>
                                                 {activity.kind === "running"
                                                     ? "Running"
                                                     : activity.kind === "idle"
-                                                      ? "Idle"
-                                                      : "Done"}
+                                                        ? "Idle"
+                                                        : "Done"}
                                             </Badge>
                                         </div>
                                         <div className="text-muted-fg text-xs">{machine.operator}</div>
@@ -607,14 +607,16 @@ export default function SimulationPage() {
                     <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
                         <CardTitle>Schedule playback</CardTitle>
                         <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
-                            <span className="flex items-center gap-1.5">
-                                <span className="size-2.5 rounded-xs bg-fg/25" />✓ Completed
+                            <span className={`flex items-center gap-1.5 transition-colors ${atEnd ? "font-semibold text-success" : ""}`}>
+                                <span className={`size-2.5 rounded-xs transition-colors ${atEnd ? "bg-success" : "bg-fg/25"}`} />✓ Completed
                             </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="size-2.5 rounded-xs bg-primary" />▶ Running
+                            <span className={`flex items-center gap-1.5 transition-colors ${runningOps > 0 ? "font-semibold text-primary" : ""
+                                }`}>
+                                <span className={`size-2.5 rounded-xs transition-colors ${runningOps > 0 ? "bg-primary" : "bg-fg/25"
+                                    }`} />▶ Running
                             </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="size-2.5 rounded-xs bg-fg/10" />Upcoming
+                            <span className={`flex items-center gap-1.5 transition-colors ${simMins <= 0 ? "font-semibold text-warning" : ""}`}>
+                                <span className={`size-2.5 rounded-xs transition-colors ${simMins <= 0 ? "bg-warning" : "bg-fg/10"}`} />Upcoming
                             </span>
                         </div>
                     </CardHeader>
@@ -641,6 +643,7 @@ export default function SimulationPage() {
                             mode="simulation"
                             nowMins={simMins}
                             selectedJobId={highlightedJobId}
+                            highlightedMachineId={hoveredMachineId}
                             onSelectJob={(jobId) =>
                                 setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
                             }
@@ -663,6 +666,8 @@ export default function SimulationPage() {
                                 const [first] = Array.from(keys);
                                 if (typeof first === "string") {
                                     setHighlightedJobId((previous) => (previous === first ? null : first));
+                                } else {
+                                    setHighlightedJobId(null);
                                 }
                             }}
                         >

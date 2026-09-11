@@ -1,16 +1,16 @@
 'use client'
 
+import { cx } from '@/lib/primitive'
+import { cn } from 'cn'
 import type { ComponentProps } from 'react'
 import {
   Slider as PrimitiveSlider,
   SliderFill as PrimitiveSliderFill,
-  type SliderFillProps,
   SliderOutput as PrimitiveSliderOutput,
   SliderThumb as PrimitiveSliderThumb,
   SliderTrack as PrimitiveSliderTrack,
+  type SliderFillProps,
 } from 'react-aria-components/Slider'
-import { cn } from 'cn'
-import { cx } from '@/lib/primitive'
 
 export function SliderGroup({ className, ...props }: React.ComponentProps<'div'>) {
   return (
@@ -52,7 +52,7 @@ export function SliderThumb({ className, ...props }: ComponentProps<typeof Primi
   return (
     <PrimitiveSliderThumb
       className={cx(
-        'top-[50%] left-[50%] size-5 rounded-full bg-white outline-hidden ring ring-muted-fg/30 transition-[width,height] dark:ring-white',
+        'top-[50%] left-[50%] size-5 rounded-full bg-white outline-hidden ring ring-muted-fg/30 transition-[width,height] dark:ring-white', 'ring-[1.5px]', 'ring-blue-300 dark:ring-blue-600',
         className
       )}
       {...props}
@@ -95,7 +95,7 @@ export function SliderTrack({
 export function SliderFill({ className, ...props }: SliderFillProps) {
   return (
     <PrimitiveSliderFill
-      className={cx('pointer-events-none rounded-full bg-primary disabled:opacity-60', className)}
+      className={cx('pointer-events-none rounded-full bg-primary, disabled:opacity-60', 'bg-primary', className)}
       {...props}
     />
   )

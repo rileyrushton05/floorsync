@@ -1,6 +1,9 @@
 'use client'
 
+import { CardDescription, CardTitle } from '@/components/ui/card'
+import { cx } from '@/lib/primitive'
 import { ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/20/solid'
+import { cn, twJoin } from 'cn'
 import { createContext, use } from 'react'
 import { Button } from 'react-aria-components/Button'
 import { composeRenderProps } from 'react-aria-components/composeRenderProps'
@@ -9,10 +12,10 @@ import type {
   CellProps,
   ColumnProps,
   ColumnResizerProps,
+  TableHeaderProps as HeaderProps,
   RowProps,
   TableBodyProps,
   TableFooterProps,
-  TableHeaderProps as HeaderProps,
   TableProps as TablePrimitiveProps,
 } from 'react-aria-components/Table'
 import {
@@ -22,15 +25,12 @@ import {
   ColumnResizer as ColumnResizerPrimitive,
   ResizableTableContainer,
   Row,
-  Table as TablePrimitive,
   TableBody as TableBodyPrimitive,
   TableFooter as TableFooterPrimitive,
   TableHeader as TableHeaderPrimitive,
+  Table as TablePrimitive,
   useTableOptions,
 } from 'react-aria-components/Table'
-import { twJoin, cn } from 'cn'
-import { CardDescription, CardTitle } from '@/components/ui/card'
-import { cx } from '@/lib/primitive'
 import { Checkbox, CheckboxField } from './checkbox'
 
 interface TableProps extends Omit<TablePrimitiveProps, 'className'> {
@@ -51,7 +51,7 @@ const useTableContext = () => use(TableContext)
 const Root = (props: TableProps) => {
   return (
     <TablePrimitive
-      className="w-full min-w-full caption-bottom text-sm/6 outline-hidden [--table-selected-bg:var(--color-secondary)]/50"
+      className="w-full min-w-full caption-bottom text-sm/6 outline-hidden [--table-hover-bg:var(--color-secondary)] [--table-selected-bg:var(--color-primary)]/15"
       {...props}
     />
   )
@@ -416,15 +416,19 @@ const TableRow = <T extends object>({
           cn(
             'group relative cursor-default outline outline-transparent',
             isFocusVisible &&
-              'bg-primary/5 outline-primary ring-3 ring-ring/20 hover:bg-primary/10',
+            'bg-primary/5 outline-primary ring-3 ring-ring/20 hover:bg-primary/10',
             isDragging && 'cursor-grabbing bg-primary/10 text-fg outline-primary',
-            isSelected && 'bg-(--table-selected-bg) text-fg hover:bg-(--table-selected-bg)/50',
+            isSelected &&
+            'bg-(--table-selected-bg) text-primary-subtle-fg hover:bg-(--table-selected-bg)',
             striped && 'even:bg-muted',
-            (props.href || props.onAction || selectionMode === 'multiple') &&
-              'hover:bg-(--table-selected-bg) hover:text-fg',
-            (props.href || props.onAction || selectionMode === 'multiple') &&
-              isFocusVisibleWithin &&
-              'bg-(--table-selected-bg)/50 selected:bg-(--table-selected-bg)/50 text-fg',
+            (props.href || props.onAction || selectionMode !== undefined) &&
+            'hover:bg-(--table-hover-bg) hover:text-fg',
+            (props.href || props.onAction || selectionMode !== undefined) &&
+            isSelected &&
+            'hover:bg-(--table-selected-bg) hover:text-primary-subtle-fg',
+            (props.href || props.onAction || selectionMode !== undefined) &&
+            isFocusVisibleWithin &&
+            'bg-(--table-selected-bg)/50 selected:bg-(--table-selected-bg)/50 text-fg',
             isDisabled && 'opacity-50',
             className
           )
@@ -529,5 +533,6 @@ const TableFooter = <T extends object>({ className, ...props }: TableFooterProps
   return <TableFooterPrimitive className={cn('**:font-semibold', className)} {...props} />
 }
 
-export type { TableColumnProps, TableProps, TableRowProps }
 export { Table, TableBody, TableCell, TableColumn, TableFooter, TableHeader, TableRow }
+export type { TableColumnProps, TableProps, TableRowProps }
+
