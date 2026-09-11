@@ -85,6 +85,120 @@
         "title": "Body_create_access_token_api_v1_auth_token_post",
         "type": "object"
       },
+      "CapabilityResponse": {
+        "properties": {
+          "duration": {
+            "title": "Duration",
+            "type": "integer"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "machine_id": {
+            "format": "uuid",
+            "title": "Machine Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "machine_id",
+          "duration",
+          "energy"
+        ],
+        "title": "CapabilityResponse",
+        "type": "object"
+      },
+      "CapabilityUpsertRequest": {
+        "additionalProperties": false,
+        "description": "What it costs this machine to run one operation.\n\nduration is occupancy in minutes and is always required -- an operation cannot be sequenced\nwithout one. energy stays optional for the same reason salary does.",
+        "properties": {
+          "duration": {
+            "exclusiveMinimum": 0.0,
+            "title": "Duration",
+            "type": "integer"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          }
+        },
+        "required": [
+          "duration"
+        ],
+        "title": "CapabilityUpsertRequest",
+        "type": "object"
+      },
+      "CategoryCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/ResourceName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CategoryCreateRequest",
+        "type": "object"
+      },
+      "CategoryResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CategoryResponse",
+        "type": "object"
+      },
       "CurrentUserResponse": {
         "description": "The safe subset of the signed-in account exposed to the frontend.",
         "properties": {
@@ -122,6 +236,103 @@
         "title": "CurrentUserResponse",
         "type": "object"
       },
+      "CursorPage_JobResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CursorPage[JobResponse]",
+        "type": "object"
+      },
+      "CursorPage_MachineResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MachineResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CursorPage[MachineResponse]",
+        "type": "object"
+      },
+      "DependencyEdgeRequest": {
+        "additionalProperties": false,
+        "description": "One ordering edge: `before` must finish before `after` starts.",
+        "properties": {
+          "after_operation_id": {
+            "format": "uuid",
+            "title": "After Operation Id",
+            "type": "string"
+          },
+          "before_operation_id": {
+            "format": "uuid",
+            "title": "Before Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before_operation_id",
+          "after_operation_id"
+        ],
+        "title": "DependencyEdgeRequest",
+        "type": "object"
+      },
+      "DependencyResponse": {
+        "description": "One stored ordering edge.",
+        "properties": {
+          "after_operation_id": {
+            "format": "uuid",
+            "title": "After Operation Id",
+            "type": "string"
+          },
+          "before_operation_id": {
+            "format": "uuid",
+            "title": "Before Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before_operation_id",
+          "after_operation_id"
+        ],
+        "title": "DependencyResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -134,6 +345,585 @@
         },
         "title": "HTTPValidationError",
         "type": "object"
+      },
+      "JobCreateRequest": {
+        "additionalProperties": false,
+        "description": "A job a manager is adding to the backlog.\n\nOnly a name: the operations inside a job are added separately, and job names are deliberately\nnot unique because two real jobs can carry the same description.",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/JobName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "JobCreateRequest",
+        "type": "object"
+      },
+      "JobDependenciesReplaceRequest": {
+        "additionalProperties": false,
+        "description": "The complete ordering for one job, replacing whatever is currently stored.\n\nA job's ordering is every edge whose `after_operation_id` is one of its own operations, so this\ncan express a step waiting on an operation in a different job -- allowed on purpose -- while\nstill leaving every edge owned by exactly one job.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyEdgeRequest"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "title": "JobDependenciesReplaceRequest",
+        "type": "object"
+      },
+      "JobDependenciesResponse": {
+        "description": "A job's complete ordering.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyResponse"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "title": "JobDependenciesResponse",
+        "type": "object"
+      },
+      "JobDetailResponse": {
+        "description": "A single job with the operations it contains.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/JobOperationResponse"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "updated_at",
+          "operations"
+        ],
+        "title": "JobDetailResponse",
+        "type": "object"
+      },
+      "JobName": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "JobOperationResponse": {
+        "description": "An operation as seen from its job. Managed through the operations API, not here.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "name"
+        ],
+        "title": "JobOperationResponse",
+        "type": "object"
+      },
+      "JobResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobResponse",
+        "type": "object"
+      },
+      "JobUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "JobUpdateRequest",
+        "type": "object"
+      },
+      "MachineCreateRequest": {
+        "additionalProperties": false,
+        "description": "A machine a manager is adding to the floor.\n\ncategory_id and salary are optional: nothing in the scheduler reads a machine's category, and a\nmachine with no recorded salary is excluded from a schedule's labour total rather than counted\nas free. Requiring either would block entering a machine whose details are not settled yet.",
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "name": {
+            "$ref": "#/components/schemas/ResourceName"
+          },
+          "salary": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salary"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "MachineCreateRequest",
+        "type": "object"
+      },
+      "MachineDetailResponse": {
+        "description": "A single machine with the operations it is declared able to run.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityResponse"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "salary": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salary"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category_id",
+          "salary",
+          "active",
+          "created_at",
+          "updated_at",
+          "capabilities"
+        ],
+        "title": "MachineDetailResponse",
+        "type": "object"
+      },
+      "MachineResponse": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "salary": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salary"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category_id",
+          "salary",
+          "active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MachineResponse",
+        "type": "object"
+      },
+      "MachineUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A partial update. An omitted field is left alone; an explicit null clears it.\n\nOnly the nullable columns may be cleared. `name` and `active` are NOT NULL, so an explicit null\nfor either is rejected here rather than reaching the database as an integrity error.",
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "salary": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salary"
+          }
+        },
+        "title": "MachineUpdateRequest",
+        "type": "object"
+      },
+      "OperationCompatibilityResponse": {
+        "description": "What one machine costs for this operation. Managed through the capability endpoints.",
+        "properties": {
+          "duration": {
+            "title": "Duration",
+            "type": "integer"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "machine_id": {
+            "format": "uuid",
+            "title": "Machine Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine_id",
+          "duration",
+          "energy"
+        ],
+        "title": "OperationCompatibilityResponse",
+        "type": "object"
+      },
+      "OperationCreateRequest": {
+        "additionalProperties": false,
+        "description": "A step a manager is adding to a job.\n\nOnly a name. What the step costs is a property of the machine that runs it and is recorded\nthrough the capability endpoints, and where it sits in the order is recorded through the job's\ndependencies -- neither is a field on the step itself.",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/OperationName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "OperationCreateRequest",
+        "type": "object"
+      },
+      "OperationDetailResponse": {
+        "description": "One operation with its machine options and its place in the ordering.\n\n`predecessors` and `successors` are operation ids rather than full edges: one end of every such\nedge is this operation, so repeating it would say nothing.",
+        "properties": {
+          "compatibilities": {
+            "items": {
+              "$ref": "#/components/schemas/OperationCompatibilityResponse"
+            },
+            "title": "Compatibilities",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "predecessors": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Predecessors",
+            "type": "array"
+          },
+          "successors": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Successors",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "name",
+          "created_at",
+          "updated_at",
+          "compatibilities",
+          "predecessors",
+          "successors"
+        ],
+        "title": "OperationDetailResponse",
+        "type": "object"
+      },
+      "OperationName": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "OperationResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OperationResponse",
+        "type": "object"
+      },
+      "OperationUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "OperationUpdateRequest",
+        "type": "object"
+      },
+      "ResourceName": {
+        "minLength": 1,
+        "type": "string"
       },
       "ScheduleCreateRequest": {
         "additionalProperties": false,
@@ -950,6 +1740,1051 @@
         "summary": "Sign in and obtain a bearer token",
         "tags": [
           "authentication"
+        ]
+      }
+    },
+    "/api/v1/categories": {
+      "get": {
+        "description": "List every category. Small and bounded, so it is returned whole rather than paged.",
+        "operationId": "list_categories_api_v1_categories_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryResponse"
+                  },
+                  "title": "Response List Categories Api V1 Categories Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List machine categories",
+        "tags": [
+          "machines"
+        ]
+      },
+      "post": {
+        "description": "Add a grouping machines can be assigned to.",
+        "operationId": "create_category_api_v1_categories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "A category already uses that name"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Add a machine category",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/jobs": {
+      "get": {
+        "description": "List jobs by name, a page at a time.",
+        "operationId": "list_jobs_api_v1_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPage_JobResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List jobs",
+        "tags": [
+          "jobs"
+        ]
+      },
+      "post": {
+        "description": "Add a job to the backlog. Its operations are added separately.",
+        "operationId": "create_job_api_v1_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Add a job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/jobs/{job_id}": {
+      "delete": {
+        "description": "Remove a job entered by mistake, together with its operations.\n\nA job whose operations already appear in a schedule cannot be removed: the schedule records what\nwas planned, and deleting the job would destroy that history. See the deletion policy in\ndocs/database-schema.md.",
+        "operationId": "delete_job_api_v1_jobs__job_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The job and its operations were removed"
+          },
+          "409": {
+            "description": "The job's work already appears in a schedule"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove a job",
+        "tags": [
+          "jobs"
+        ]
+      },
+      "get": {
+        "description": "Read one job together with the operations it contains.",
+        "operationId": "get_job_api_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get a job and its operations",
+        "tags": [
+          "jobs"
+        ]
+      },
+      "patch": {
+        "description": "Apply a partial update, so a later schedule is generated from the corrected job.",
+        "operationId": "update_job_api_v1_jobs__job_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update a job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/jobs/{job_id}/dependencies": {
+      "get": {
+        "description": "Read a job's ordering: every edge its own operations wait on.",
+        "operationId": "list_job_dependencies_api_v1_jobs__job_id__dependencies_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDependenciesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get the order a job's operations run in",
+        "tags": [
+          "operations"
+        ]
+      },
+      "put": {
+        "description": "Replace a job's ordering with the one supplied, atomically.\n\nThe whole ordering is sent rather than one edge at a time because reordering is a single change:\napplied edge by edge it would pass through graphs that may themselves be cyclic, and a failure\npart-way would leave an order nobody asked for. Sending the whole graph also means the cycle\ncheck is one question about one graph.\n\nIdempotent, as `PUT` requires: re-sending the same ordering restates it.",
+        "operationId": "replace_job_dependencies_api_v1_jobs__job_id__dependencies_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobDependenciesReplaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDependenciesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "An edge names an unknown operation, orders an operation belonging to another job, or the ordering would form a cycle"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Set the order a job's operations run in",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/v1/jobs/{job_id}/operations": {
+      "post": {
+        "description": "Add a step to a job. Its durations and its ordering are recorded separately.",
+        "operationId": "create_operation_api_v1_jobs__job_id__operations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Add an operation to a job",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/v1/machines": {
+      "get": {
+        "description": "List machines by name, a page at a time.",
+        "operationId": "list_machines_api_v1_machines_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPage_MachineResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List machines",
+        "tags": [
+          "machines"
+        ]
+      },
+      "post": {
+        "description": "Add a machine the scheduler can assign work to.",
+        "operationId": "create_machine_api_v1_machines_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "A machine already uses that name"
+          },
+          "422": {
+            "description": "The referenced category does not exist"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Add a machine",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/machines/{machine_id}": {
+      "get": {
+        "description": "Read one machine together with the operations it can run.",
+        "operationId": "get_machine_api_v1_machines__machine_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get a machine and its capabilities",
+        "tags": [
+          "machines"
+        ]
+      },
+      "patch": {
+        "description": "Apply a partial update, including decommissioning through `active`.\n\nThere is no delete: a machine with recorded history cannot be removed, so retiring one is a\nstatus change. See the deletion policy in docs/database-schema.md.",
+        "operationId": "update_machine_api_v1_machines__machine_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "A machine already uses that name"
+          },
+          "422": {
+            "description": "The referenced category does not exist"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update a machine",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/machines/{machine_id}/capabilities": {
+      "get": {
+        "description": "List the operations this machine is declared able to run.",
+        "operationId": "list_capabilities_api_v1_machines__machine_id__capabilities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityResponse"
+                  },
+                  "title": "Response List Capabilities Api V1 Machines  Machine Id  Capabilities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List what a machine can run",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/machines/{machine_id}/capabilities/{operation_id}": {
+      "delete": {
+        "description": "Remove one operation-machine pairing.",
+        "operationId": "remove_capability_api_v1_machines__machine_id__capabilities__operation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Machine Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Withdraw a machine's ability to run an operation",
+        "tags": [
+          "machines"
+        ]
+      },
+      "put": {
+        "description": "Create or replace one operation-machine pairing.\n\nIdempotent, as `PUT` requires: re-sending a pairing restates its cost rather than failing.",
+        "operationId": "set_capability_api_v1_machines__machine_id__capabilities__operation_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Machine Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityUpsertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Declare what it costs this machine to run an operation",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/operations/{operation_id}": {
+      "delete": {
+        "description": "Remove a step entered by mistake, together with its capabilities and its ordering edges.\n\nAn operation that already appears in a schedule cannot be removed: the schedule records what was\nplanned, and deleting the step would destroy that history. See the deletion policy in\ndocs/database-schema.md.",
+        "operationId": "delete_operation_api_v1_operations__operation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The operation, its capabilities and its ordering were removed"
+          },
+          "409": {
+            "description": "The operation already appears in a schedule"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove an operation",
+        "tags": [
+          "operations"
+        ]
+      },
+      "get": {
+        "description": "Read one operation with everything needed to edit it.\n\nThe capability rows are also reachable machine-first, but answering \"what can run this step, and\nhow long does each take\" from there would mean reading every machine on the floor.",
+        "operationId": "get_operation_api_v1_operations__operation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get an operation, its machine options and its place in the order",
+        "tags": [
+          "operations"
+        ]
+      },
+      "patch": {
+        "description": "Apply a partial update, so a later schedule is generated from the corrected step.",
+        "operationId": "update_operation_api_v1_operations__operation_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update an operation",
+        "tags": [
+          "operations"
         ]
       }
     },
