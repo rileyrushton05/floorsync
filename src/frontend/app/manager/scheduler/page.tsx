@@ -333,7 +333,10 @@ export default function SchedulerPage() {
                                 </Table>
 
                                 <Separator className="my-3" />
-                                <Link href="/manager/simulation" className="text-primary text-sm">
+                                <Link
+                                    href="/manager/simulation"
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#15803D] px-4 py-2 font-semibold text-sm text-[#DCFCE7] transition-colors hover:bg-[#166534] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803D]"
+                                >
                                     Run this plan in the simulation →
                                 </Link>
                             </>
