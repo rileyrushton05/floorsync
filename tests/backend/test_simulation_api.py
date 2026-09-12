@@ -57,11 +57,11 @@ CUTTER = UUID("66666666-6666-4666-8666-666666666666")
 POLISHER = UUID("77777777-7777-4777-8777-777777777777")
 
 # Frame: Cut on the Cutter for 3, then Polish on the Polisher for 2. Makespan 5.
-ENTRY_ROWS: list[tuple[UUID, UUID, UUID, int, str, str, str]] = [
-    (CUT, FRAME, CUTTER, 3, "Frame", "Cutter", "Cut"),
-    (POLISH, FRAME, POLISHER, 2, "Frame", "Polisher", "Polish"),
+ENTRY_START = datetime(2026, 9, 6, 8, 0, tzinfo=UTC)
+ENTRY_ROWS: list[tuple[UUID, UUID, UUID, int, str, str, str, datetime]] = [
+    (CUT, FRAME, CUTTER, 3, "Frame", "Cutter", "Cut", ENTRY_START),
+    (POLISH, FRAME, POLISHER, 2, "Frame", "Polisher", "Polish", ENTRY_START + timedelta(minutes=3)),
 ]
-DEPENDENCY_ROWS: list[tuple[UUID, UUID, str]] = [(POLISH, CUT, "job_order")]
 
 
 class FakeSchedule:
@@ -96,14 +96,12 @@ class FakeSession:
         *,
         schedule: FakeSchedule | None = None,
         simulation: FakeSimulation | None = None,
-        entry_rows: list[tuple[UUID, UUID, UUID, int, str, str, str]] | None = None,
-        dependency_rows: list[tuple[UUID, UUID, str]] | None = None,
+        entry_rows: list[tuple[UUID, UUID, UUID, int, str, str, str, datetime]] | None = None,
         event_rows: list[tuple[str, datetime, Decimal | None]] | None = None,
     ) -> None:
         self.schedule = schedule
         self.simulation = simulation
         self.entry_rows = ENTRY_ROWS if entry_rows is None else entry_rows
-        self.dependency_rows = DEPENDENCY_ROWS if dependency_rows is None else dependency_rows
         self.event_rows = event_rows if event_rows is not None else []
         self.added: list[Any] = []
         self.flushes = 0
@@ -131,8 +129,6 @@ class FakeSession:
             return FakeResult(scalar=self.simulation)
         if "FROM simulation_events" in rendered:
             return FakeResult(rows=self.event_rows)
-        if "FROM schedule_dependencies" in rendered:
-            return FakeResult(rows=self.dependency_rows)
         if "FROM schedule_entries" in rendered:
             return FakeResult(rows=self.entry_rows)
         raise AssertionError(f"Unexpected query: {rendered}")
@@ -158,12 +154,10 @@ def run(coroutine: Any) -> Any:
 
 
 def timeline_of(
-    entry_rows: list[tuple[UUID, UUID, UUID, int, str, str, str]] = ENTRY_ROWS,
-    dependency_rows: list[tuple[UUID, UUID, str]] = DEPENDENCY_ROWS,
+    entry_rows: list[tuple[UUID, UUID, UUID, int, str, str, str, datetime]] = ENTRY_ROWS,
 ) -> Any:
     return FloorSyncScheduleAdapter.build_timeline(
-        FloorSyncScheduleAdapter.entries_from_rows(entry_rows),
-        FloorSyncScheduleAdapter.dependencies_from_rows(dependency_rows),
+        FloorSyncScheduleAdapter.entries_from_rows(entry_rows)
     )
 
 

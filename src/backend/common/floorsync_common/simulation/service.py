@@ -88,7 +88,7 @@ class ScheduleTimelineService:
 
     @staticmethod
     async def get_timeline(db: AsyncSession, *, schedule_id: UUID) -> GetTimelineResult:
-        """Resolve a schedule's entries and dependencies into a timeline.
+        """Place a schedule's entries on the clock using their stored start times.
 
         Args:
             db: Caller-owned session inside an open transaction.
@@ -98,9 +98,8 @@ class ScheduleTimelineService:
             The resolved timeline, or the reason one could not be produced.
 
         Raises:
-            ScheduleMismatchError: If the dependency cache references entries
-                outside the schedule.
-            CyclicScheduleError: If the stored dependencies deadlock.
+            ScheduleMismatchError: If an entry has no stored start_time, meaning
+                the schedule predates decision 0011 and must be regenerated.
         """
         schedule = await queries.load_schedule(db, schedule_id)
         if schedule is None:
@@ -110,8 +109,7 @@ class ScheduleTimelineService:
         if not entries:
             return ScheduleNotGenerated(schedule_id=schedule_id)
 
-        dependencies = await queries.load_schedule_dependencies(db, schedule_id)
-        timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+        timeline = FloorSyncScheduleAdapter.build_timeline(entries)
         return TimelineResolved(schedule=schedule, timeline=timeline)
 
 
@@ -239,8 +237,7 @@ class SimulationService:
         entries = await queries.load_schedule_entries(db, schedule_id)
         if not entries:
             return None
-        dependencies = await queries.load_schedule_dependencies(db, schedule_id)
-        return FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+        return FloorSyncScheduleAdapter.build_timeline(entries)
 
     @staticmethod
     async def _derive_position(
