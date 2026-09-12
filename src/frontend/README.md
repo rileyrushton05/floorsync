@@ -40,7 +40,7 @@ own route, because they answer three different questions.
 │ operations,      │ ──► │ the backend plans  │ ──►  │ across that plan   │
 │ machines,        │     │ and stores it      │      │ and watch it move  │
 │ durations,       │     │                    │      │                    │
-│ dependencies     │     │ "What IS the plan?"│      │ "What does the shop│
+│ operation order  │     │ "What IS the plan?"│      │ "What does the shop│
 │                  │     │                    │      │  look like at T+N?"│
 └──────────────────┘     └────────────────────┘      └────────────────────┘
 ```
@@ -93,8 +93,7 @@ engine's own arithmetic rather than a second opinion about it.
 There used to be a greedy list scheduler in `_lib/scheduling.ts` that did this
 in the browser. It is gone: a second solver could only ever disagree with the
 one whose output is actually stored and simulated. What is left in that module
-is the job-graph arithmetic the job builder still needs (`totalWorkMins`,
-`dependentsOf`, `wouldCreateCycle`) and the two shared formatters.
+is `totalWorkMins` and the two shared formatters.
 
 ## Project structure
 
@@ -143,7 +142,7 @@ app/
 │   │   └── GanttChart.tsx         # The schedule grid, shared by plan + simulation
 │   │
 │   ├── page.tsx                   # /manager — facility KPI overview
-│   ├── jobs/                      # /manager/jobs — job + dependency builder
+│   ├── jobs/                      # /manager/jobs — independent-job builder
 │   ├── scheduler/                 # /manager/scheduler — generate via the API
 │   └── simulation/                # /manager/simulation — plan playback
 │
@@ -178,7 +177,7 @@ connected to the planning flow — see *Known gaps*.
 Where the backlog is written. Two columns:
 
 **Backlog (left)** — every defined job as a card: colour swatch, id, priority,
-operation count, total machine time, and its dependencies. Click to edit.
+operation count and total machine time. Click to edit.
 
 **Editor (right)** — name and priority, then:
 
@@ -186,12 +185,7 @@ operation count, total machine time, and its dependencies. Click to edit.
   a duration in minutes. Rows can be reordered (↑/↓) or removed. *Order is
   precedence*: operation n+1 cannot start until operation n finishes, so moving
   a row rewrites the job's internal dependency chain.
-- **Dependencies** — a checklist of the other jobs that must finish before this
-  one starts. Any job that already depends on the one being edited is **disabled
-  with an explanation**, so a cycle cannot be created in the first place rather
-  than being caught later at generation time.
-- A reverse-dependency note ("3 jobs wait on this one") and a live summary of
-  operation count, total machine time and machines touched.
+- A live summary of operation count, total machine time and machines touched.
 
 Validation runs on save and lists every problem at once.
 
@@ -301,8 +295,8 @@ backlog.
 It no longer holds a generated plan. Generation moved to the backend, and both
 the scheduler and the simulation read what is actually stored — so the provider
 is now only the job builder's working copy. What keeps it alive is that its model
-is *richer than the API's*: priorities, per-operation durations and job-level
-dependencies have nowhere to be written, because there is no operations endpoint.
+is *richer than the API's*: priorities and per-operation durations have nowhere
+to be written, because there is no operations endpoint.
 `GET /jobs` answers an id and a name and nothing else.
 
 | File | Structure | Replaced by |
@@ -489,9 +483,8 @@ blocked until that endpoint exists.
 `starts_at` and plans every operation in the database. The scheduler's checkbox
 column is ticked and disabled because of it. Scoping means adding `job_ids` to
 the request and filtering in `SchedulingService.load_input` — and doing it
-carefully, since ReSched requires disjoint linear job chains, so a selection that
-cuts a cross-job dependency has to be refused with a real issue rather than
-silently trimmed.
+carefully, since ReSched requires disjoint linear job chains and a selected job
+must include its complete ordered operation chain.
 
 **Polling, not push.** The scheduler asks for a generation's status once a second
 for up to three minutes. Fine for one manager and a handful of runs; a push
@@ -527,8 +520,8 @@ deliberately refuses.
 
 **No tests.** `_lib/generation.ts` is the obvious first target now that the
 solver is gone: it returns terminal states unchanged, stops at the ceiling rather
-than polling forever, and unwinds cleanly when aborted mid-wait. `wouldCreateCycle`
-and the operator queue state machine are the next two.
+than polling forever, and unwinds cleanly when aborted mid-wait.
+The operator queue state machine is the next target.
 
 **Mock data consistency.** The overview's `weeks` fixture uses `#254`-style job
 ids while the planning flow uses `JOB-254`, and the two disagree about the same
