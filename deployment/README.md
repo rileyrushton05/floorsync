@@ -5,7 +5,7 @@ repository and nothing else — it assumes no verbal explanation from the team.
 
 FloorSync runs as five containers under Docker Compose: a Next.js frontend, a FastAPI API, a Celery
 worker, Redis and PostgreSQL. Everything below is local development; there is no hosted deployment
-yet (see [Known limitations](#known-limitations)).
+configuration in this repository (see [Known limitations](#known-limitations)).
 
 ## Required software
 
@@ -192,9 +192,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 ## Known limitations
 
 - **No deployed environment is maintained by this repository.** The checked-in
-  [`docker-compose.yml`](../docker-compose.yml) remains development-only. A documented production
-  configuration is available in [One-Droplet CI and deployment](production.md), but it requires
-  real domains, infrastructure credentials and a separately provisioned environment file.
+  [`docker-compose.yml`](../docker-compose.yml) is development-only. Production infrastructure,
+  credentials and configuration must be supplied separately if the project is deployed.
 - **No account provisioning interface.** Accounts are created by running Python inside the `api`
   container ([docs/accounts.md](../docs/accounts.md)). There is no registration route, admin screen
   or CLI, and no password policy.
@@ -211,4 +210,3 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 - [Accounts and signing in](../docs/accounts.md) — creating and managing logins.
 - [Technical foundation](../docs/architecture.md) — services, boundaries and tooling.
 - [Seed data](../src/database/seed-data/README.md) — what each benchmark instance contains.
-- [One-Droplet CI and deployment](production.md) — production Compose, Jenkins and Caddy setup.
