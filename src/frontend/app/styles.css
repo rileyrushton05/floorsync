@@ -248,6 +248,11 @@
   to { transform: translateX(350%); }
 }
 
+@keyframes transition-progress-fade {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 @utility touch-target {
   position: relative;
 
