@@ -15,12 +15,25 @@ export interface Machine {
     operator: string;
 }
 
+/** One compatible machine route for an operation. */
+export interface OperationRoute {
+    machineId: string;
+    durationMins: number;
+    /** The API serialises decimal energy values as strings. */
+    energy: string | null;
+}
+
 /** One step of a job. Steps run in array order; each occupies one machine. */
 export interface OperationDef {
     id: string;
     name: string;
     machineId: string;
     durationMins: number;
+    /**
+     * Every route returned by the builder API. The current editor exposes the
+     * primary route and preserves the remaining compatible routes on save.
+     */
+    routes?: OperationRoute[];
 }
 
 export interface JobDef {

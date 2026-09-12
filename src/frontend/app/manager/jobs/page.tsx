@@ -24,6 +24,7 @@ import { Suspense, useMemo, useRef, useState } from "react";
 import { Modal as AriaModal, ModalOverlay } from "react-aria-components";
 import { toast } from "sonner";
 import { priorityIntent } from "../../_lib/badge-intent";
+import { errorMessage } from "../../_lib/load-state";
 import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { usePlanning } from "../_components/PlanningProvider";
 import { buildJobColors, jobColor } from "../_lib/colors";
@@ -122,7 +123,7 @@ function draftFrom(job: JobDef): Draft {
         id: job.id,
         name: job.name,
         priority: job.priority,
-        operations: job.operations.map((op) => ({ ...op })),
+        operations: job.operations.map((op) => ({ ...op, routes: op.routes?.map((route) => ({ ...route })) })),
     };
 }
 
@@ -135,10 +136,12 @@ export default function JobsPage() {
 }
 
 function JobsPageInner() {
-    const { machines, jobs, createJob, updateJob, deleteJob } = usePlanning();
+    const { machines, jobs, loadState, createJob, updateJob, deleteJob } = usePlanning();
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<Draft>(() => (jobs.length > 0 ? draftFrom(jobs[0]) : EMPTY_DRAFT));
+    const [isCreating, setIsCreating] = useState(false);
     const [errors, setErrors] = useState<string[]>([]);
+    const [saving, setSaving] = useState(false);
     const [savedOrder, setSavedOrder] = useState<string[]>(() =>
         jobs.length > 0 ? jobs[0].operations.map((op) => op.id) : []
     );
@@ -167,6 +170,15 @@ function JobsPageInner() {
     const [durationFilter, setDurationFilter] = useState<(typeof DURATION_FILTERS)[number]["id"]>("All");
     const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]["id"]>("Manual");
 
+    // The floor definition arrives after authentication. Select its first job
+    // only while the editor is pristine, so a delayed API response never
+    // overwrites a new draft a manager has already started. This guarded render
+    // update settles immediately, without a transient blank draft after load.
+    if (jobs.length > 0 && !isCreating && draft.id === null && draft.name === "") {
+        setDraft(draftFrom(jobs[0]));
+        setSavedOrder(jobs[0].operations.map((op) => op.id));
+    }
+
     function dismissDelete() {
         if (deleteClosing) return;
         setDeleteClosing(true);
@@ -186,6 +198,7 @@ function JobsPageInner() {
         const match = jobs.find((job) => job.id === requestedJobId);
         if (match) {
             setLastOpenedJobId(requestedJobId);
+            setIsCreating(false);
             setDraft(draftFrom(match));
             setSavedOrder(match.operations.map((op) => op.id));
             setErrors([]);
@@ -200,7 +213,14 @@ function JobsPageInner() {
         const matching = jobs.filter((job) => {
             if (needle && !`${job.id} ${job.name}`.toLowerCase().includes(needle)) return false;
             if (priorityFilter !== "All" && job.priority !== priorityFilter) return false;
-            if (machineFilter !== "All" && !job.operations.some((op) => op.machineId === machineFilter)) return false;
+            if (
+                machineFilter !== "All" &&
+                !job.operations.some((op) =>
+                    (op.routes ?? [{ machineId: op.machineId }]).some((route) => route.machineId === machineFilter),
+                )
+            ) {
+                return false;
+            }
             const work = totalWorkMins(job);
             if (durationFilter === "Short" && !(work < 60)) return false;
             if (durationFilter === "Medium" && !(work >= 60 && work < 240)) return false;
@@ -240,12 +260,14 @@ function JobsPageInner() {
     const draftWorkMins = draft.operations.reduce((total, op) => total + op.durationMins, 0);
 
     function startNewJob() {
+        setIsCreating(true);
         setDraft(EMPTY_DRAFT);
         setSavedOrder([]);
         setErrors([]);
     }
 
     function editJob(job: JobDef) {
+        setIsCreating(false);
         setDraft(draftFrom(job));
         setSavedOrder(job.operations.map((op) => op.id));
         setErrors([]);
@@ -262,6 +284,9 @@ function JobsPageInner() {
                     name: "",
                     machineId: machines[0]?.id ?? "",
                     durationMins: 30,
+                    routes: machines[0]
+                        ? [{ machineId: machines[0].id, durationMins: 30, energy: null }]
+                        : [],
                 },
             ],
         }));
@@ -272,7 +297,23 @@ function JobsPageInner() {
     function patchOperation(index: number, patch: Partial<OperationDef>) {
         setDraft((previous) => ({
             ...previous,
-            operations: previous.operations.map((op, i) => (i === index ? { ...op, ...patch } : op)),
+            operations: previous.operations.map((op, i) => {
+                if (i !== index) return op;
+                const next = { ...op, ...patch };
+                if (!("machineId" in patch) && !("durationMins" in patch)) return next;
+                const primary = {
+                    machineId: next.machineId,
+                    durationMins: next.durationMins,
+                    energy: op.routes?.[0]?.energy ?? null,
+                };
+                return {
+                    ...next,
+                    routes: [
+                        primary,
+                        ...(op.routes ?? []).slice(1).filter((route) => route.machineId !== primary.machineId),
+                    ],
+                };
+            }),
         }));
     }
 
@@ -331,11 +372,12 @@ function JobsPageInner() {
         draft.operations.forEach((op, index) => {
             if (op.name.trim() === "") found.push(`Operation ${index + 1} needs a name.`);
             if (!(op.durationMins > 0)) found.push(`Operation ${index + 1} needs a duration greater than zero.`);
+            if (op.machineId === "") found.push(`Operation ${index + 1} needs a machine route.`);
         });
         return found;
     }
 
-    function saveDraft() {
+    async function saveDraft() {
         const found = validateDraft();
         setErrors(found);
         if (found.length > 0) return;
@@ -346,33 +388,51 @@ function JobsPageInner() {
             operations: draft.operations.map((op) => ({ ...op, name: op.name.trim() })),
         };
 
-        if (draft.id) {
-            updateJob(draft.id, payload);
-            toast.success(`${draft.id} saved.`);
-        } else {
-            const id = createJob(payload);
-            setDraft((previous) => ({ ...previous, id }));
-            toast.success(`${id} created and added to the selection.`);
+        setSaving(true);
+        try {
+            const saved = draft.id
+                ? await updateJob(draft.id, payload)
+                : await createJob(payload);
+            setDraft(draftFrom(saved));
+            if (draft.id) {
+                toast.success(`${saved.id} definition saved.`);
+            } else {
+                setIsCreating(false);
+                toast.success(`${saved.id} created in the backlog.`);
+            }
+            setSavedOrder(saved.operations.map((op) => op.id));
+        } catch (error) {
+            setErrors([errorMessage(error)]);
+        } finally {
+            setSaving(false);
         }
-        // Committing clears the "order changed" highlight.
-        setSavedOrder(draft.operations.map((op) => op.id));
     }
 
-    function removeJob() {
+    async function removeJob() {
         if (!draft.id) return;
         const removedId = draft.id;
-        deleteJob(removedId);
-        setDraft(EMPTY_DRAFT);
-        setErrors([]);
-        setConfirmingDelete(false);
-        setDeleteClosing(false);
-        toast.success(`${removedId} deleted.`);
+        setSaving(true);
+        try {
+            await deleteJob(removedId);
+            setIsCreating(false);
+            setDraft(EMPTY_DRAFT);
+            setErrors([]);
+            setConfirmingDelete(false);
+            setDeleteClosing(false);
+            toast.success(`${removedId} deleted.`);
+        } catch (error) {
+            setErrors([errorMessage(error)]);
+            setConfirmingDelete(false);
+            setDeleteClosing(false);
+        } finally {
+            setSaving(false);
+        }
     }
 
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
             <ManagerTopbar>
-                <Button onPress={startNewJob}>
+                <Button onPress={startNewJob} isDisabled={loadState.status === "loading" || saving}>
                     <PlusIcon /> New job
                 </Button>
             </ManagerTopbar>
@@ -534,6 +594,26 @@ function JobsPageInner() {
                         )}
                     </CardHeader>
                     <CardContent className="space-y-5">
+                        {loadState.status === "loading" && (
+                            <Note intent="info" role="status">
+                                Loading the job backlog and machines from the API…
+                            </Note>
+                        )}
+
+                        {loadState.status === "error" && (
+                            <Note intent="danger" role="alert">
+                                <strong>Could not load the job backlog.</strong>
+                                <div className="mt-1">{loadState.message}</div>
+                            </Note>
+                        )}
+
+                        {loadState.status === "ready" && (
+                            <Note intent="info">
+                                <strong>Job definitions are saved to the API.</strong> Saving writes the name,
+                                priority, ordered operations, and their machine routes as one atomic change.
+                            </Note>
+                        )}
+
                         {errors.length > 0 && (
                             <Note intent="danger" role="alert">
                                 <strong>Fix before saving</strong>
@@ -741,7 +821,13 @@ function JobsPageInner() {
                                 )}
                             </ol>
 
-                            <Button intent="outline" size="sm" className="mt-3" onPress={addOperation}>
+                            <Button
+                                intent="outline"
+                                size="sm"
+                                className="mt-3"
+                                onPress={addOperation}
+                                isDisabled={saving || loadState.status !== "ready" || machines.length === 0}
+                            >
                                 <PlusIcon /> Add operation
                             </Button>
                         </div>
@@ -756,12 +842,16 @@ function JobsPageInner() {
                             </div>
                             <div className="flex items-center gap-2.5">
                                 {draft.id && (
-                                    <Button intent="danger" onPress={() => setConfirmingDelete(true)}>
+                                    <Button
+                                        intent="danger"
+                                        onPress={() => setConfirmingDelete(true)}
+                                        isDisabled={saving || loadState.status !== "ready"}
+                                    >
                                         Delete job
                                     </Button>
                                 )}
-                                <Button onPress={saveDraft}>
-                                    {draft.id ? "Save changes" : "Create job"}
+                                <Button onPress={saveDraft} isDisabled={saving || loadState.status !== "ready"}>
+                                    {saving ? "Saving…" : draft.id ? "Save changes" : "Create job"}
                                 </Button>
                             </div>
                         </div>
