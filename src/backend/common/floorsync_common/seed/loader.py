@@ -119,7 +119,8 @@ async def seed_instance(
     for job, operations in instance.operations_by_job.items():
         operation_width = _index_width(len(operations))
         previous_id: UUID | None = None
-        for operation in operations:
+        # `position` is the builder's display order, numbered from 1 in the file's own sequence.
+        for position, operation in enumerate(operations, start=1):
             operation_id = uuid4()
             operation_ids[(operation.job, operation.index)] = operation_id
             operation_rows.append(
@@ -127,16 +128,19 @@ async def seed_instance(
                     "id": operation_id,
                     "job_id": job_ids[job],
                     "name": f"Op{operation.index:0{operation_width}d}",
+                    "position": position,
                 }
             )
             # The file states precedence only as operation order within a job, so each step depends
             # on the one before it -- a simple chain, not the fan-in the schema also supports.
+            # Imported edges are `legacy`: a later builder save must leave them alone.
             if previous_id is not None:
                 dependency_rows.append(
                     {
                         "id": uuid4(),
                         "before_operation_id": previous_id,
                         "after_operation_id": operation_id,
+                        "origin": "legacy",
                     }
                 )
             compatibility_rows.append(
@@ -334,6 +338,14 @@ async def seed_flexible_instance(
     )
 
     operation_ids = {operation.id: uuid4() for operation in instance.operations}
+    # `position` is display order only, numbered from 1 per job in the file's own sequence. It is
+    # not precedence: a flexible instance's edges can branch, and those are stored below as they
+    # are, untouched by the order the builder happens to list the steps in.
+    positions: dict[int, int] = {}
+    next_position: dict[int, int] = {}
+    for operation in instance.operations:
+        positions[operation.id] = next_position.get(operation.job, 0) + 1
+        next_position[operation.job] = positions[operation.id]
     await _insert_all(
         session,
         Operation,
@@ -342,6 +354,7 @@ async def seed_flexible_instance(
                 "id": operation_ids[operation.id],
                 "job_id": job_ids[operation.job],
                 "name": f"Op{operation.id:0{operation_width}d}",
+                "position": positions[operation.id],
             }
             for operation in instance.operations
         ],
@@ -354,6 +367,7 @@ async def seed_flexible_instance(
                 "id": uuid4(),
                 "before_operation_id": operation_ids[before],
                 "after_operation_id": operation_ids[after],
+                "origin": "legacy",
             }
             for before, after in instance.dependencies
         ],
