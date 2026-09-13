@@ -34,6 +34,7 @@ from floorsync_common.jobs.definition_results import (
     JobDefinitionIsScheduled,
     JobDefinitionRead,
     OperationDoesNotBelongToJob,
+    OperationHasExternalDependents,
     OperationWithRoutes,
     UnknownMachine,
 )
@@ -46,6 +47,7 @@ from floorsync_common.jobs.definitions import (
     JobDefinitionService,
 )
 from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.operations.results import DependencyCycle
 
 job_definitions_router = APIRouter(prefix="/job-definitions", tags=["jobs"])
 job_definition_router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -143,8 +145,9 @@ async def get_definition(
         409: {"description": "An operation in this job already appears in a schedule"},
         422: {
             "description": (
-                "A route names an unknown or inactive machine, or an operation id does not "
-                "belong to this job"
+                "A route names an unknown or inactive machine, an operation id does not belong "
+                "to this job, removing an operation would delete another job's edge to it, or "
+                "the new ordering would form a cycle"
             )
         },
     },
@@ -180,6 +183,10 @@ async def replace_definition(
                 return _job_definition_is_scheduled(request, job_id)
             case OperationDoesNotBelongToJob(operation_id=operation_id, job_id=owning_job_id):
                 return _operation_does_not_belong_to_job(request, operation_id, owning_job_id)
+            case OperationHasExternalDependents(operation_id=operation_id, job_id=owning_job_id):
+                return _operation_has_external_dependents(request, operation_id, owning_job_id)
+            case DependencyCycle(operation_ids=operation_ids):
+                return _dependency_cycle(request, operation_ids)
             case UnknownMachine(machine_id=machine_id):
                 return _unknown_machine(request, machine_id)
             case InactiveMachine(machine_id=machine_id):
@@ -325,4 +332,41 @@ def _operation_does_not_belong_to_job(
             ),
             instance=request.url.path,
         )
+    )
+
+
+def _operation_has_external_dependents(
+    request: Request, operation_id: UUID, other_job_id: UUID
+) -> JSONResponse:
+    """Omitting an operation another job depends on would silently delete that job's own edge."""
+
+    return problem_response(
+        ProblemDetail(
+            type="urn:floorsync:problem:operation_has_external_dependents",
+            title="Operation is depended on by another job",
+            status=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Removing operation {operation_id} would delete an ordering edge job "
+                f"{other_job_id} depends on. Remove that edge first, through the ordering API."
+            ),
+            instance=request.url.path,
+        )
+    )
+
+
+def _dependency_cycle(request: Request, operation_ids: tuple[UUID, ...]) -> JSONResponse:
+    """A cyclic ordering describes work that could never start, so it is refused before storing."""
+
+    return problem_response(
+        ProblemDetail(
+            type="urn:floorsync:problem:dependency-cycle",
+            title="Ordering forms a cycle",
+            status=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "This ordering would make operations wait on each other in a loop, so none of "
+                "them could ever start."
+            ),
+            instance=request.url.path,
+        ),
+        extensions={"operation_ids": [str(operation_id) for operation_id in operation_ids]},
     )

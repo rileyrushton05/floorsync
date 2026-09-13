@@ -39,11 +39,13 @@ from floorsync_common.jobs.definition_results import (
     JobDefinitionIsScheduled,
     JobDefinitionRead,
     OperationDoesNotBelongToJob,
+    OperationHasExternalDependents,
     OperationWithRoutes,
     UnknownMachine,
 )
 from floorsync_common.jobs.definitions import DefinitionPage, JobDefinitionService
 from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.settings import Settings
 
 CREATED_AT = datetime(2026, 9, 12, 8, tzinfo=UTC)
@@ -407,6 +409,42 @@ def test_replace_definition_omitting_id_creates_a_new_operation(
     assert response.status_code == 200
 
 
+def test_replace_definition_refuses_to_orphan_another_jobs_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitting an operation another job's own edge names must not silently cascade it away."""
+
+    job_id, operation_id, other_job_id = uuid4(), uuid4(), uuid4()
+    stub(
+        monkeypatch,
+        "replace_definition",
+        OperationHasExternalDependents(operation_id=operation_id, job_id=other_job_id),
+    )
+
+    response = definition_client().put(f"/api/v1/jobs/{job_id}/definition", json=replace_body())
+
+    assert response.status_code == 422
+    assert response.json()["type"] == "urn:floorsync:problem:operation_has_external_dependents"
+
+
+def test_replace_definition_refuses_a_reorder_that_forms_a_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reorder combined with a retained external edge must be checked for a cycle."""
+
+    job_id = uuid4()
+    stub(
+        monkeypatch,
+        "replace_definition",
+        DependencyCycle(operation_ids=(uuid4(), uuid4())),
+    )
+
+    response = definition_client().put(f"/api/v1/jobs/{job_id}/definition", json=replace_body())
+
+    assert response.status_code == 422
+    assert response.json()["type"] == "urn:floorsync:problem:dependency-cycle"
+
+
 # -- service structural invariants -----------------------------------------------------------
 # The stubbed router tests above cannot exercise real SQL. These assert, at the source level,
 # invariants a live database would otherwise be needed to check -- the same substitute this
@@ -430,13 +468,29 @@ def test_replace_definition_never_deletes_external_edges() -> None:
     assert 'Dependency.origin == "builder_sequence"' in source
 
 
+def test_replace_definition_checks_for_orphaned_cross_job_edges() -> None:
+    """Regression test: deleting an omitted operation must not cascade another job's own edge."""
+
+    source = inspect.getsource(definitions_service.JobDefinitionService.replace_definition)
+    assert "_find_external_dependent(" in source
+
+
+def test_replace_definition_checks_for_a_cycle_before_writing_the_new_order() -> None:
+    """Regression test: a reorder plus a retained external edge can close a loop unnoticed."""
+
+    source = inspect.getsource(definitions_service.JobDefinitionService.replace_definition)
+    assert "find_dependency_cycle(" in source
+
+
 def test_replace_definition_checks_scheduled_before_writing_anything() -> None:
-    """The 409 check, and both validation checks, must run before any attribute is mutated."""
+    """The 409 check, and every validation check, must run before any attribute is mutated."""
 
     source = inspect.getsource(definitions_service.JobDefinitionService.replace_definition)
     scheduled_check = source.index("JobDefinitionIsScheduled")
+    external_dependent_check = source.index("_find_external_dependent(")
+    cycle_check = source.index("find_dependency_cycle(")
     first_write = source.index("job.name =")
-    assert scheduled_check < first_write
+    assert scheduled_check < external_dependent_check < cycle_check < first_write
 
 
 def test_load_definition_uses_bulk_queries_not_lazy_relationships() -> None:

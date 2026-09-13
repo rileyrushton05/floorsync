@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from itertools import pairwise
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import Select, delete, exists, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,11 +36,14 @@ from floorsync_common.jobs.definition_results import (
     JobDefinitionIsScheduled,
     JobDefinitionRead,
     OperationDoesNotBelongToJob,
+    OperationHasExternalDependents,
     OperationWithRoutes,
     ReplaceDefinitionResult,
     UnknownMachine,
 )
 from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.operations.results import DependencyCycle
+from floorsync_common.operations.service import find_dependency_cycle
 from floorsync_common.pagination import decode_cursor, encode_cursor
 
 
@@ -181,13 +184,20 @@ class JobDefinitionService:
     ) -> ReplaceDefinitionResult:
         """Replace a job's name, priority, operations and routes wholesale, atomically.
 
-        Refuses the whole save, writing nothing, when any of the job's current operations already
-        appears in a schedule -- that schedule's record of what was planned must not be rewritten.
-        Otherwise reconciles operations by id (update retained, add new, delete omitted -- deletion
-        safely cascades that operation's own routes and ordering edges since the job is
-        unscheduled), replaces every retained/new operation's routes outright, and rebuilds only
-        this job's `builder_sequence` ordering edges from the new order. Edges with any other
-        origin are never touched.
+        Every check below runs, and can fail, before anything is written -- a failed save must
+        leave every table exactly as it was. Refuses the whole save when: any of the job's current
+        operations already appears in a schedule; a supplied operation id belongs to another job;
+        a route names an unknown or inactive machine; removing an omitted operation would
+        cascade-delete an edge another job's own operation still depends on (`before_operation_id`
+        may cross jobs by design, and `ON DELETE CASCADE` does not know that edge belongs to
+        someone else); or the new ordering, together with every edge this save does not touch,
+        would form a cycle.
+
+        Once past those checks, this reconciles operations by id (update retained, add new, delete
+        omitted -- deletion safely cascades that operation's own routes and ordering edges, since
+        the job is unscheduled and no *other* job depends on it), replaces every retained/new
+        operation's routes outright, and rebuilds only this job's `builder_sequence` ordering edges
+        from the new order. Edges with any other origin are never touched.
         """
 
         job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
@@ -215,27 +225,83 @@ class JobDefinitionService:
         if invalid is not None:
             return invalid
 
-        job.name = command.name.strip()
-        job.priority = command.priority
-
         retained_ids = {
             operation_command.id
             for operation_command in command.operations
             if operation_command.id is not None
         }
         removed_ids = existing_by_id.keys() - retained_ids
+
+        if removed_ids:
+            blocked = await JobDefinitionService._find_external_dependent(db, job_id, removed_ids)
+            if blocked is not None:
+                return blocked
+
+        # New operations' ids are assigned now, client-side, rather than left to the database's
+        # default-on-flush -- the cycle check below needs every new ordering edge's real
+        # endpoints before anything is written, and a new operation cannot yet be named by any
+        # existing edge, so it can never itself be part of a cycle: only its assigned id matters.
+        new_ids_by_index = {
+            index: uuid4()
+            for index, operation_command in enumerate(command.operations)
+            if operation_command.id is None
+        }
+        ordered_ids = [
+            operation_command.id if operation_command.id is not None else new_ids_by_index[index]
+            for index, operation_command in enumerate(command.operations)
+        ]
+        new_sequence_edges = list(pairwise(ordered_ids))
+
+        to_delete = (
+            (
+                await db.scalars(
+                    select(Dependency).where(
+                        Dependency.origin == "builder_sequence",
+                        or_(
+                            Dependency.before_operation_id.in_(existing_by_id.keys()),
+                            Dependency.after_operation_id.in_(existing_by_id.keys()),
+                        ),
+                    )
+                )
+            ).all()
+            if existing_by_id
+            else ()
+        )
+        to_delete_ids = {dependency.id for dependency in to_delete}
+
+        retained_statement = select(Dependency)
+        if to_delete_ids:
+            retained_statement = retained_statement.where(Dependency.id.notin_(to_delete_ids))
+        retained_edges = (await db.scalars(retained_statement)).all()
+
+        cycle = find_dependency_cycle(
+            [(edge.before_operation_id, edge.after_operation_id) for edge in retained_edges]
+            + new_sequence_edges
+        )
+        if cycle:
+            return DependencyCycle(operation_ids=cycle)
+
+        # -- Every check has passed. Nothing above wrote anything; everything below does. --
+
+        job.name = command.name.strip()
+        job.priority = command.priority
+
         if removed_ids:
             await db.execute(delete(Operation).where(Operation.id.in_(removed_ids)))
 
         ordered_operations: list[Operation] = []
-        for position, operation_command in enumerate(command.operations, start=1):
+        for index, operation_command in enumerate(command.operations):
+            position = index + 1
             if operation_command.id is not None:
                 operation = existing_by_id[operation_command.id]
                 operation.name = operation_command.name.strip()
                 operation.position = position
             else:
                 operation = Operation(
-                    job_id=job_id, name=operation_command.name.strip(), position=position
+                    id=new_ids_by_index[index],
+                    job_id=job_id,
+                    name=operation_command.name.strip(),
+                    position=position,
                 )
                 db.add(operation)
             ordered_operations.append(operation)
@@ -252,21 +318,14 @@ class JobDefinitionService:
             for route in operation_command.routes:
                 db.add(JobDefinitionService._new_compatibility(operation.id, route))
 
-        # Every operation this job had before the save, retained or removed -- a removed
-        # operation's own edges already cascaded with it, so re-targeting this delete at it is a
-        # harmless no-op, not a second source of truth for what to clean up.
-        owned_before_save = existing_by_id.keys()
-        if owned_before_save:
-            await db.execute(
-                delete(Dependency).where(
-                    Dependency.origin == "builder_sequence",
-                    or_(
-                        Dependency.before_operation_id.in_(owned_before_save),
-                        Dependency.after_operation_id.in_(owned_before_save),
-                    ),
-                )
+        if to_delete_ids:
+            await db.execute(delete(Dependency).where(Dependency.id.in_(to_delete_ids)))
+        db.add_all(
+            Dependency(
+                before_operation_id=before, after_operation_id=after, origin="builder_sequence"
             )
-        db.add_all(JobDefinitionService._sequence_edges(ordered_operations))
+            for before, after in new_sequence_edges
+        )
 
         await db.flush()
         return DefinitionReplaced(
@@ -300,6 +359,34 @@ class JobDefinitionService:
             )
             for before, after in pairwise(operations)
         ]
+
+    @staticmethod
+    async def _find_external_dependent(
+        db: AsyncSession, job_id: UUID, removed_ids: set[UUID]
+    ) -> OperationHasExternalDependents | None:
+        """Refuse to remove an operation another job's own edge still names.
+
+        `dependencies.before_operation_id`/`after_operation_id` are `ON DELETE CASCADE`, and a
+        dependency's `before` side may cross jobs by design (#125) -- deleting the operation this
+        job is dropping would otherwise silently take that edge away from a job that never asked
+        for the change. An edge fully inside this job is not reported: it belongs to this save,
+        whether `external` or `builder_sequence`, and losing it alongside the operation it names is
+        exactly what removing that operation means.
+        """
+
+        row = (
+            await db.execute(
+                select(Dependency.before_operation_id, Operation.job_id)
+                .join(Operation, Operation.id == Dependency.after_operation_id)
+                .where(Dependency.before_operation_id.in_(removed_ids), Operation.job_id != job_id)
+                .limit(1)
+            )
+        ).first()
+        if row is None:
+            return None
+
+        operation_id, other_job_id = row
+        return OperationHasExternalDependents(operation_id=operation_id, job_id=other_job_id)
 
     @staticmethod
     async def _validate_machines(

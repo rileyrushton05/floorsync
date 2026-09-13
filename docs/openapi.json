@@ -2592,7 +2592,7 @@
             "description": "An operation in this job already appears in a schedule"
           },
           "422": {
-            "description": "A route names an unknown or inactive machine, or an operation id does not belong to this job"
+            "description": "A route names an unknown or inactive machine, an operation id does not belong to this job, removing an operation would delete another job's edge to it, or the new ordering would form a cycle"
           }
         },
         "security": [

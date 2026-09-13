@@ -1,8 +1,9 @@
 """Expected outcomes for the job-definition builder.
 
-`JobNotFound` is reused from `floorsync_common.jobs.results` rather than redeclared here, per the
-same reasoning `floorsync_common.machines.results` re-imports `OperationNotFound`: a second class of
-the same name would not be caught by the same `case` pattern in an exhaustive match.
+`JobNotFound` is reused from `floorsync_common.jobs.results`, and `DependencyCycle` from
+`floorsync_common.operations.results`, rather than redeclared here -- per the same reasoning
+`floorsync_common.machines.results` re-imports `OperationNotFound`: a second class of the same name
+would not be caught by the same `case` pattern in an exhaustive match.
 """
 
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.outcomes import ExpectedOutcome
 
 
@@ -85,6 +87,19 @@ class JobDefinitionIsScheduled(ExpectedOutcome):
     job_id: UUID
 
 
+@dataclass(frozen=True, slots=True)
+class OperationHasExternalDependents(ExpectedOutcome):
+    """Removing this operation would cascade-delete an edge a different job's own edge still names.
+
+    `before_operation_id` may cross jobs by design (#125), and `ON DELETE CASCADE` on
+    `dependencies` cannot tell that the edge belongs to a job other than the one being saved.
+    `job_id` names the *other* job whose edge would be lost, not the job being replaced.
+    """
+
+    operation_id: UUID
+    job_id: UUID
+
+
 type CreateDefinitionResult = DefinitionCreated | UnknownMachine | InactiveMachine
 type GetDefinitionResult = DefinitionFound | JobNotFound
 type ReplaceDefinitionResult = (
@@ -92,6 +107,8 @@ type ReplaceDefinitionResult = (
     | JobNotFound
     | JobDefinitionIsScheduled
     | OperationDoesNotBelongToJob
+    | OperationHasExternalDependents
+    | DependencyCycle
     | UnknownMachine
     | InactiveMachine
 )
