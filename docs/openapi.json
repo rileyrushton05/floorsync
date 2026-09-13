@@ -348,7 +348,7 @@
       },
       "JobCreateRequest": {
         "additionalProperties": false,
-        "description": "A job a manager is adding to the backlog.\n\nOnly a name: the operations inside a job are added separately, and job names are deliberately\nnot unique because two real jobs can carry the same description.",
+        "description": "A job a manager is adding to the backlog.\n\nOnly a name: the operations inside a job are added separately, and job names are deliberately\nnot unique because two real jobs can carry the same description. Priority is not settable here\nyet -- every job is created at the database default until the job-definition endpoint (#235)\nexists.",
         "properties": {
           "name": {
             "$ref": "#/components/schemas/JobName"
@@ -396,7 +396,7 @@
         "type": "object"
       },
       "JobDetailResponse": {
-        "description": "A single job with the operations it contains.",
+        "description": "A single job with the operations it contains, in position order.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -419,6 +419,9 @@
             "title": "Operations",
             "type": "array"
           },
+          "priority": {
+            "$ref": "#/components/schemas/JobPriority"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -428,6 +431,7 @@
         "required": [
           "id",
           "name",
+          "priority",
           "created_at",
           "updated_at",
           "operations"
@@ -465,6 +469,14 @@
         "title": "JobOperationResponse",
         "type": "object"
       },
+      "JobPriority": {
+        "enum": [
+          "high",
+          "med",
+          "low"
+        ],
+        "type": "string"
+      },
       "JobResponse": {
         "properties": {
           "created_at": {
@@ -481,6 +493,9 @@
             "title": "Name",
             "type": "string"
           },
+          "priority": {
+            "$ref": "#/components/schemas/JobPriority"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -490,6 +505,7 @@
         "required": [
           "id",
           "name",
+          "priority",
           "created_at",
           "updated_at"
         ],

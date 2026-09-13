@@ -133,6 +133,11 @@ disable a credential without waiting for an old token to expire.
 | column | type | constraints |
 |---|---|---|
 | name | Text | not null |
+| priority | Text | not null, default 'med', CHECK priority IN ('high', 'med', 'low') |
+
+Jobs are independent of one another: there is no job-to-job dependency table or column, by design.
+Precedence is an operation-level fact on `dependencies`, and an edge may cross jobs only at that
+level. `priority` is lower-case in the database and API; the frontend maps to its own labels.
 
 ## operations
 
@@ -140,8 +145,25 @@ disable a credential without waiting for an old token to expire.
 |---|---|---|
 | job_id | Uuid | FK -> jobs.id, not null, ondelete CASCADE, indexed |
 | name | Text | not null |
+| position | Integer | not null, CHECK position >= 1 |
+
+```sql
+UNIQUE (job_id, position) DEFERRABLE INITIALLY DEFERRED
+```
 
 `ondelete CASCADE` because an operation has no independent lifecycle apart from its job.
+
+`position` is the step's place in its job as the job builder shows and edits it -- a stable, 1-based
+display order that the API keeps contiguous. It is **not** precedence: that stays on `dependencies`,
+which can express shapes a single number cannot (a step waiting on several others). The
+job-definition save endpoint (tracked separately, #235) is expected to derive a straight chain of
+`builder_sequence` edges from consecutive positions; anything richer is written to `dependencies`
+directly and would be left untouched by such a save.
+
+The unique constraint is deferred to commit so a reorder can be written as one set of updates.
+Checked immediately, swapping two positions would fail on the first update because the second row
+still holds the value being moved to. The database still refuses a duplicate -- at the end of the
+transaction rather than half-way through the reorder.
 
 ## dependencies
 
@@ -152,11 +174,19 @@ persists independently of any schedule.
 |---|---|---|
 | before_operation_id | Uuid | FK -> operations.id, not null, ondelete CASCADE, indexed |
 | after_operation_id | Uuid | FK -> operations.id, not null, ondelete CASCADE, indexed |
+| origin | Text | not null, default 'external', CHECK origin IN ('external', 'builder_sequence') |
 
 ```sql
 UNIQUE (before_operation_id, after_operation_id)
 CHECK (before_operation_id <> after_operation_id)
 ```
+
+`origin` records who owns the row, so a future job-definition save (#235) can rewrite its own edges
+without touching anyone else's. `builder_sequence` is meant for an edge derived from two consecutive
+operation positions, to be deleted and re-derived on every save of that job. `external` is
+everything else -- a benchmark import, or an edge written through the ordering API -- and is what
+every edge this PR writes is tagged as, since nothing here derives an edge from position. There is
+deliberately no job-level origin: jobs are independent, and precedence only ever joins operations.
 
 ## compatibilities
 

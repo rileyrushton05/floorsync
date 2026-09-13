@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.compatibility import Compatibility
@@ -106,7 +106,12 @@ class OperationService:
         if await db.get(Job, job_id) is None:
             return JobNotFound(job_id=job_id)
 
-        operation = Operation(job_id=job_id, name=name.strip())
+        # A step added on its own goes to the end of the job. The unique constraint on
+        # (job_id, position) is what holds under two such adds racing for the same slot.
+        last_position = await db.scalar(
+            select(func.coalesce(func.max(Operation.position), 0)).where(Operation.job_id == job_id)
+        )
+        operation = Operation(job_id=job_id, name=name.strip(), position=(last_position or 0) + 1)
         db.add(operation)
         await db.flush()
         return OperationCreated(operation=operation)
@@ -195,8 +200,18 @@ class OperationService:
         if scheduled:
             return OperationIsScheduled(operation_id=operation_id)
 
+        job_id, position = operation.job_id, operation.position
         await db.delete(operation)
         await db.flush()
+        # Close the gap so the job's positions stay 1..N, which is what the builder shows and what
+        # a later definition save expects to find. The deferred unique constraint lets the shift
+        # be one statement: checked immediately, moving 3 to 2 would collide with the 2 that had
+        # not yet moved to 1.
+        await db.execute(
+            update(Operation)
+            .where(Operation.job_id == job_id, Operation.position > position)
+            .values(position=Operation.position - 1)
+        )
         return OperationDeleted(operation_id=operation_id)
 
 

@@ -45,7 +45,8 @@ class JobService:
         """Add a job.
 
         Job names are deliberately not unique: two real jobs can both be "Repair conveyor", and the
-        identifier that has to be unique is the primary key, which the database assigns.
+        identifier that has to be unique is the primary key, which the database assigns. Priority
+        is left to its database default here; nothing yet lets a caller set it (#235).
         """
 
         job = Job(name=name.strip())
@@ -55,7 +56,7 @@ class JobService:
 
     @staticmethod
     async def get_job(db: AsyncSession, job_id: UUID) -> GetJobResult:
-        """Read one job together with the operations it contains."""
+        """Read one job together with the operations it contains, in their stored order."""
 
         job = await db.get(Job, job_id)
         if job is None:
@@ -63,7 +64,7 @@ class JobService:
 
         operations = (
             await db.scalars(
-                select(Operation).where(Operation.job_id == job_id).order_by(Operation.name)
+                select(Operation).where(Operation.job_id == job_id).order_by(Operation.position)
             )
         ).all()
         return JobFound(job=job, operations=tuple(operations))

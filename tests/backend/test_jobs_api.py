@@ -42,8 +42,10 @@ class FakeSession:
         return FakeTransaction()
 
 
-def make_job(name: str = "Repair conveyor") -> Job:
-    return Job(id=uuid4(), name=name, created_at=CREATED_AT, updated_at=CREATED_AT)
+def make_job(name: str = "Repair conveyor", priority: str = "med") -> Job:
+    return Job(
+        id=uuid4(), name=name, priority=priority, created_at=CREATED_AT, updated_at=CREATED_AT
+    )
 
 
 def make_operation(job_id: UUID, name: str = "Op00") -> Operation:
@@ -93,6 +95,16 @@ def test_create_job_returns_201_with_a_location_header(monkeypatch: pytest.Monke
     assert response.json()["name"] == "Repair conveyor"
 
 
+def test_create_job_reports_its_database_default_priority(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing yet lets a caller set priority; a job created today gets the database's default."""
+
+    stub(monkeypatch, "create_job", make_job())
+
+    response = job_client().post("/api/v1/jobs", json={"name": "Repair conveyor"})
+
+    assert response.json()["priority"] == "med"
+
+
 def test_create_job_allows_a_duplicate_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two real jobs can carry the same description, so names are deliberately not unique."""
 
@@ -131,6 +143,14 @@ def test_get_job_includes_its_operations(monkeypatch: pytest.MonkeyPatch) -> Non
     body = response.json()
     assert body["id"] == str(job.id)
     assert [operation["name"] for operation in body["operations"]] == ["Op00", "Op01"]
+
+
+def test_get_job_orders_operations_by_position() -> None:
+    """Reads must sort by position, not name: #234 moved display order off the operation name."""
+
+    import inspect
+
+    assert "order_by(Operation.position)" in inspect.getsource(job_service.JobService.get_job)
 
 
 def test_get_job_returns_404_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
