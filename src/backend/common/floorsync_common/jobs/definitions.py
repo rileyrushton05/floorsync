@@ -197,7 +197,9 @@ class JobDefinitionService:
         omitted -- deletion safely cascades that operation's own routes and ordering edges, since
         the job is unscheduled and no *other* job depends on it), replaces every retained/new
         operation's routes outright, and rebuilds only this job's `builder_sequence` ordering edges
-        from the new order. Edges with any other origin are never touched.
+        from the new order -- skipping a pair a retained edge of any origin already covers, since
+        `(before_operation_id, after_operation_id)` is unique regardless of origin. Edges with any
+        other origin are never deleted.
         """
 
         job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
@@ -273,6 +275,14 @@ class JobDefinitionService:
         if to_delete_ids:
             retained_statement = retained_statement.where(Dependency.id.notin_(to_delete_ids))
         retained_edges = (await db.scalars(retained_statement)).all()
+
+        # `(before_operation_id, after_operation_id)` is unique regardless of origin, so a pair a
+        # retained edge -- of any origin -- already covers must not be inserted again: the chain
+        # only has to guarantee the ordering exists, not that this row in particular does.
+        retained_pairs = {
+            (edge.before_operation_id, edge.after_operation_id) for edge in retained_edges
+        }
+        new_sequence_edges = [pair for pair in new_sequence_edges if pair not in retained_pairs]
 
         cycle = find_dependency_cycle(
             [(edge.before_operation_id, edge.after_operation_id) for edge in retained_edges]

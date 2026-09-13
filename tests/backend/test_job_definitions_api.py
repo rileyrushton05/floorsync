@@ -482,6 +482,19 @@ def test_replace_definition_checks_for_a_cycle_before_writing_the_new_order() ->
     assert "find_dependency_cycle(" in source
 
 
+def test_replace_definition_skips_a_pair_a_retained_edge_already_covers() -> None:
+    """Regression test: (before, after) is unique regardless of origin.
+
+    An unchanged, or merely renamed, operation pair whose order already matches an existing
+    external edge would otherwise re-insert that same pair as a builder_sequence row and hit the
+    unique constraint -- no reorder needed to trigger it.
+    """
+
+    source = inspect.getsource(definitions_service.JobDefinitionService.replace_definition)
+    assert "retained_pairs" in source
+    assert "if pair not in retained_pairs" in source
+
+
 def test_replace_definition_checks_scheduled_before_writing_anything() -> None:
     """The 409 check, and every validation check, must run before any attribute is mutated."""
 
