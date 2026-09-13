@@ -35,11 +35,11 @@ from floorsync_common.machines.results import (
     MachineNameAlreadyExists,
     MachineNotFound,
     MachineUpdated,
-    OperationNotFound,
     RemoveCapabilityResult,
     SetCapabilityResult,
     UpdateMachineResult,
 )
+from floorsync_common.operations.results import OperationNotFound
 from floorsync_common.pagination import decode_cursor, encode_cursor
 from floorsync_common.partial import UNSET, Unset, is_set
 

@@ -290,6 +290,49 @@
         "title": "CursorPage[MachineResponse]",
         "type": "object"
       },
+      "DependencyEdgeRequest": {
+        "additionalProperties": false,
+        "description": "One ordering edge: `before` must finish before `after` starts.",
+        "properties": {
+          "after_operation_id": {
+            "format": "uuid",
+            "title": "After Operation Id",
+            "type": "string"
+          },
+          "before_operation_id": {
+            "format": "uuid",
+            "title": "Before Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before_operation_id",
+          "after_operation_id"
+        ],
+        "title": "DependencyEdgeRequest",
+        "type": "object"
+      },
+      "DependencyResponse": {
+        "description": "One stored ordering edge.",
+        "properties": {
+          "after_operation_id": {
+            "format": "uuid",
+            "title": "After Operation Id",
+            "type": "string"
+          },
+          "before_operation_id": {
+            "format": "uuid",
+            "title": "Before Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before_operation_id",
+          "after_operation_id"
+        ],
+        "title": "DependencyResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -315,6 +358,41 @@
           "name"
         ],
         "title": "JobCreateRequest",
+        "type": "object"
+      },
+      "JobDependenciesReplaceRequest": {
+        "additionalProperties": false,
+        "description": "The complete ordering for one job, replacing whatever is currently stored.\n\nA job's ordering is every edge whose `after_operation_id` is one of its own operations, so this\ncan express a step waiting on an operation in a different job -- allowed on purpose -- while\nstill leaving every edge owned by exactly one job.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyEdgeRequest"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "title": "JobDependenciesReplaceRequest",
+        "type": "object"
+      },
+      "JobDependenciesResponse": {
+        "description": "A job's complete ordering.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyResponse"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "title": "JobDependenciesResponse",
         "type": "object"
       },
       "JobDetailResponse": {
@@ -671,6 +749,176 @@
           }
         },
         "title": "MachineUpdateRequest",
+        "type": "object"
+      },
+      "OperationCompatibilityResponse": {
+        "description": "What one machine costs for this operation. Managed through the capability endpoints.",
+        "properties": {
+          "duration": {
+            "title": "Duration",
+            "type": "integer"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "machine_id": {
+            "format": "uuid",
+            "title": "Machine Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine_id",
+          "duration",
+          "energy"
+        ],
+        "title": "OperationCompatibilityResponse",
+        "type": "object"
+      },
+      "OperationCreateRequest": {
+        "additionalProperties": false,
+        "description": "A step a manager is adding to a job.\n\nOnly a name. What the step costs is a property of the machine that runs it and is recorded\nthrough the capability endpoints, and where it sits in the order is recorded through the job's\ndependencies -- neither is a field on the step itself.",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/OperationName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "OperationCreateRequest",
+        "type": "object"
+      },
+      "OperationDetailResponse": {
+        "description": "One operation with its machine options and its place in the ordering.\n\n`predecessors` and `successors` are operation ids rather than full edges: one end of every such\nedge is this operation, so repeating it would say nothing.",
+        "properties": {
+          "compatibilities": {
+            "items": {
+              "$ref": "#/components/schemas/OperationCompatibilityResponse"
+            },
+            "title": "Compatibilities",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "predecessors": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Predecessors",
+            "type": "array"
+          },
+          "successors": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Successors",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "name",
+          "created_at",
+          "updated_at",
+          "compatibilities",
+          "predecessors",
+          "successors"
+        ],
+        "title": "OperationDetailResponse",
+        "type": "object"
+      },
+      "OperationName": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "OperationResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OperationResponse",
+        "type": "object"
+      },
+      "OperationUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "OperationUpdateRequest",
         "type": "object"
       },
       "ResourceName": {
@@ -1843,6 +2091,164 @@
         ]
       }
     },
+    "/api/v1/jobs/{job_id}/dependencies": {
+      "get": {
+        "description": "Read a job's ordering: every edge its own operations wait on.",
+        "operationId": "list_job_dependencies_api_v1_jobs__job_id__dependencies_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDependenciesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get the order a job's operations run in",
+        "tags": [
+          "operations"
+        ]
+      },
+      "put": {
+        "description": "Replace a job's ordering with the one supplied, atomically.\n\nThe whole ordering is sent rather than one edge at a time because reordering is a single change:\napplied edge by edge it would pass through graphs that may themselves be cyclic, and a failure\npart-way would leave an order nobody asked for. Sending the whole graph also means the cycle\ncheck is one question about one graph.\n\nIdempotent, as `PUT` requires: re-sending the same ordering restates it.",
+        "operationId": "replace_job_dependencies_api_v1_jobs__job_id__dependencies_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobDependenciesReplaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDependenciesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "An edge names an unknown operation, orders an operation belonging to another job, or the ordering would form a cycle"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Set the order a job's operations run in",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/v1/jobs/{job_id}/operations": {
+      "post": {
+        "description": "Add a step to a job. Its durations and its ordering are recorded separately.",
+        "operationId": "create_operation_api_v1_jobs__job_id__operations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Add an operation to a job",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
     "/api/v1/machines": {
       "get": {
         "description": "List machines by name, a page at a time.",
@@ -2222,6 +2628,163 @@
         "summary": "Declare what it costs this machine to run an operation",
         "tags": [
           "machines"
+        ]
+      }
+    },
+    "/api/v1/operations/{operation_id}": {
+      "delete": {
+        "description": "Remove a step entered by mistake, together with its capabilities and its ordering edges.\n\nAn operation that already appears in a schedule cannot be removed: the schedule records what was\nplanned, and deleting the step would destroy that history. See the deletion policy in\ndocs/database-schema.md.",
+        "operationId": "delete_operation_api_v1_operations__operation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The operation, its capabilities and its ordering were removed"
+          },
+          "409": {
+            "description": "The operation already appears in a schedule"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove an operation",
+        "tags": [
+          "operations"
+        ]
+      },
+      "get": {
+        "description": "Read one operation with everything needed to edit it.\n\nThe capability rows are also reachable machine-first, but answering \"what can run this step, and\nhow long does each take\" from there would mean reading every machine on the floor.",
+        "operationId": "get_operation_api_v1_operations__operation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get an operation, its machine options and its place in the order",
+        "tags": [
+          "operations"
+        ]
+      },
+      "patch": {
+        "description": "Apply a partial update, so a later schedule is generated from the corrected step.",
+        "operationId": "update_operation_api_v1_operations__operation_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update an operation",
+        "tags": [
+          "operations"
         ]
       }
     },

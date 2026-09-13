@@ -64,3 +64,12 @@ exclude = ["src/database/migrations", "src/backend/third_party"]
 [[tool.mypy.overrides]]
 module = ["celery", "celery.*"]
 ignore_missing_imports = true
+
+# numpy and torch are the `resched` optional group, so a default install does not have them.
+# `ReSchedEngine._load_runtime` imports them lazily, checks for them first and returns `Any`, so
+# nothing downstream is typed against them and this suppresses no real checking. An override rather
+# than inline ignores on the import lines: those would be *unused* wherever the group is installed,
+# which `strict` reports as an error in its own right, moving the failure instead of fixing it.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*", "torch", "torch.*"]
+ignore_missing_imports = true
