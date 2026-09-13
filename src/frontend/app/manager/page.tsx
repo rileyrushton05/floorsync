@@ -1,5 +1,38 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Calendar,
+  CalendarCell,
+  CalendarGrid,
+  CalendarGridBody,
+  CalendarGridHeader,
+  CalendarHeader,
+  CalendarNavButton,
+  CalendarTitle,
+  CalendarWeekdayHeader,
+} from "@/components/ui/calendar";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Link } from "@/components/ui/link";
+import {
+  Popover,
+  PopoverBody,
+  PopoverContent,
+  PopoverHeader,
+  PopoverTitle,
+} from "@/components/ui/popover";
+import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   ArrowDownTrayIcon,
   BellIcon,
@@ -11,40 +44,24 @@ import {
   ClockIcon,
   Cog6ToothIcon,
   InformationCircleIcon,
-  UserCircleIcon,
   UsersIcon,
 } from "@heroicons/react/24/outline";
+import { getLocalTimeZone, parseDate, today, type CalendarDate } from "@internationalized/date";
 import { useMemo, useState } from "react";
 import type { Key } from "react-aria-components";
+import type { DateValue } from "react-aria-components/Calendar";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/field";
-import { Link } from "@/components/ui/link";
-import {
-  Popover,
-  PopoverBody,
-  PopoverContent,
-  PopoverHeader,
-  PopoverTitle,
-} from "@/components/ui/popover";
-import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableColumn,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { statusIntent } from "../_lib/badge-intent";
-import { Wordmark } from "../_components/Logo";
-import { SubNav } from "./_components/SubNav";
+import { ManagerTopbar } from "./_components/ManagerTopbar";
 
 interface JobStep { index: number; total: number; name: string; }
+
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatShortDate(date: Date): string {
+  return `${WEEKDAY_SHORT[date.getDay()]}, ${date.getDate()} ${MONTH_SHORT[date.getMonth()]}`;
+}
 
 interface ManagerJob {
   id: string;
@@ -219,7 +236,13 @@ const MACHINE_TILES = [
 ] as const;
 
 export default function ManagerDashboard() {
-  const [weekId, setWeekId] = useState<Key | null>(weeks[0].id);
+  const [selectedDate, setSelectedDate] = useState(() => today(getLocalTimeZone()));
+  const [viewMode, setViewMode] = useState<Key | null>("day");
+  const isDayView = viewMode === "day";
+
+  // The seeded data is weekly; the calendar picks the reporting date and the
+  // week bucket is derived from which seeded range it falls in.
+  const weekId = useMemo(() => weekIdForDate(selectedDate), [selectedDate]);
   const week = useMemo(() => weeks.find((w) => w.id === weekId) ?? weeks[0], [weekId]);
 
   const [selectedJobId, setSelectedJobId] = useState(week.jobs[0].id);
@@ -227,9 +250,25 @@ export default function ManagerDashboard() {
 
   const selectedJob = week.jobs.find((j) => j.id === selectedJobId) ?? week.jobs[0];
 
-  function handleWeekChange(id: Key | null) {
-    setWeekId(id);
-    const newWeek = weeks.find((w) => w.id === id) ?? weeks[0];
+  // In day view the job list narrows to the slice of the week's jobs assigned
+  // to the selected weekday, so the daily numbers stay consistent with the
+  // week totals. Falls back to the full list when a weekday has no jobs.
+  const dayJobs = useMemo(() => {
+    const offset = (selectedDate.toDate(getLocalTimeZone()).getDay() + 6) % 7; // Monday = 0
+    const slice = week.jobs.filter((_, i) => i % 7 === offset);
+    return slice.length > 0 ? slice : week.jobs;
+  }, [selectedDate, week.jobs]);
+  const visibleJobs = isDayView ? dayJobs : week.jobs;
+
+  function weekIdForDate(date: DateValue) {
+    const iso = date.toString();
+    if (iso >= "2025-11-11" && iso <= "2025-11-17") return "w46";
+    return "w47";
+  }
+
+  function handleDateChange(date: DateValue) {
+    setSelectedDate(date as CalendarDate);
+    const newWeek = weeks.find((w) => w.id === weekIdForDate(date)) ?? weeks[0];
     setSelectedJobId(newWeek.jobs[0].id);
     setSequenceExpanded(false);
   }
@@ -247,32 +286,62 @@ export default function ManagerDashboard() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg text-fg">
-      <header className="flex flex-wrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <Wordmark />
-          <span className="border-l pl-2.5 font-bold text-muted-fg text-xs uppercase tracking-[0.06em]">
-            Manager
-          </span>
-        </div>
-
-        <SubNav />
-
-        <Select
-          aria-label="Reporting week"
-          value={week.id}
-          onChange={handleWeekChange}
-          className="w-64"
+      <ManagerTopbar>
+        <ToggleGroup
+          aria-label="Overview granularity"
+          selectionMode="single"
+          disallowEmptySelection
+          selectedKeys={new Set([isDayView ? "day" : "week"])}
+          onSelectionChange={(keys) => {
+            const [first] = Array.from(keys);
+            if (typeof first === "string") setViewMode(first);
+          }}
         >
-          <Label className="sr-only">Reporting week</Label>
-          <SelectTrigger prefix={<CalendarIcon className="size-4" />} />
-          <SelectContent items={weeks}>
-            {(item) => (
-              <SelectItem id={item.id} textValue={item.label}>
-                {item.label}
-              </SelectItem>
-            )}
-          </SelectContent>
-        </Select>
+          <ToggleGroupItem id="day" aria-label="Daily view">Day</ToggleGroupItem>
+          <ToggleGroupItem id="week" aria-label="Weekly view">Week</ToggleGroupItem>
+        </ToggleGroup>
+
+        <Popover>
+          <Button intent="outline" size="sm" aria-label="Pick reporting date">
+            <CalendarIcon />
+            {formatShortDate(selectedDate.toDate(getLocalTimeZone()))}
+          </Button>
+          <PopoverContent className="sm:max-w-none">
+            <Calendar
+              aria-label="Reporting date"
+              value={selectedDate}
+              onChange={handleDateChange}
+              minValue={parseDate("2025-11-11")}
+              maxValue={parseDate("2025-11-24")}
+            >
+              <CalendarHeader>
+                <CalendarNavButton slot="previous" aria-label="Previous month">
+                  <ChevronRightIcon className="size-4 rotate-180" />
+                </CalendarNavButton>
+                <CalendarTitle />
+                <CalendarNavButton slot="next" aria-label="Next month">
+                  <ChevronRightIcon className="size-4" />
+                </CalendarNavButton>
+              </CalendarHeader>
+              <CalendarGrid>
+                <CalendarGridHeader>
+                  {(date) => <CalendarWeekdayHeader />}
+                </CalendarGridHeader>
+                <CalendarGridBody>
+                  {(date) => (
+                    <CalendarCell date={date}>{date.day}</CalendarCell>
+                  )}
+                </CalendarGridBody>
+              </CalendarGrid>
+            </Calendar>
+          </PopoverContent>
+        </Popover>
+
+        <span className="min-w-[220px] font-medium text-muted-fg text-sm text-center">
+          {isDayView
+            ? `${week.label.replace(/\s*\(.*\)/, '')} · ${formatShortDate(selectedDate.toDate(getLocalTimeZone()))}`
+            : week.label}
+        </span>
 
         <div className="flex-1" />
 
@@ -323,12 +392,7 @@ export default function ManagerDashboard() {
         >
           <ArrowDownTrayIcon /> Export Report
         </Button>
-
-        <div className="flex items-center gap-2">
-          <UserCircleIcon className="size-7 text-muted-fg" />
-          <span className="font-semibold text-sm">Manager</span>
-        </div>
-      </header>
+      </ManagerTopbar>
 
       <main className="flex flex-1 flex-col gap-5 p-5">
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -415,7 +479,7 @@ export default function ManagerDashboard() {
         <div className="grid gap-5 xl:grid-cols-[1.6fr_1fr]">
           <Card>
             <CardHeader>
-              <CardTitle>Job List</CardTitle>
+              <CardTitle>{isDayView ? "Today's Jobs" : "Job List"}</CardTitle>
             </CardHeader>
             <CardContent>
               <Table
@@ -437,7 +501,7 @@ export default function ManagerDashboard() {
                   <TableColumn>Current Machine</TableColumn>
                   <TableColumn />
                 </TableHeader>
-                <TableBody items={week.jobs}>
+                <TableBody items={visibleJobs}>
                   {(job) => (
                     <TableRow id={job.id}>
                       <TableCell className="font-semibold">{job.id}</TableCell>
@@ -459,14 +523,20 @@ export default function ManagerDashboard() {
                       </TableCell>
                       <TableCell>{job.machine ?? "–"}</TableCell>
                       <TableCell className="text-right">
-                        <ChevronRightIcon className="inline size-4 text-muted-fg" />
+                        <Link
+                          href={`/manager/jobs?job=${encodeURIComponent(`JOB-${job.id.replace("#", "")}`)}`}
+                          aria-label={`Open ${job.id} details`}
+                          className="inline-flex items-center text-muted-fg transition hover:text-primary"
+                        >
+                          <ChevronRightIcon className="size-4 transition-transform group-hover:translate-x-0.5" />
+                        </Link>
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
               <Separator className="my-3" />
-              <Link href="/manager/jobs" className="text-primary text-sm">
+              <Link href={`/manager/jobs?job=JOB-${selectedJob.id.replace("#", "")}`} className="text-primary text-sm">
                 Manage the job backlog →
               </Link>
             </CardContent>
@@ -476,9 +546,15 @@ export default function ManagerDashboard() {
             <CardHeader className="flex-row items-start justify-between gap-3">
               <div>
                 <div className="font-medium text-muted-fg text-xs uppercase tracking-[0.06em]">
-                  Job {selectedJob.id}
+                  {isDayView
+                    ? selectedDate.toDate(getLocalTimeZone()).toLocaleDateString('en-AU', {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                    })
+                    : week.label}
                 </div>
-                <CardTitle className="mt-1">{selectedJob.name}</CardTitle>
+                <CardTitle className="mt-1">Job {selectedJob.id} — {selectedJob.name}</CardTitle>
               </div>
               <Badge intent={statusIntent(selectedJob.status)}>{selectedJob.status}</Badge>
             </CardHeader>
@@ -554,19 +630,18 @@ export default function ManagerDashboard() {
                     const idx = i + 1;
                     const state =
                       selectedJob.status === "Completed" ? "done"
-                      : selectedJob.currentOp && idx < selectedJob.currentOp.index ? "done"
-                      : selectedJob.currentOp && idx === selectedJob.currentOp.index ? "current"
-                      : "pending";
+                        : selectedJob.currentOp && idx < selectedJob.currentOp.index ? "done"
+                          : selectedJob.currentOp && idx === selectedJob.currentOp.index ? "current"
+                            : "pending";
                     return (
                       <li key={idx} className="flex items-center gap-2.5 text-sm">
                         <span
-                          className={`flex size-6 shrink-0 items-center justify-center rounded-full font-semibold text-xs ${
-                            state === "done"
-                              ? "bg-success text-success-fg"
-                              : state === "current"
-                                ? "bg-primary text-primary-fg"
-                                : "bg-secondary text-secondary-fg"
-                          }`}
+                          className={`flex size-6 shrink-0 items-center justify-center rounded-full font-semibold text-xs ${state === "done"
+                            ? "bg-success text-success-fg"
+                            : state === "current"
+                              ? "bg-primary text-primary-fg"
+                              : "bg-secondary text-secondary-fg"
+                            }`}
                         >
                           {state === "done" ? "✓" : idx}
                         </span>

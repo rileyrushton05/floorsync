@@ -16,10 +16,10 @@ class ScheduleFormatError(SimulationError):
 class ScheduleMismatchError(SimulationError):
     """Raise when schedule data does not describe the work it is applied to.
 
-    For a FloorSync schedule this means the dependency cache references an entry
-    outside the loaded schedule, or carries an unknown reason. For a benchmark
-    instance it means a machine sequence names an absent job, is the wrong
-    length, or leaves operations unsequenced.
+    For a FloorSync schedule this means an entry has no stored start_time,
+    which means it predates decision 0011 and must be regenerated. For a
+    benchmark instance it means a machine sequence names an absent job, is the
+    wrong length, or leaves operations unsequenced.
     """
 
 

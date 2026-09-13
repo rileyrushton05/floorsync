@@ -1,9 +1,9 @@
 /**
  * Domain model for the manager planning flow.
  *
- * The flow is deliberately *not* clock-driven: a manager defines jobs and the
- * dependencies between them, picks which ones to release, and the generator
- * lays them out. Every time in a generated schedule is therefore **minutes
+ * The flow is deliberately *not* clock-driven: a manager defines independent
+ * jobs and their ordered operations, then the generator lays them out. Every
+ * time in a generated schedule is therefore **minutes
  * elapsed from T+0**, the moment the plan is released — never a wall clock.
  */
 
@@ -29,8 +29,6 @@ export interface JobDef {
     priority: Priority;
     /** Ordered chain — operation n+1 cannot start until operation n finishes. */
     operations: OperationDef[];
-    /** Ids of jobs that must finish before this job's first operation starts. */
-    dependsOn: string[];
 }
 
 /** One operation, placed on a machine at a concrete offset from T+0. */
@@ -64,7 +62,3 @@ export interface GeneratedSchedule {
     makespanMins: number;
     generatedAt: string;
 }
-
-export type ScheduleResult =
-    | { ok: true; schedule: GeneratedSchedule }
-    | { ok: false; errors: string[] };

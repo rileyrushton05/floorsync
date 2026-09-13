@@ -6,7 +6,10 @@
 
 ## Status
 
-Accepted
+Accepted. Point 1 is superseded for FloorSync schedules by
+[decision 0011](0011-store-floorsync-start-times.md), which stores the scheduler's own start time
+instead of re-deriving it; this decision still governs benchmark instances, and points 2-8 still
+describe the shared vocabulary and derived queue position for both sources.
 
 ## Context
 

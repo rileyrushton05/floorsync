@@ -6,6 +6,7 @@ always reflects exactly one instance rather than an accumulation of several.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from itertools import pairwise
@@ -31,8 +32,13 @@ from floorsync_common.database.models import (
     User,
     UserCredential,
 )
+from floorsync_common.seed.flexible import FlexibleInstance
 from floorsync_common.seed.instances import BenchmarkInstance
-from floorsync_common.seed.solutions import BenchmarkSolution, validate_against
+from floorsync_common.seed.solutions import (
+    BenchmarkSolution,
+    validate_against,
+    validate_flexible_against,
+)
 
 # Children before parents. Users are handled separately: an operator's login is bound to a machine
 # by a check constraint, so it has to go before the machine it points at.
@@ -100,10 +106,7 @@ async def seed_instance(
     await _insert_all(
         session,
         Job,
-        [
-            {"id": job_id, "name": f"{instance.name}/J{index:0{job_width}d}"}
-            for index, job_id in enumerate(job_ids)
-        ],
+        [{"id": job_id, "name": f"J{index:0{job_width}d}"} for index, job_id in enumerate(job_ids)],
     )
 
     operation_rows: list[dict[str, Any]] = []
@@ -116,7 +119,8 @@ async def seed_instance(
     for job, operations in instance.operations_by_job.items():
         operation_width = _index_width(len(operations))
         previous_id: UUID | None = None
-        for operation in operations:
+        # `position` is the builder's display order, numbered from 1 in the file's own sequence.
+        for position, operation in enumerate(operations, start=1):
             operation_id = uuid4()
             operation_ids[(operation.job, operation.index)] = operation_id
             operation_rows.append(
@@ -124,16 +128,19 @@ async def seed_instance(
                     "id": operation_id,
                     "job_id": job_ids[job],
                     "name": f"Op{operation.index:0{operation_width}d}",
+                    "position": position,
                 }
             )
             # The file states precedence only as operation order within a job, so each step depends
             # on the one before it -- a simple chain, not the fan-in the schema also supports.
+            # Imported edges are `external`: a later builder save must leave them alone.
             if previous_id is not None:
                 dependency_rows.append(
                     {
                         "id": uuid4(),
                         "before_operation_id": previous_id,
                         "after_operation_id": operation_id,
+                        "origin": "external",
                     }
                 )
             compatibility_rows.append(
@@ -290,3 +297,205 @@ def _index_width(count: int) -> int:
     """Digits needed for the largest index, so generated names sort correctly as text."""
 
     return len(str(max(count - 1, 0)))
+
+
+async def seed_flexible_instance(
+    session: AsyncSession,
+    instance: FlexibleInstance,
+    solution: BenchmarkSolution | None = None,
+) -> SeedSummary:
+    """Replace the current scenario with a flexible instance, and its schedule when supplied.
+
+    Unlike a classic instance, an operation here has several compatible machines, so it writes
+    several `compatibilities` rows -- and precedence comes from the file's own edges rather than
+    from operation order, so a job can branch.
+    """
+
+    if solution is not None:
+        validate_flexible_against(solution, instance)
+
+    removed_logins = await clear_scheduling_data(session)
+
+    # Job and machine labels are not necessarily contiguous, so map by label rather than index.
+    machine_ids = {label: uuid4() for label in instance.machine_labels}
+    job_ids = {label: uuid4() for label in instance.job_labels}
+    machine_width = _label_width(instance.machine_labels)
+    job_width = _label_width(instance.job_labels)
+    operation_width = _label_width([operation.id for operation in instance.operations])
+
+    await _insert_all(
+        session,
+        Machine,
+        [
+            {"id": machine_id, "name": f"{instance.name}/M{label:0{machine_width}d}"}
+            for label, machine_id in machine_ids.items()
+        ],
+    )
+    await _insert_all(
+        session,
+        Job,
+        [{"id": job_id, "name": f"J{label:0{job_width}d}"} for label, job_id in job_ids.items()],
+    )
+
+    operation_ids = {operation.id: uuid4() for operation in instance.operations}
+    # `position` is display order only, numbered from 1 per job in the file's own sequence. It is
+    # not precedence: a flexible instance's edges can branch, and those are stored below as they
+    # are, untouched by the order the builder happens to list the steps in.
+    positions: dict[int, int] = {}
+    next_position: dict[int, int] = {}
+    for operation in instance.operations:
+        positions[operation.id] = next_position.get(operation.job, 0) + 1
+        next_position[operation.job] = positions[operation.id]
+    await _insert_all(
+        session,
+        Operation,
+        [
+            {
+                "id": operation_ids[operation.id],
+                "job_id": job_ids[operation.job],
+                "name": f"Op{operation.id:0{operation_width}d}",
+                "position": positions[operation.id],
+            }
+            for operation in instance.operations
+        ],
+    )
+    await _insert_all(
+        session,
+        Dependency,
+        [
+            {
+                "id": uuid4(),
+                "before_operation_id": operation_ids[before],
+                "after_operation_id": operation_ids[after],
+                "origin": "external",
+            }
+            for before, after in instance.dependencies
+        ],
+    )
+
+    # The point of a flexible instance: one operation, several machines it could run on.
+    compatibility_rows = [
+        {
+            "id": uuid4(),
+            "operation_id": operation_ids[operation.id],
+            "machine_id": machine_ids[candidate.machine],
+            "duration": candidate.duration,
+        }
+        for operation in instance.operations
+        for candidate in operation.candidates
+    ]
+    await _insert_all(session, Compatibility, compatibility_rows)
+
+    entry_count = 0
+    queue_count = 0
+    if solution is not None:
+        entry_count, queue_count = await _seed_flexible_schedule(
+            session, instance, solution, operation_ids, machine_ids
+        )
+
+    return SeedSummary(
+        instance=instance.name,
+        family=instance.family,
+        machines=len(machine_ids),
+        jobs=len(job_ids),
+        operations=len(operation_ids),
+        dependencies=len(instance.dependencies),
+        compatibilities=len(compatibility_rows),
+        removed_operator_logins=removed_logins,
+        solver=solution.solver if solution else None,
+        makespan=solution.makespan if solution else None,
+        schedule_entries=entry_count,
+        schedule_dependencies=queue_count,
+    )
+
+
+async def _seed_flexible_schedule(
+    session: AsyncSession,
+    instance: FlexibleInstance,
+    solution: BenchmarkSolution,
+    operation_ids: dict[int, UUID],
+    machine_ids: dict[int, UUID],
+) -> tuple[int, int]:
+    """Write a solved flexible schedule, returning entry and dependency counts.
+
+    Which machine each operation runs on is the solver's choice here, recovered from whichever
+    machine sequence the operation appears in.
+    """
+
+    schedule_id = uuid4()
+    await _insert_all(
+        session,
+        Schedule,
+        [
+            {
+                "id": schedule_id,
+                "status": "confirmed",
+                "strategy": solution.solver,
+                "makespan": solution.makespan,
+                "confirmed_at": datetime.now(UTC),
+            }
+        ],
+    )
+
+    by_id = instance.operations_by_id
+    entry_ids: dict[int, UUID] = {}
+    entry_rows: list[dict[str, Any]] = []
+    for machine, sequence in sorted(solution.machine_sequences.items()):
+        for operation_id in sequence:
+            duration = next(
+                candidate.duration
+                for candidate in by_id[operation_id].candidates
+                if candidate.machine == machine
+            )
+            entry_id = uuid4()
+            entry_ids[operation_id] = entry_id
+            entry_rows.append(
+                {
+                    "id": entry_id,
+                    "schedule_id": schedule_id,
+                    "operation_id": operation_ids[operation_id],
+                    "machine_id": machine_ids[machine],
+                    "duration": duration,
+                }
+            )
+    await _insert_all(session, ScheduleEntry, entry_rows)
+
+    recorded: set[tuple[int, int]] = set()
+    precedence_rows: list[dict[str, Any]] = []
+    for before, after in instance.dependencies:
+        recorded.add((before, after))
+        precedence_rows.append(
+            {
+                "id": uuid4(),
+                "schedule_entry_id": entry_ids[after],
+                "depends_on_schedule_entry_id": entry_ids[before],
+                "reason": "job_order",
+            }
+        )
+
+    # A flexible instance can put two operations of one job on the same machine, back to back, so a
+    # pair can be both a job_order and a machine_queue wait. Only one row may exist per pair, and
+    # job_order is the one to keep: it holds whatever machine the solver picked. A classic instance
+    # cannot reach this case, since each of its jobs visits a machine only once.
+    for sequence in solution.machine_sequences.values():
+        for earlier, later in pairwise(sequence):
+            if (earlier, later) in recorded:
+                continue
+            recorded.add((earlier, later))
+            precedence_rows.append(
+                {
+                    "id": uuid4(),
+                    "schedule_entry_id": entry_ids[later],
+                    "depends_on_schedule_entry_id": entry_ids[earlier],
+                    "reason": "machine_queue",
+                }
+            )
+
+    await _insert_all(session, ScheduleDependency, precedence_rows)
+    return len(entry_rows), len(precedence_rows)
+
+
+def _label_width(labels: Sequence[int]) -> int:
+    """Digits needed for the largest label, so generated names sort correctly as text."""
+
+    return len(str(max(labels))) if labels else 1

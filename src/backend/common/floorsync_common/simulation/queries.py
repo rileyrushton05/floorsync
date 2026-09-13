@@ -19,16 +19,11 @@ from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.schedule import Schedule
-from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.database.models.simulation_event import SimulationEvent
 from floorsync_common.simulation.events import SimulationEventRecord, events_from_rows
-from floorsync_common.simulation.floorsync import (
-    FloorSyncScheduleAdapter,
-    ScheduleDependencyRecord,
-    ScheduleEntryRecord,
-)
+from floorsync_common.simulation.floorsync import FloorSyncScheduleAdapter, ScheduleEntryRecord
 
 
 async def load_schedule(db: AsyncSession, schedule_id: UUID) -> Schedule | None:
@@ -42,7 +37,7 @@ async def load_schedule_entries(db: AsyncSession, schedule_id: UUID) -> list[Sch
 
     The join reaches Job through Operation because `schedule_entries` stores the
     operation, not the job. Ordering by entry id keeps the read deterministic;
-    the resolver derives execution order from the resulting times, not from this.
+    the timeline is placed on the clock using each entry's own `start_time`.
     """
     statement = (
         select(
@@ -53,6 +48,7 @@ async def load_schedule_entries(db: AsyncSession, schedule_id: UUID) -> list[Sch
             Job.name,
             Machine.name,
             Operation.name,
+            ScheduleEntry.start_time,
         )
         .join(Operation, Operation.id == ScheduleEntry.operation_id)
         .join(Job, Job.id == Operation.job_id)
@@ -60,32 +56,10 @@ async def load_schedule_entries(db: AsyncSession, schedule_id: UUID) -> list[Sch
         .where(ScheduleEntry.schedule_id == schedule_id)
         .order_by(ScheduleEntry.id)
     )
-    rows: Sequence[tuple[UUID, UUID, UUID, int, str, str, str]] = (
+    rows: Sequence[tuple[UUID, UUID, UUID, int, str, str, str, datetime | None]] = (
         (await db.execute(statement)).tuples().all()
     )
     return FloorSyncScheduleAdapter.entries_from_rows(rows)
-
-
-async def load_schedule_dependencies(
-    db: AsyncSession, schedule_id: UUID
-) -> list[ScheduleDependencyRecord]:
-    """Load the precedence edges belonging to one schedule.
-
-    Scoped through `schedule_entries` because `schedule_dependencies` references
-    entries rather than the schedule directly.
-    """
-    statement = (
-        select(
-            ScheduleDependency.schedule_entry_id,
-            ScheduleDependency.depends_on_schedule_entry_id,
-            ScheduleDependency.reason,
-        )
-        .join(ScheduleEntry, ScheduleEntry.id == ScheduleDependency.schedule_entry_id)
-        .where(ScheduleEntry.schedule_id == schedule_id)
-        .order_by(ScheduleDependency.id)
-    )
-    rows: Sequence[tuple[UUID, UUID, str]] = (await db.execute(statement)).tuples().all()
-    return FloorSyncScheduleAdapter.dependencies_from_rows(rows)
 
 
 async def load_simulation(db: AsyncSession, simulation_id: UUID) -> Simulation | None:

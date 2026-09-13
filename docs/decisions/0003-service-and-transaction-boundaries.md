@@ -47,8 +47,7 @@ class UserService:
         *,
         email: str,
         display_name: str,
-    ) -> CreateUserResult:
-        ...
+    ) -> CreateUserResult: ...
 ```
 
 ```python
@@ -71,8 +70,7 @@ class UserPersistenceService:
         *,
         email: str,
         display_name: str,
-    ) -> CreateUserResult:
-        ...
+    ) -> CreateUserResult: ...
 
 
 class UserService:

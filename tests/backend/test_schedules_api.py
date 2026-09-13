@@ -268,3 +268,69 @@ def test_reading_a_missing_schedule_returns_not_found() -> None:
     )
 
     assert response.status_code == 404
+
+
+class FakeScheduleListSession:
+    """Answer one `scalars` call with the schedules a listing should return."""
+
+    def __init__(self, schedules: list[Schedule]) -> None:
+        self.schedules = schedules
+
+    def begin(self) -> FakeTransaction:
+        return FakeTransaction()
+
+    async def scalars(self, _: object) -> FakeScalars:
+        return FakeScalars(cast(list[object], self.schedules))
+
+
+def test_manager_can_list_schedules() -> None:
+    """The only route that reveals a schedule's id to a client that has none."""
+    schedule, _, _ = schedule_fixture()
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(
+        schedule_application(manager, cast(Any, FakeScheduleListSession([schedule])))
+    ).get("/api/v1/schedules")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["id"] == str(schedule.id)
+    assert body[0]["status"] == "draft"
+    assert body[0]["strategy"] == "resched_reinforce_v1"
+    assert body[0]["makespan"] == 15
+
+
+def test_listing_schedules_omits_their_entries() -> None:
+    """Entries run to hundreds of rows per schedule, so a summary carries none."""
+    schedule, _, _ = schedule_fixture()
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(
+        schedule_application(manager, cast(Any, FakeScheduleListSession([schedule])))
+    ).get("/api/v1/schedules")
+
+    assert "entries" not in response.json()[0]
+    assert "dependencies" not in response.json()[0]
+
+
+def test_listing_schedules_is_empty_before_anything_is_scheduled() -> None:
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(
+        schedule_application(manager, cast(Any, FakeScheduleListSession([])))
+    ).get("/api/v1/schedules")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_operator_cannot_list_schedules() -> None:
+    schedule, _, _ = schedule_fixture()
+    operator = User(id=uuid4(), name="Operator", role="operator")
+
+    response = TestClient(
+        schedule_application(operator, cast(Any, FakeScheduleListSession([schedule])))
+    ).get("/api/v1/schedules")
+
+    assert response.status_code == 403

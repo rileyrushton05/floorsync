@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from floorsync_common.seed.flexible import FlexibleInstance
 from floorsync_common.seed.instances import SEED_DATA_DIRECTORY, BenchmarkInstance
 
 DEFAULT_SOLUTION_DIRECTORY = SEED_DATA_DIRECTORY / "solutions"
@@ -173,4 +174,60 @@ def validate_against(solution: BenchmarkSolution, instance: BenchmarkInstance) -
             raise SolutionError(
                 f"{instance.name}: machine {machine} sequence {list(sequence)} does not match the "
                 f"jobs routed to it {sorted(queued)}"
+            )
+
+
+def validate_flexible_against(solution: BenchmarkSolution, instance: FlexibleInstance) -> None:
+    """Check a solution actually schedules the flexible instance it claims to.
+
+    A flexible solution decides two things at once: which machine each operation runs on, and the
+    order each machine works through its queue. Both are expressed by listing an operation's id
+    under exactly one machine, so this checks every operation is placed exactly once, and placed on
+    a machine it can actually run on.
+
+    Operation ids are global here, unlike the classic format's job ids, so there is no ambiguity
+    about which visit is meant when a job returns to a machine.
+    """
+
+    if solution.instance != instance.name:
+        raise SolutionError(
+            f"solution is for {solution.instance!r} but the instance is {instance.name!r}"
+        )
+
+    placements: dict[int, list[int]] = {}
+    for machine, sequence in solution.machine_sequences.items():
+        for operation in sequence:
+            placements.setdefault(operation, []).append(machine)
+
+    known = set(instance.operations_by_id)
+    unknown = sorted(set(placements) - known)
+    if unknown:
+        raise SolutionError(
+            f"{instance.name}: solution schedules operation(s) {unknown[:10]}, which the instance "
+            f"does not contain"
+        )
+
+    missing = sorted(known - set(placements))
+    if missing:
+        raise SolutionError(
+            f"{instance.name}: solution does not schedule operation(s) {missing[:10]}; every "
+            f"operation must be placed on exactly one machine"
+        )
+
+    duplicated = sorted(op for op, machines in placements.items() if len(machines) > 1)
+    if duplicated:
+        example = duplicated[0]
+        raise SolutionError(
+            f"{instance.name}: operation {example} is placed on machines "
+            f"{sorted(placements[example])}; an operation runs on exactly one machine"
+        )
+
+    for operation_id, machines in sorted(placements.items()):
+        machine = machines[0]
+        scheduled = instance.operations_by_id[operation_id]
+        allowed = {candidate.machine for candidate in scheduled.candidates}
+        if machine not in allowed:
+            raise SolutionError(
+                f"{instance.name}: operation {operation_id} is placed on machine {machine}, but it "
+                f"can only run on {sorted(allowed)}"
             )

@@ -13,7 +13,7 @@ const SECTIONS: { href: string; title: string; blurb: string; tag: string }[][] 
     {
       href: "/manager/jobs",
       title: "Jobs",
-      blurb: "Define jobs, their operations and the dependencies between them.",
+      blurb: "Define independent jobs and their ordered operations.",
       tag: "Feeds the scheduler",
     },
   ],
@@ -21,7 +21,7 @@ const SECTIONS: { href: string; title: string; blurb: string; tag: string }[][] 
     {
       href: "/manager/scheduler",
       title: "Scheduler",
-      blurb: "Release jobs and generate a plan from their dependencies and machine load.",
+      blurb: "Release jobs and generate a plan from operation order and machine load.",
       tag: "Plan · not clock-driven",
     },
     {

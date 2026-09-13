@@ -1,5 +1,3 @@
-import type { JobDef } from "./types";
-
 /**
  * Categorical palette for job identity on the Gantt.
  *
@@ -36,8 +34,12 @@ const OVERFLOW: JobColor = { fill: "#64748b", ink: "#ffffff" };
  * Colour is keyed to the job's position in the backlog, not to its position in
  * the current selection — so filtering the schedule down to fewer jobs never
  * repaints the ones that remain.
+ *
+ * Only an id is needed, so this accepts the API's `Job` as readily as the local
+ * `JobDef`. That is what lets the scheduler colour its backlog list and the
+ * chart it draws from a single map, keyed off the backlog either way.
  */
-export function buildJobColors(jobs: JobDef[]): Map<string, JobColor> {
+export function buildJobColors(jobs: readonly { id: string }[]): Map<string, JobColor> {
     return new Map(jobs.map((job, index) => [job.id, PALETTE[index] ?? OVERFLOW]));
 }
 

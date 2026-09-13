@@ -1,20 +1,20 @@
 """Replay a solved schedule over simulated time.
 
-A timeline is **derived, never stored**: start and end times are a pure function
-of a schedule's assignments and its precedence edges, so they are recomputed on
-read rather than persisted and kept in sync. See decision 0009.
+A FloorSync schedule's timing is written by the scheduler and read as-is (see decision 0011); a
+benchmark instance carries no stored timing, so its timeline is still derived, never stored, from
+its assignments and precedence (see decision 0009). Either way playback answers "what is true at
+time ``t``" without recomputing what the source of truth already decided.
 
-The package is layered so each stage is testable without the one above it, and
-so both sources of schedules share one resolution:
+The package is layered so each stage is testable without the one above it:
 
 1. **Core** -- :class:`TimelineNode` and :class:`PrecedenceEdge` express work and
-   precedence with opaque string keys; :func:`resolve_start_times` places them on
-   the clock with a topological longest path.
+   precedence with opaque string keys; :func:`resolve_start_times` places benchmark
+   nodes on the clock with a topological longest path.
 2. **Adapters** --
    :class:`~floorsync_common.simulation.floorsync.FloorSyncScheduleAdapter`
-   translates ``schedule_entries`` and ``schedule_dependencies`` rows;
-   :class:`TimelineBuilder` translates a benchmark instance and solver solution,
-   deriving the precedence edges that FloorSync already stores.
+   translates ``schedule_entries`` rows, reading the start time each one already
+   carries; :class:`TimelineBuilder` translates a benchmark instance and solver
+   solution, deriving the precedence edges FloorSync schedules don't need.
 3. **Playback** -- :class:`Timeline` answers "what is true at time ``t``";
    :func:`derive_simulated_time` replays a simulation's event log to find that
    ``t`` authoritatively; :class:`PlaybackClock` and :class:`SimulationEngine`
@@ -24,9 +24,9 @@ Playback is deterministic. It replays a schedule that has already been generated
 no stochastic durations, no breakdowns, no re-dispatching.
 
 Example:
-    >>> timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)  # doctest: +SKIP
-    >>> point = derive_simulated_time(events, at=now, makespan=timeline.makespan)  # doctest: +SKIP
-    >>> snapshot = SimulationEngine(timeline).seek(point.time)                     # doctest: +SKIP
+    >>> timeline = FloorSyncScheduleAdapter.build_timeline(entries)               # doctest: +SKIP
+    >>> point = derive_simulated_time(events, at=now, makespan=timeline.makespan) # doctest: +SKIP
+    >>> snapshot = SimulationEngine(timeline).seek(point.time)                    # doctest: +SKIP
 """
 
 from .builder import TimelineBuilder
@@ -47,11 +47,7 @@ from .events import (
     derive_simulated_time,
     events_from_rows,
 )
-from .floorsync import (
-    FloorSyncScheduleAdapter,
-    ScheduleDependencyRecord,
-    ScheduleEntryRecord,
-)
+from .floorsync import FloorSyncScheduleAdapter, ScheduleEntryRecord
 from .graph import PrecedenceEdge, PrecedenceReason, TimelineNode, resolve_start_times
 from .instance import JobShopInstance, Operation
 from .schedule import Schedule
@@ -78,7 +74,6 @@ __all__ = [
     "PrecedenceEdge",
     "PrecedenceReason",
     "Schedule",
-    "ScheduleDependencyRecord",
     "ScheduleEntryRecord",
     "ScheduleFormatError",
     "ScheduleMismatchError",

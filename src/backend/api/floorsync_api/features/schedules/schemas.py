@@ -55,6 +55,22 @@ class ScheduleDependencyResponse(ResponseSchema):
     reason: Literal["job_order", "machine_queue"]
 
 
+class ScheduleSummaryResponse(ResponseSchema):
+    """One schedule without its entries, for choosing between them.
+
+    A schedule's entries and dependency graph run to hundreds of rows each, so
+    the collection answers summaries and a caller fetches the one it wants.
+    """
+
+    id: UUID
+    status: Literal["draft", "confirmed", "discarded"]
+    strategy: str
+    makespan: int | None
+    input_operation_count: int | None
+    created_at: datetime
+    confirmed_at: datetime | None
+
+
 class ScheduleResponse(ResponseSchema):
     id: UUID
     status: Literal["draft", "confirmed", "discarded"]

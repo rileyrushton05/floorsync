@@ -36,11 +36,11 @@ own route, because they answer three different questions.
 ```text
   /manager/jobs            /manager/scheduler          /manager/simulation
 ┌──────────────────┐     ┌────────────────────┐      ┌────────────────────┐
-│ Define jobs:     │     │ Tick the jobs to   │      │ Run the clock      │
-│ operations,      │ ──► │ release, press     │ ──►  │ across that plan   │
-│ machines,        │     │ Generate           │      │ and watch it move  │
+│ Define jobs:     │     │ Press Generate;    │      │ Run the clock      │
+│ operations,      │ ──► │ the backend plans  │ ──►  │ across that plan   │
+│ machines,        │     │ and stores it      │      │ and watch it move  │
 │ durations,       │     │                    │      │                    │
-│ dependencies     │     │ "What IS the plan?"│      │ "What does the shop│
+│ operation order  │     │ "What IS the plan?"│      │ "What does the shop│
 │                  │     │                    │      │  look like at T+N?"│
 └──────────────────┘     └────────────────────┘      └────────────────────┘
 ```
@@ -59,33 +59,41 @@ identical and only the *reading* differs.
 
 ### How generation works
 
-`app/manager/_lib/scheduling.ts` is a pure module with no React in it.
-`generateSchedule(jobs, machines, selectedIds)` returns either a schedule or a
-list of human-readable problems.
+**Generation happens on the backend.** `/manager/scheduler` posts to
+`POST /api/v1/schedules`, which queues the run and answers `202 Accepted` with a
+generation id — the schedule does not exist yet. The run itself happens on a
+Celery worker using the ReSched policy; see [docs/scheduling.md](../../docs/scheduling.md).
 
-1. **Validate** — the selection is non-empty, every job has operations with a
-   positive duration on a machine that exists, and every dependency is *itself
-   in the selection*. Scheduling a job whose prerequisite was not released is
-   refused rather than silently ignored.
-2. **Order** — Kahn's algorithm over the dependency graph, breaking ties by
-   priority (High → Med → Low) and then by id, so the same selection always
-   produces the same plan. A dependency cycle is reported, not thrown.
-3. **Place** — walk the jobs in that order and give each operation the earliest
-   slot on its machine that respects the previous operation in the same job, the
-   machine's existing bookings, and the finish time of every job it depends on.
-   Gaps are backfilled, so a short job drops into a machine's idle window instead
-   of being appended after it.
+```text
+POST /api/v1/schedules              202 + generation id
+  └─► GET  /schedules/generations/{id}     poll until terminal
+        ├─ completed  ─► GET /schedules/{id}/timeline ─► timelineToPlan() ─► Gantt
+        ├─ rejected   ─► the engine's validation issues, listed
+        ├─ unavailable ─► the learned runtime is not installed
+        └─ failed      ─► the worker raised; its logs say why
+```
 
-It is a greedy list scheduler: it will not reorder or pre-empt to shorten the
-makespan, so the result is not optimal. It is deterministic and every placement
-is explainable, which matters more for a plan a person has to trust — the
-scheduler's *Placement order* table shows exactly which job was placed when and
-why.
+`app/manager/_lib/generation.ts` owns the waiting. Two things about it are worth
+knowing before changing it:
 
-The algorithm's invariants (no machine double-booked, operations sequential
-within a job, durations preserved, dependencies respected, determinism, cycle
-and missing-dependency detection) are worth pinning down in tests — see
-*Known gaps*.
+- **The three-minute ceiling is what ends the loop, not a safety margin.** The
+  task queue reports `pending` for a command it has never heard of, exactly as
+  it does for one that is queued and waiting — so a stopped worker, a lost
+  command and a slow run are indistinguishable from the browser, and none will
+  ever reach a terminal state on their own. The page reports that case as
+  "nothing picked up the run" rather than spinning forever.
+- **Every wait is abortable**, so pressing Generate twice, or leaving the page
+  mid-run, does not leave a loop writing into a screen that is gone.
+
+Nothing in the browser computes a time. `_lib/timeline.ts` translates the
+resolved timeline into the `GeneratedSchedule` the chart already draws — pure
+renaming and regrouping — so the scheduler and the simulation both show the
+engine's own arithmetic rather than a second opinion about it.
+
+There used to be a greedy list scheduler in `_lib/scheduling.ts` that did this
+in the browser. It is gone: a second solver could only ever disagree with the
+one whose output is actually stored and simulated. What is left in that module
+is `totalWorkMins` and the two shared formatters.
 
 ## Project structure
 
@@ -106,9 +114,15 @@ app/
 ├── page.tsx                       # "/" landing page (navy surface)
 │
 ├── _components/                   # Shared across every route
+│   ├── AuthProvider.tsx           # Token + signed-in account (context)
+│   ├── RequireAuth.tsx            # Redirects anonymous visitors to /login
+│   ├── UserMenu.tsx               # Signed-in account + sign out, in every topbar
 │   ├── Logo.tsx                   # <Logo> mark and <Wordmark> home link
 │   └── icons.tsx                  # CoffeeIcon — the one icon Heroicons lacks
 ├── _lib/
+│   ├── api.ts                     # FloorSync API client (base URL + typed calls)
+│   ├── auth.ts                    # Token store (sessionStorage) + sign in / out
+│   ├── load-state.ts              # LoadState<T> + errorMessage, shared by API pages
 │   └── badge-intent.ts            # priority/status → Intent UI badge intents
 │
 ├── manager/
@@ -116,18 +130,20 @@ app/
 │   │
 │   ├── _lib/                      # Pure domain logic — no React
 │   │   ├── types.ts               # JobDef, ScheduledOperation, GeneratedSchedule…
-│   │   ├── scheduling.ts          # generateSchedule + validation + formatting
+│   │   ├── scheduling.ts          # Job-graph helpers + T+0 formatters
+│   │   ├── generation.ts          # Polls a queued generation to a terminal state
+│   │   ├── timeline.ts            # API schedule timeline → GeneratedSchedule
 │   │   ├── colors.ts              # Validated categorical palette for job identity
 │   │   └── seed.ts                # Starting machines and backlog
 │   │
 │   ├── _components/
-│   │   ├── PlanningProvider.tsx   # Backlog + selection + generated plan (context)
+│   │   ├── PlanningProvider.tsx   # The job builder's in-memory backlog (context)
 │   │   ├── SubNav.tsx             # Overview / Jobs / Schedule / Simulation tabs
 │   │   └── GanttChart.tsx         # The schedule grid, shared by plan + simulation
 │   │
 │   ├── page.tsx                   # /manager — facility KPI overview
-│   ├── jobs/                      # /manager/jobs — job + dependency builder
-│   ├── scheduler/                 # /manager/scheduler — release & generate
+│   ├── jobs/                      # /manager/jobs — independent-job builder
+│   ├── scheduler/                 # /manager/scheduler — generate via the API
 │   └── simulation/                # /manager/simulation — plan playback
 │
 └── operator/                      # /operator — single-machine job queue
@@ -161,7 +177,7 @@ connected to the planning flow — see *Known gaps*.
 Where the backlog is written. Two columns:
 
 **Backlog (left)** — every defined job as a card: colour swatch, id, priority,
-operation count, total machine time, and its dependencies. Click to edit.
+operation count and total machine time. Click to edit.
 
 **Editor (right)** — name and priority, then:
 
@@ -169,43 +185,71 @@ operation count, total machine time, and its dependencies. Click to edit.
   a duration in minutes. Rows can be reordered (↑/↓) or removed. *Order is
   precedence*: operation n+1 cannot start until operation n finishes, so moving
   a row rewrites the job's internal dependency chain.
-- **Dependencies** — a checklist of the other jobs that must finish before this
-  one starts. Any job that already depends on the one being edited is **disabled
-  with an explanation**, so a cycle cannot be created in the first place rather
-  than being caught later at generation time.
-- A reverse-dependency note ("3 jobs wait on this one") and a live summary of
-  operation count, total machine time and machines touched.
+- A live summary of operation count, total machine time and machines touched.
 
 Validation runs on save and lists every problem at once.
 
 ---
 
-### `/manager/scheduler` — Release & generate (`app/manager/scheduler/page.tsx`)
+### `/manager/scheduler` — Generate a plan (`app/manager/scheduler/page.tsx`)
 
-**No date navigation, no playback controls.** Three columns:
+**No date navigation, no playback controls.** Reads the API for everything:
+`GET /jobs` and `GET /machines` for what is on the floor, then the
+POST/poll/timeline sequence above when Generate is pressed. Opens on the most
+recent stored schedule, so arriving here shows the current plan rather than an
+empty frame.
 
-**Release to schedule (left)** — a checkbox per backlog job with its priority,
-operation count and work time. A job whose dependency is not also ticked is
-flagged inline in red *before* generation is attempted. Select-all / clear, and
-a running total of selected machine time.
+**Released to schedule (left)** — every job in the database, each with a colour
+swatch matching the chart. The checkboxes are **ticked and disabled on purpose**:
+the engine plans every operation in the database and the API has no way to scope
+a run to a subset, so this is what *will* be planned rather than a choice, and a
+`<Note>` says so. A running total of jobs and active machines sits underneath;
+zero active machines is flagged, since it is the reason a run is about to be
+refused.
 
-**Generated plan (centre)** — the `GanttChart` in `plan` mode, or an empty state
-explaining what Generate will do, or a validation panel listing why the current
-selection cannot be scheduled. A **stale banner** appears if job definitions were
-edited after the plan was generated; plans are never silently regenerated
-underneath the manager.
+**Generated plan (centre)** — the `GanttChart` in `plan` mode once a plan is
+drawn, and before that a state for each way a run can end: queued, planning,
+reading the schedule, rejected (with the engine's own validation issues listed
+by code), the learned runtime not installed, nothing picked up the run, and a
+worker failure. Those distinctions are deliberate — a rejected run is a problem
+with the floor's data, a missing runtime is a deployment problem and a timeout
+is a stopped worker, and three different people fix those three things.
 
 **Plan summary (right)** — makespan and job count, per-machine utilisation bars,
-and the **placement order** table: the order the generator worked in, with each
-job's start and finish offsets. Clicking a row (or a legend entry, or a block)
-traces that job across the grid by dimming the rest. The table doubles as the
-chart's text equivalent, so the plan is fully readable without relying on colour.
+and a **job placement** table giving each job's start and finish offset in the
+engine's lane order. Clicking a row (or a legend entry, or a block) traces that
+job across the grid by dimming the rest. The table doubles as the chart's text
+equivalent, so the plan is fully readable without relying on colour.
+
+Job and machine names are whatever the database stores, so a seeded benchmark
+reads `abz5/J03` and `abz5/M07`.
+
+### `/login` — Sign in (`app/login/page.tsx`)
+
+Username and password against `POST /api/v1/auth/token`. Redirects anyone already
+signed in, and honours `?next=` — but only for same-origin paths, so a crafted
+link cannot bounce someone off-site straight after they type a password.
 
 ---
 
-### `/manager/simulation` — Plan playback (`app/manager/simulation/page.tsx`)
+### `/manager/simulation` — Schedule playback (`app/manager/simulation/page.tsx`)
 
-Runs the last generated plan forward. Nothing here changes the plan.
+**The one page that reads from the API.** Everything on it comes from two calls:
+`GET /api/v1/schedules` to list what exists, then
+`GET /api/v1/schedules/{id}/timeline` for the one picked. Every start and end
+time was computed by the backend's simulation resolver from the schedule's
+stored entries and dependencies; this page places bars and moves a clock across
+them. It does not read the in-browser plan from `PlanningProvider` at all.
+
+**Schedule picker** — a select listing every schedule newest-first, labelled by
+strategy, makespan and creation time, with a status badge. A confirmed schedule
+is chosen on load, since simulation refuses anything else. `_lib/timeline.ts`
+translates the response into a `GeneratedSchedule` so the existing chart and
+panels draw it unchanged — pure renaming and regrouping, **no re-timing**.
+
+Lane labels are whatever the database stores, so a seeded benchmark reads
+`abz5/J03` and `abz5/M07`. Operators are not shown: the timeline answers what is
+scheduled, not who is standing at the machine.
 
 **Transport** — play/pause, reset, and a speed selector expressed in shop-minutes
 per real second (`1×` = 1 min/s, `10×`, `60×` = one hour per second). A `T+`
@@ -222,7 +266,11 @@ Overall counters above it.
 
 **Job progress (right)** — operations completed per job and its live state.
 
-If no plan has been generated, the page says so and links to the scheduler.
+The page has a state for each way it can have nothing to draw: loading, an API
+that cannot be reached (with the API's own message and a retry), an empty
+database, a draft schedule that has no timeline to resolve, and an account
+without permission — `GET /schedules` is manager-only, so an operator is told
+that plainly rather than shown a raw 403.
 
 ---
 
@@ -239,22 +287,78 @@ generated schedule.
 
 ## State and the API seam
 
-`PlanningProvider` (`app/manager/_components/PlanningProvider.tsx`) holds the
-backlog, the selection and the generated plan for every `/manager` route. It is
-**in-memory only**: client-side navigation between the tabs preserves everything,
-but a browser reload resets to the seed backlog and clears the plan.
+`PlanningProvider` (`app/manager/_components/PlanningProvider.tsx`) holds the job
+backlog for `/manager/jobs`. It is **in-memory only**: client-side navigation
+between the tabs preserves it, but a browser reload resets it to the seed
+backlog.
 
-That provider is the seam the API will replace. Its actions (`createJob`,
-`updateJob`, `deleteJob`, `generate`, …) are already the shape of the calls the
-backend will need to serve; `generateSchedule` itself will likely move server-side
-once the solver is real.
+It no longer holds a generated plan. Generation moved to the backend, and both
+the scheduler and the simulation read what is actually stored — so the provider
+is now only the job builder's working copy. What keeps it alive is that its model
+is *richer than the API's*: priorities and per-operation durations have nowhere
+to be written, because there is no operations endpoint.
+`GET /jobs` answers an id and a name and nothing else.
 
 | File | Structure | Replaced by |
 | --- | --- | --- |
-| `manager/_lib/seed.ts` | `SEED_MACHINES`, `SEED_JOBS` | Machine + job endpoints |
-| `manager/_lib/scheduling.ts` | `generateSchedule` | The backend solver |
+| `manager/_lib/seed.ts` | `SEED_MACHINES`, `SEED_JOBS` | An operations endpoint, once one exists |
+| `manager/_lib/scheduling.ts` | ~~`generateSchedule`~~ | ✅ done — `POST /api/v1/schedules` |
 | `manager/page.tsx` | `weeks: WeekData[]` | KPI rollup endpoint |
 | `operator/page.tsx` | `initialMachine: MachineState` | Per-machine queue endpoint / WebSocket |
+
+`/manager/simulation` and `/manager/scheduler` have both crossed that seam. The
+jobs route has not, and cannot until the API can store what it writes.
+
+Pages that read the API share `app/_lib/load-state.ts`: a four-state
+`LoadState<Value>` union and the `errorMessage` helper, so `forbidden` stays
+distinct from `error` on every screen rather than each page re-deciding.
+
+### Talking to the API
+
+`app/_lib/api.ts` is the whole client: one base URL from `NEXT_PUBLIC_API_URL`,
+one fetch wrapper, and a typed function per endpoint. The API answers failures as
+RFC 9457 problem details, so the wrapper throws with the `detail` field — the
+message a person should actually be shown — and falls back to the status line
+only when the body is not a problem document.
+
+Only `NEXT_PUBLIC_API_URL` is needed in `src/frontend/.env.local` (gitignored):
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8002
+```
+
+### Signing in
+
+`/login` posts to the API's own `POST /api/v1/auth/token` and hands the bearer
+token to `app/_lib/auth.ts`.
+
+That module is a small external store rather than React state, for two reasons:
+plain functions outside the component tree read it, and `useSyncExternalStore`
+lets a component read it without hydrating from an effect — reading storage
+during render would disagree with the server's HTML, and doing it in an effect
+means a synchronous `setState`, which React 19's lint rules reject.
+
+The token lives in **`sessionStorage`**: it survives a reload and navigation but
+dies with the tab, so a testing session is never interrupted and a shared machine
+keeps nothing afterwards. It is readable by any script on the page, as any
+browser-held token is; the protection that matters is the API's 30-minute expiry.
+
+`AuthProvider` turns that token into an account with `GET /api/v1/auth/me`, which
+doubles as the check that it is still valid. There is no refresh endpoint, so an
+expired token cannot be renewed — the API answers 401, the provider discards it,
+and `RequireAuth` sends the visitor to `/login`. A tab left open overnight lands
+on the login screen rather than failing one request at a time. An *unreachable*
+API is treated differently: the token may be perfectly good, so it is kept and
+the outage reported instead of signing anybody out.
+
+`RequireAuth` wraps `/manager` and `/operator` through their layouts, carrying
+the attempted path in `?next=` so signing in returns you there. It is a
+client-side guard over a client-side app — it decides what to render, not what
+the API will serve. The real protection is that every schedule route demands a
+bearer token; this only saves a person from watching each request fail.
+
+There is no sign-up page, because the API has no registration route. Accounts are
+created server-side — see [docs/accounts.md](../../docs/accounts.md).
 
 ## Styling conventions
 
@@ -368,6 +472,26 @@ Still ours to get right:
 
 ## Known gaps / next steps
 
+**A generated schedule stays a draft forever.** There is no
+`POST /schedules/{id}/confirm` anywhere in the codebase, so nothing can ever move
+a schedule out of `draft`. It does not bite yet, because the simulation page's
+playback is entirely local and never calls `/simulations` — but the API's
+`POST /simulations` refuses anything unconfirmed, so server-side playback is
+blocked until that endpoint exists.
+
+**A run cannot be scoped to chosen jobs.** `POST /api/v1/schedules` takes only a
+`starts_at` and plans every operation in the database. The scheduler's checkbox
+column is ticked and disabled because of it. Scoping means adding `job_ids` to
+the request and filtering in `SchedulingService.load_input` — and doing it
+carefully, since ReSched requires disjoint linear job chains and a selected job
+must include its complete ordered operation chain.
+
+**Polling, not push.** The scheduler asks for a generation's status once a second
+for up to three minutes. Fine for one manager and a handful of runs; a push
+channel is the answer if that ever becomes several people watching at once.
+Worth knowing that this made `GET /schedules/generations/{id}` a hot endpoint for
+the first time, and it reads the task queue synchronously inside an async route.
+
 **Not yet connected to the planning flow.** `/manager` (the KPI overview) and
 `/operator` still run on their own hardcoded fixtures. The operator view is the
 obvious next integration: its queue should be the operations the generated plan
@@ -388,16 +512,16 @@ and re-run the generator around it, most likely.
 breakdown or an overrun mid-run and re-planning from that point is the natural
 next feature, and the reason the simulation is a separate route.
 
-**Scheduling quality.** The generator is greedy and never backtracks. Bottleneck
-machines, setup/changeover times, operator availability, shift boundaries and
-machine capability constraints are all unmodelled. If schedule quality becomes a
-real requirement, this is where a proper solver goes — and `scheduling.ts` is
-already isolated enough to swap wholesale.
+**Scheduling quality is now a backend question.** The browser no longer decides
+where anything goes, so setup times, operator availability, shift boundaries and
+bottleneck handling are all questions for the engine and its contract — see
+[docs/scheduling.md](../../docs/scheduling.md), which records what that adapter
+deliberately refuses.
 
-**No tests.** `_lib/scheduling.ts` is pure and is the obvious first target: no
-machine double-booked, operations sequential within a job, durations preserved,
-dependencies respected, deterministic output, and correct detection of cycles
-and missing dependencies. The operator queue state machine is the second.
+**No tests.** `_lib/generation.ts` is the obvious first target now that the
+solver is gone: it returns terminal states unchanged, stops at the ceiling rather
+than polling forever, and unwinds cleanly when aborted mid-wait.
+The operator queue state machine is the next target.
 
 **Mock data consistency.** The overview's `weeks` fixture uses `#254`-style job
 ids while the planning flow uses `JOB-254`, and the two disagree about the same
