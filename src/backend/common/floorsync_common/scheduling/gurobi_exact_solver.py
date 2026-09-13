@@ -4,7 +4,8 @@ Problem (FAJSP), built with Gurobi.
 
 import gurobipy as gp
 from gurobipy import GRB
-from load_data_from_db import load_fajsp
+from load_data_from_db import load_fajsp, load_fajsp_from_db
+from sqlalchemy.orm import Session
 
 DATA_PATH = "./data/mk01.json"
 
@@ -148,6 +149,13 @@ def build_model(
 
 def main() -> None:
     jobs, machines, operations, eligible_machines, operations_list = load_fajsp(DATA_PATH)
+    model = build_model(jobs, machines, operations, eligible_machines, operations_list)
+    model.optimize()
+
+
+def main_from_db(db: Session) -> None:
+    """Solve using the floor's current jobs, machines, routes and dependencies."""
+    jobs, machines, operations, eligible_machines, operations_list = load_fajsp_from_db(db)
     model = build_model(jobs, machines, operations, eligible_machines, operations_list)
     model.optimize()
 

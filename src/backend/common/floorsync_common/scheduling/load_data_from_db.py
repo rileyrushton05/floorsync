@@ -2,7 +2,18 @@
 
 import json
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import NamedTuple
+from uuid import UUID
+
+from sqlalchemy.orm import Session
+
+from floorsync_common.scheduling.exact_solver_queries import (
+    load_active_machines,
+    load_operations,
+    load_precedences,
+    load_routes,
+)
 
 
 class FajspData(NamedTuple):
@@ -71,11 +82,17 @@ def load_fajsp(path: str) -> FajspData:
     num_machines = max(machine for op in operations_list for _, machine in op["options"]) + 1
     machines = range(num_machines)
     operations = range(len(operations_list))
-    eligible_machines = {
+
+    return FajspData(
+        jobs, machines, operations, _eligible_machines(operations_list, operations), operations_list
+    )
+
+
+def _eligible_machines(operations_list: list[dict], operations: range) -> dict[int, list[int]]:
+    """Return the eligible machines for each operation, keyed by operation index."""
+    return {
         op: [machine for _, machine in operations_list[op]["options"]] for op in operations
     }
-
-    return FajspData(jobs, machines, operations, eligible_machines, operations_list)
 
 
 # if __name__ == "__main__":
@@ -89,3 +106,90 @@ def load_fajsp(path: str) -> FajspData:
 #             for _, machine in data.operations_list[op]["options"]
 #         }
 #         print(f"  job {job_id}: {len(job_ops)} tasks, uses machines {sorted(machines_used)}")
+
+
+def load_fajsp_from_db(db: Session) -> FajspData:
+    """Load the current floor configuration and shape it for `gurobi_exact_solver.build_model`.
+
+    Produces the same shape `load_fajsp` builds from a benchmark JSON file: jobs are
+    plain linear operation chains, which is what this solver's disjunctive model
+    assumes -- `get_predecessor` in `gurobi_exact_solver.py` walks a flat, per-job list
+    purely by position, with no support for fan-in, fan-out, or cross-job joins.
+
+    Chains are derived from `dependencies`, not from `Operation.position` -- position is
+    the job builder's display order, not precedence (see `database/models/operation.py`)
+    -- the same source and the same one-predecessor/one-successor restriction
+    `ReSchedEngine._validate` applies to its own input (`resched.py`).
+
+    Raises:
+        ValueError: If the floor configuration isn't a set of plain linear chains, or an
+            operation has no compatible active machine to run on.
+    """
+    machine_rows = load_active_machines(db)
+    operation_ids = load_operations(db)
+    route_rows = load_routes(db)
+    precedence_rows = load_precedences(db)
+
+    machine_index = {machine_id: index for index, (machine_id, _name) in enumerate(machine_rows)}
+    chains = _build_chains(operation_ids, precedence_rows)
+
+    routes_by_operation: dict[UUID, list[tuple[int, int]]] = defaultdict(list)
+    for operation_id, machine_id, duration in route_rows:
+        if machine_id in machine_index:
+            routes_by_operation[operation_id].append((duration, machine_index[machine_id]))
+
+    operations_list = []
+    for job_index, chain in enumerate(chains):
+        for pos, operation_id in enumerate(chain):
+            options = routes_by_operation[operation_id]
+            if not options:
+                raise ValueError(f"Operation {operation_id} has no compatible active machine.")
+            operations_list.append({"job": job_index, "pos": pos, "options": options})
+
+    jobs = range(len(chains))
+    machines = range(len(machine_rows))
+    operations = range(len(operations_list))
+
+    return FajspData(
+        jobs, machines, operations, _eligible_machines(operations_list, operations), operations_list
+    )
+
+
+def _build_chains(
+    operation_ids: Sequence[UUID], precedence_rows: Sequence[tuple[UUID, UUID]]
+) -> list[list[UUID]]:
+    """Reconstruct each job's linear operation chain from precedence edges.
+
+    Rejects any shape the exact solver's model can't represent: since it orders
+    operations purely by position in a flat, per-job list, every operation needs
+    exactly one predecessor and one successor -- the same restriction
+    `ReSchedEngine._validate` places on its own input.
+    """
+    predecessor: dict[UUID, UUID] = {}
+    successor: dict[UUID, UUID] = {}
+    for before_id, after_id in precedence_rows:
+        if after_id in predecessor or before_id in successor:
+            raise ValueError(
+                "The exact solver only supports one predecessor and one successor per "
+                f"operation; operation {before_id!s} or {after_id!s} has more than one."
+            )
+        predecessor[after_id] = before_id
+        successor[before_id] = after_id
+
+    operation_id_set = set(operation_ids)
+    roots = sorted((op for op in operation_id_set if op not in predecessor), key=str)
+
+    chains = []
+    for root in roots:
+        chain = [root]
+        while chain[-1] in successor:
+            chain.append(successor[chain[-1]])
+        chains.append(chain)
+
+    covered = {operation_id for chain in chains for operation_id in chain}
+    if covered != operation_id_set:
+        raise ValueError(
+            "Operations form a cycle the exact solver can't order: "
+            f"{len(operation_id_set) - len(covered)} operation(s) unreachable from a chain root."
+        )
+    return chains
