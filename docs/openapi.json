@@ -85,6 +85,170 @@
         "title": "Body_create_access_token_api_v1_auth_token_post",
         "type": "object"
       },
+      "BuilderName": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "BuilderOperationCreateInput": {
+        "additionalProperties": false,
+        "description": "One new operation within a job definition being created.",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/BuilderName"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/BuilderRouteInput"
+            },
+            "minItems": 1,
+            "title": "Routes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "routes"
+        ],
+        "title": "BuilderOperationCreateInput",
+        "type": "object"
+      },
+      "BuilderOperationReplaceInput": {
+        "additionalProperties": false,
+        "description": "One operation within a replacement. Send an id to retain it; omit it for a new operation.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "$ref": "#/components/schemas/BuilderName"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/BuilderRouteInput"
+            },
+            "minItems": 1,
+            "title": "Routes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "routes"
+        ],
+        "title": "BuilderOperationReplaceInput",
+        "type": "object"
+      },
+      "BuilderOperationResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/BuilderRouteResponse"
+            },
+            "title": "Routes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "name",
+          "routes"
+        ],
+        "title": "BuilderOperationResponse",
+        "type": "object"
+      },
+      "BuilderRouteInput": {
+        "additionalProperties": false,
+        "description": "What it costs one machine to run one operation, as the builder edits it.",
+        "properties": {
+          "duration_minutes": {
+            "minimum": 1.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "machine_id": {
+            "format": "uuid",
+            "title": "Machine Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine_id",
+          "duration_minutes"
+        ],
+        "title": "BuilderRouteInput",
+        "type": "object"
+      },
+      "BuilderRouteResponse": {
+        "properties": {
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "machine_id": {
+            "format": "uuid",
+            "title": "Machine Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine_id",
+          "duration_minutes",
+          "energy"
+        ],
+        "title": "BuilderRouteResponse",
+        "type": "object"
+      },
       "CapabilityResponse": {
         "properties": {
           "duration": {
@@ -236,6 +400,33 @@
         "title": "CurrentUserResponse",
         "type": "object"
       },
+      "CursorPage_JobDefinitionResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobDefinitionResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CursorPage[JobDefinitionResponse]",
+        "type": "object"
+      },
       "CursorPage_JobResponse_": {
         "properties": {
           "items": {
@@ -358,6 +549,104 @@
           "name"
         ],
         "title": "JobCreateRequest",
+        "type": "object"
+      },
+      "JobDefinitionCreateRequest": {
+        "additionalProperties": false,
+        "description": "A complete job a manager is creating in one request: its priority and every operation.",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/BuilderName"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/BuilderOperationCreateInput"
+            },
+            "minItems": 1,
+            "title": "Operations",
+            "type": "array"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/JobPriority"
+          }
+        },
+        "required": [
+          "name",
+          "priority",
+          "operations"
+        ],
+        "title": "JobDefinitionCreateRequest",
+        "type": "object"
+      },
+      "JobDefinitionReplaceRequest": {
+        "additionalProperties": false,
+        "description": "A complete replacement for one job's definition.\n\nThe array index of each operation is its 1-based position -- there is no caller-controlled\nposition field, so drag-reorder has one unambiguous representation.",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/BuilderName"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/BuilderOperationReplaceInput"
+            },
+            "minItems": 1,
+            "title": "Operations",
+            "type": "array"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/JobPriority"
+          }
+        },
+        "required": [
+          "name",
+          "priority",
+          "operations"
+        ],
+        "title": "JobDefinitionReplaceRequest",
+        "type": "object"
+      },
+      "JobDefinitionResponse": {
+        "description": "The canonical shape of a job definition: everything the builder needs to redraw it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/BuilderOperationResponse"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/JobPriority"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "priority",
+          "created_at",
+          "updated_at",
+          "operations"
+        ],
+        "title": "JobDefinitionResponse",
         "type": "object"
       },
       "JobDependenciesReplaceRequest": {
@@ -1838,6 +2127,111 @@
         ]
       }
     },
+    "/api/v1/job-definitions": {
+      "get": {
+        "description": "List every job with its operations and routes, a page at a time.\n\nLists every operation and route in this page in bulk, so the frontend has no N+1 detail fetch.",
+        "operationId": "list_definitions_api_v1_job_definitions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPage_JobDefinitionResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Page through complete job definitions",
+        "tags": [
+          "jobs"
+        ]
+      },
+      "post": {
+        "description": "Create one job, its operations and their machine routes in a single transaction.\n\nA failed validation writes nothing: no job, operation or compatibility row exists unless every\nroute names an active machine.",
+        "operationId": "create_definition_api_v1_job_definitions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobDefinitionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDefinitionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "A route names an unknown or inactive machine"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create a complete job definition",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
     "/api/v1/jobs": {
       "get": {
         "description": "List jobs by name, a page at a time.",
@@ -2102,6 +2496,111 @@
           }
         ],
         "summary": "Update a job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/jobs/{job_id}/definition": {
+      "get": {
+        "description": "Read a job's complete definition: its priority, its operations and their routes, in order.",
+        "operationId": "get_definition_api_v1_jobs__job_id__definition_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDefinitionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Read one job definition for editing",
+        "tags": [
+          "jobs"
+        ]
+      },
+      "put": {
+        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when any of this job's operations already appears in a generated\nschedule, so a definition save can never rewrite a schedule's record of what was planned.",
+        "operationId": "replace_definition_api_v1_jobs__job_id__definition_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobDefinitionReplaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDefinitionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The job does not exist"
+          },
+          "409": {
+            "description": "An operation in this job already appears in a schedule"
+          },
+          "422": {
+            "description": "A route names an unknown or inactive machine, an operation id does not belong to this job, removing an operation would delete another job's edge to it, or the new ordering would form a cycle"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Atomically replace one editable definition",
         "tags": [
           "jobs"
         ]
