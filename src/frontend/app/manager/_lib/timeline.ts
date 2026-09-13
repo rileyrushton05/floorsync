@@ -64,7 +64,6 @@ export function timelineToPlan(timeline: ScheduleTimeline): TimelinePlan {
             id: jobId,
             name: lane.label,
             priority: "Med",
-            dependsOn: [],
             operations: chain.map((operation) => ({
                 id: operation.key,
                 name: operation.label,

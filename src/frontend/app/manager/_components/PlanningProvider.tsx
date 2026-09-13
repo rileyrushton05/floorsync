@@ -14,8 +14,8 @@ import type { JobDef, Machine } from "../_lib/types";
  * happens on the backend and the plan is read back from
  * `GET /api/v1/schedules/{id}/timeline`, so the scheduler and simulation pages
  * both draw what is actually stored rather than a copy held here. What is left
- * is the richer local job model — priorities, per-operation durations and
- * job-level dependencies — that the job builder needs and the API cannot yet
+ * is the richer local job model — priorities and per-operation durations —
+ * that the job builder needs and the API cannot yet
  * express, since there is no operations endpoint to write it through.
  */
 interface PlanningValue {
@@ -52,13 +52,7 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const deleteJob = useCallback((id: string) => {
-        setJobs((previous) =>
-            previous
-                .filter((job) => job.id !== id)
-                // Drop the dangling dependency too, or the backlog is left in a
-                // state no selection can satisfy.
-                .map((job) => ({ ...job, dependsOn: job.dependsOn.filter((depId) => depId !== id) })),
-        );
+        setJobs((previous) => previous.filter((job) => job.id !== id));
     }, []);
 
     const value = useMemo<PlanningValue>(

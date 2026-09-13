@@ -3,7 +3,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox, CheckboxField } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/field";
 import { GridList, GridListEmptyState, GridListItem } from "@/components/ui/grid-list";
 import { Input } from "@/components/ui/input";
@@ -28,7 +27,7 @@ import { priorityIntent } from "../../_lib/badge-intent";
 import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { usePlanning } from "../_components/PlanningProvider";
 import { buildJobColors, jobColor } from "../_lib/colors";
-import { dependentsOf, formatDuration, totalWorkMins, wouldCreateCycle } from "../_lib/scheduling";
+import { formatDuration, totalWorkMins } from "../_lib/scheduling";
 import type { JobDef, OperationDef, Priority } from "../_lib/types";
 
 /** The job being written, before it is committed to the backlog. */
@@ -38,10 +37,9 @@ interface Draft {
     name: string;
     priority: Priority;
     operations: OperationDef[];
-    dependsOn: string[];
 }
 
-const EMPTY_DRAFT: Draft = { id: null, name: "", priority: "Med", operations: [], dependsOn: [] };
+const EMPTY_DRAFT: Draft = { id: null, name: "", priority: "Med", operations: [] };
 
 /** How long the zoom-out runs before the dialog unmounts, in ms. */
 const CLOSE_MS = 150;
@@ -85,8 +83,7 @@ function DeleteConfirmDialog({
             >
                 <h2 className="font-semibold text-fg text-lg">Delete {jobId}?</h2>
                 <p className="mt-2 text-muted-fg text-sm">
-                    This removes the job and all of its operations from the backlog. Other jobs depending on it
-                    will no longer wait on it. This cannot be undone.
+                    This removes the job and all of its operations from the backlog. This cannot be undone.
                 </p>
                 <div className="mt-5 flex items-center justify-end gap-2.5">
                     <Button intent="outline" onPress={onDismiss}>
@@ -111,13 +108,6 @@ const DURATION_FILTERS = [
     { id: "Long", label: "Long (> 4 hrs)" },
 ] as const;
 
-const DEPENDENCY_FILTERS = [
-    { id: "All", label: "Any dependencies" },
-    { id: "Has dependencies", label: "Waits on other jobs" },
-    { id: "No dependencies", label: "Standalone" },
-    { id: "Blocking others", label: "Others wait on it" },
-] as const;
-
 const SORT_OPTIONS = [
     { id: "Manual", label: "Backlog order" },
     { id: "Priority", label: "Priority" },
@@ -133,7 +123,6 @@ function draftFrom(job: JobDef): Draft {
         name: job.name,
         priority: job.priority,
         operations: job.operations.map((op) => ({ ...op })),
-        dependsOn: [...job.dependsOn],
     };
 }
 
@@ -176,7 +165,6 @@ function JobsPageInner() {
     const [priorityFilter, setPriorityFilter] = useState<(typeof PRIORITIES)[number]["id"] | "All">("All");
     const [machineFilter, setMachineFilter] = useState<string>("All");
     const [durationFilter, setDurationFilter] = useState<(typeof DURATION_FILTERS)[number]["id"]>("All");
-    const [dependencyFilter, setDependencyFilter] = useState<(typeof DEPENDENCY_FILTERS)[number]["id"]>("All");
     const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]["id"]>("Manual");
 
     function dismissDelete() {
@@ -217,9 +205,6 @@ function JobsPageInner() {
             if (durationFilter === "Short" && !(work < 60)) return false;
             if (durationFilter === "Medium" && !(work >= 60 && work < 240)) return false;
             if (durationFilter === "Long" && !(work >= 240)) return false;
-            if (dependencyFilter === "Has dependencies" && job.dependsOn.length === 0) return false;
-            if (dependencyFilter === "No dependencies" && job.dependsOn.length > 0) return false;
-            if (dependencyFilter === "Blocking others" && dependentsOf(jobs, job.id).length === 0) return false;
             return true;
         });
         if (sortBy === "Manual") return matching;
@@ -237,25 +222,22 @@ function JobsPageInner() {
             }
         });
         return sorted;
-    }, [jobs, query, priorityFilter, machineFilter, durationFilter, dependencyFilter, sortBy]);
+    }, [jobs, query, priorityFilter, machineFilter, durationFilter, sortBy]);
 
     const filtersActive =
         query.trim() !== "" ||
         priorityFilter !== "All" ||
         machineFilter !== "All" ||
-        durationFilter !== "All" ||
-        dependencyFilter !== "All";
+        durationFilter !== "All";
 
     function clearFilters() {
         setQuery("");
         setPriorityFilter("All");
         setMachineFilter("All");
         setDurationFilter("All");
-        setDependencyFilter("All");
     }
 
     const draftWorkMins = draft.operations.reduce((total, op) => total + op.durationMins, 0);
-    const blockedBy = draft.id ? dependentsOf(jobs, draft.id) : [];
 
     function startNewJob() {
         setDraft(EMPTY_DRAFT);
@@ -342,15 +324,6 @@ function JobsPageInner() {
         setDropIndex(null);
     }
 
-    function toggleDependency(jobId: string) {
-        setDraft((previous) => ({
-            ...previous,
-            dependsOn: previous.dependsOn.includes(jobId)
-                ? previous.dependsOn.filter((id) => id !== jobId)
-                : [...previous.dependsOn, jobId],
-        }));
-    }
-
     function validateDraft(): string[] {
         const found: string[] = [];
         if (draft.name.trim() === "") found.push("Give the job a name.");
@@ -371,14 +344,13 @@ function JobsPageInner() {
             name: draft.name.trim(),
             priority: draft.priority,
             operations: draft.operations.map((op) => ({ ...op, name: op.name.trim() })),
-            dependsOn: draft.dependsOn,
         };
 
         if (draft.id) {
             updateJob(draft.id, payload);
             toast.success(`${draft.id} saved.`);
         } else {
-            const id = createJob({ ...payload, dependsOn: payload.dependsOn });
+            const id = createJob(payload);
             setDraft((previous) => ({ ...previous, id }));
             toast.success(`${id} created and added to the selection.`);
         }
@@ -396,8 +368,6 @@ function JobsPageInner() {
         setDeleteClosing(false);
         toast.success(`${removedId} deleted.`);
     }
-
-    const dependencyCandidates = jobs.filter((candidate) => candidate.id !== draft.id);
 
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
@@ -480,21 +450,6 @@ function JobsPageInner() {
                                 </SelectContent>
                             </Select>
 
-                            <Select
-                                aria-label="Filter by dependencies"
-                                className="w-48"
-                                value={dependencyFilter}
-                                onChange={(value) => setDependencyFilter(value as typeof dependencyFilter)}
-                            >
-                                <SelectTrigger />
-                                <SelectContent>
-                                    {DEPENDENCY_FILTERS.map((option) => (
-                                        <SelectItem key={option.id} id={option.id} textValue={option.label}>
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
                         </div>
 
                         <Separator className="my-5" />
@@ -560,11 +515,6 @@ function JobsPageInner() {
                                         <span className="text-muted-fg text-xs selected:text-muted-fg!">
                                             {job.operations.length} ops · {formatDuration(totalWorkMins(job))} of work
                                         </span>
-                                        {job.dependsOn.length > 0 && (
-                                            <span className="text-muted-fg text-xs selected:text-muted-fg!">
-                                                after {job.dependsOn.join(", ")}
-                                            </span>
-                                        )}
                                     </span>
                                     <ChevronRightIcon
                                         aria-label={`Open ${job.id} details`}
@@ -796,57 +746,6 @@ function JobsPageInner() {
                             </Button>
                         </div>
 
-                        <div>
-                            <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                <h3 className="font-semibold text-sm">Dependencies</h3>
-                                <span className="text-muted-fg text-xs">
-                                    This job cannot start until every job ticked here has finished
-                                </span>
-                            </div>
-
-                            <ul className="mt-3 space-y-1.5">
-                                {dependencyCandidates.map((candidate) => {
-                                    // Ticking a job that already depends on this one would
-                                    // close a loop no ordering can satisfy, so block it here
-                                    // rather than failing at generation time.
-                                    const cyclic = draft.id !== null && wouldCreateCycle(jobs, draft.id, candidate.id);
-                                    return (
-                                        <li key={candidate.id}>
-                                            <CheckboxField
-                                                isSelected={draft.dependsOn.includes(candidate.id)}
-                                                isDisabled={cyclic}
-                                                onChange={() => toggleDependency(candidate.id)}
-                                            >
-                                                <Checkbox>
-                                                    <span className="flex flex-wrap items-center gap-2 text-sm">
-                                                        <span className="font-semibold">{candidate.id}</span>
-                                                        <span>{candidate.name}</span>
-                                                        {cyclic && (
-                                                            <span className="text-muted-fg text-xs">
-                                                                already waits on this job
-                                                            </span>
-                                                        )}
-                                                    </span>
-                                                </Checkbox>
-                                            </CheckboxField>
-                                        </li>
-                                    );
-                                })}
-                                {dependencyCandidates.length === 0 && (
-                                    <li className="text-muted-fg text-sm">No other jobs to depend on yet.</li>
-                                )}
-                            </ul>
-
-                            {blockedBy.length > 0 && (
-                                <p className="mt-3 text-muted-fg text-sm">
-                                    <strong className="text-fg">
-                                        {blockedBy.length} job{blockedBy.length === 1 ? "" : "s"}
-                                    </strong>{" "}
-                                    wait on this one: {blockedBy.map((job) => job.id).join(", ")}
-                                </p>
-                            )}
-                        </div>
-
                         <Separator />
 
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -881,4 +780,3 @@ function JobsPageInner() {
         </div>
     );
 }
-
