@@ -71,13 +71,13 @@ def test_operation_position_uniqueness_is_deferred_to_commit() -> None:
     assert unique.initially == "DEFERRED"
 
 
-def test_dependency_origin_is_limited_to_legacy_and_builder_sequence() -> None:
+def test_dependency_origin_is_limited_to_external_and_builder_sequence() -> None:
     column = inspect(Dependency).columns.origin
 
     assert not column.nullable
     assert column.server_default is not None
-    assert column.server_default.arg == "legacy"
-    assert "origin IN ('legacy', 'builder_sequence')" in _check_constraints(Dependency).values()
+    assert column.server_default.arg == "external"
+    assert "origin IN ('external', 'builder_sequence')" in _check_constraints(Dependency).values()
 
 
 def test_jobs_are_independent_at_the_schema_level() -> None:
@@ -189,7 +189,7 @@ def test_seed_loader_numbers_each_jobs_operations_from_one(
     ],
     ids=["classic", "flexible"],
 )
-def test_seed_loader_marks_imported_edges_as_legacy(
+def test_seed_loader_marks_imported_edges_as_external(
     monkeypatch: pytest.MonkeyPatch,
     seed: Callable[[AsyncSession, str], Any],
     name: str,
@@ -202,7 +202,7 @@ def test_seed_loader_marks_imported_edges_as_legacy(
     asyncio.run(seed(cast(AsyncSession, session), name))
 
     origins = {row["origin"] for row in session.rows["dependencies"]}
-    assert origins == {"legacy"}
+    assert origins == {"external"}
 
 
 def test_seed_loader_keeps_fan_in_precedence_independent_of_position(

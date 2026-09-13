@@ -133,14 +133,14 @@ async def seed_instance(
             )
             # The file states precedence only as operation order within a job, so each step depends
             # on the one before it -- a simple chain, not the fan-in the schema also supports.
-            # Imported edges are `legacy`: a later builder save must leave them alone.
+            # Imported edges are `external`: a later builder save must leave them alone.
             if previous_id is not None:
                 dependency_rows.append(
                     {
                         "id": uuid4(),
                         "before_operation_id": previous_id,
                         "after_operation_id": operation_id,
-                        "origin": "legacy",
+                        "origin": "external",
                     }
                 )
             compatibility_rows.append(
@@ -367,7 +367,7 @@ async def seed_flexible_instance(
                 "id": uuid4(),
                 "before_operation_id": operation_ids[before],
                 "after_operation_id": operation_ids[after],
-                "origin": "legacy",
+                "origin": "external",
             }
             for before, after in instance.dependencies
         ],

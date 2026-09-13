@@ -67,12 +67,12 @@ def upgrade() -> None:
     # rewrite. The server default keeps that true for any writer that does not say otherwise.
     op.add_column(
         "dependencies",
-        sa.Column("origin", sa.Text(), nullable=False, server_default="legacy"),
+        sa.Column("origin", sa.Text(), nullable=False, server_default="external"),
     )
     op.create_check_constraint(
         op.f("ck_dependencies_origin_valid"),
         "dependencies",
-        "origin IN ('legacy', 'builder_sequence')",
+        "origin IN ('external', 'builder_sequence')",
     )
 
 

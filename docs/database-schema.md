@@ -174,7 +174,7 @@ persists independently of any schedule.
 |---|---|---|
 | before_operation_id | Uuid | FK -> operations.id, not null, ondelete CASCADE, indexed |
 | after_operation_id | Uuid | FK -> operations.id, not null, ondelete CASCADE, indexed |
-| origin | Text | not null, default 'legacy', CHECK origin IN ('legacy', 'builder_sequence') |
+| origin | Text | not null, default 'external', CHECK origin IN ('external', 'builder_sequence') |
 
 ```sql
 UNIQUE (before_operation_id, after_operation_id)
@@ -183,10 +183,10 @@ CHECK (before_operation_id <> after_operation_id)
 
 `origin` records who owns the row, so a future job-definition save (#235) can rewrite its own edges
 without touching anyone else's. `builder_sequence` is meant for an edge derived from two consecutive
-operation positions, to be deleted and re-derived on every save of that job. `legacy` is everything
-else -- a benchmark import, or an edge written through the ordering API -- and is what every edge
-this PR writes is tagged as, since nothing here derives an edge from position. There is deliberately
-no job-level origin: jobs are independent, and precedence only ever joins operations.
+operation positions, to be deleted and re-derived on every save of that job. `external` is
+everything else -- a benchmark import, or an edge written through the ordering API -- and is what
+every edge this PR writes is tagged as, since nothing here derives an edge from position. There is
+deliberately no job-level origin: jobs are independent, and precedence only ever joins operations.
 
 ## compatibilities
 
