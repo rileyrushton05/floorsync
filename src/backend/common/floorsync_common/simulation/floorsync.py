@@ -1,26 +1,26 @@
-"""Derive a timeline from FloorSync's own schedule rows.
+"""Build a timeline from FloorSync's own schedule rows.
 
-A FloorSync schedule already carries everything the resolution needs, so this
-adapter is a translation rather than a derivation:
+A FloorSync schedule already carries everything playback needs: ``schedule_entries`` supply the
+work, including the ``duration`` snapshotted from Compatibility at generation time, and the
+``start_time`` the scheduler resolved at generation time (see decision 0011). This adapter is a
+translation, not a resolution -- unlike
+:class:`~floorsync_common.simulation.builder.TimelineBuilder`, which still derives timing for
+benchmark instances that carry no stored start time at all.
 
-* ``schedule_entries`` supply the nodes, including the ``duration`` snapshotted
-  from Compatibility at generation time;
-* ``schedule_dependencies`` supply the edges, already labelled ``job_order`` or
-  ``machine_queue``.
-
-The adapter deliberately accepts plain records rather than ORM instances. A
-timeline can then be resolved and tested without a database session, and the
-query that loads a schedule stays a named, intention-revealing read in the
-service layer -- ``load_schedule_inputs()`` -- as decision 0005 prefers.
+The adapter deliberately accepts plain records rather than ORM instances. A timeline can then be
+built and tested without a database session, and the query that loads a schedule stays a named,
+intention-revealing read in the service layer -- ``load_schedule_entries()`` -- as decision 0005
+prefers.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from .errors import ScheduleMismatchError
-from .graph import PrecedenceEdge, PrecedenceReason, TimelineNode
-from .timeline import Timeline
+from .graph import TimelineNode
+from .timeline import ScheduledOperation, Timeline
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +35,9 @@ class ScheduleEntryRecord:
         job_name: Display name of the job.
         machine_name: Display name of the machine.
         operation_name: Display name of the operation.
+        start_time: When the scheduler placed this operation, or ``None`` for a
+            schedule generated before decision 0011 -- see
+            :exc:`~floorsync_common.simulation.errors.ScheduleMismatchError`.
     """
 
     entry_id: UUID
@@ -44,49 +47,52 @@ class ScheduleEntryRecord:
     job_name: str
     machine_name: str
     operation_name: str
-
-
-@dataclass(frozen=True, slots=True)
-class ScheduleDependencyRecord:
-    """One ``schedule_dependencies`` row.
-
-    Attributes:
-        entry_id: The entry that must wait.
-        depends_on_entry_id: The entry it waits for.
-        reason: Why it waits, matching the stored check-constrained value.
-    """
-
-    entry_id: UUID
-    depends_on_entry_id: UUID
-    reason: PrecedenceReason
+    start_time: datetime | None
 
 
 class FloorSyncScheduleAdapter:
-    """Translate FloorSync schedule rows into a resolvable timeline. Stateless."""
+    """Translate FloorSync schedule rows into a timeline. Stateless."""
 
     @staticmethod
-    def build_timeline(
-        entries: Sequence[ScheduleEntryRecord],
-        dependencies: Iterable[ScheduleDependencyRecord],
-    ) -> Timeline:
-        """Resolve start and end times for every entry in a schedule.
+    def build_timeline(entries: Sequence[ScheduleEntryRecord]) -> Timeline:
+        """Place every entry in a schedule using the start time the scheduler already resolved.
 
         Args:
             entries: Every ``schedule_entries`` row of one schedule.
-            dependencies: Every ``schedule_dependencies`` row of that schedule.
 
         Returns:
             A timeline with every entry placed on the clock.
 
         Raises:
-            ScheduleMismatchError: If a dependency names an entry that is not in
-                ``entries``, which means the two were loaded from different
-                schedules or the dependency cache is stale.
-            CyclicScheduleError: If the dependencies imply a deadlock.
+            ScheduleMismatchError: If an entry has no stored ``start_time``, which means the
+                schedule predates decision 0011 and must be regenerated before it can be
+                simulated.
         """
+        starts: dict[str, datetime] = {
+            str(entry.entry_id): entry.start_time
+            for entry in entries
+            if entry.start_time is not None
+        }
+        if len(starts) != len(entries):
+            missing = [entry.entry_id for entry in entries if entry.start_time is None]
+            raise ScheduleMismatchError(
+                f"{len(missing)} schedule entr{'y' if len(missing) == 1 else 'ies'} have no "
+                f"stored start_time, so this schedule predates decision 0011 and cannot be "
+                f"simulated. Regenerate it. First affected entry: {missing[0]}."
+            )
+
         nodes = FloorSyncScheduleAdapter.to_nodes(entries)
-        edges = FloorSyncScheduleAdapter.to_edges(dependencies, {node.key for node in nodes})
-        return Timeline.from_graph(nodes, edges)
+        origin = min(starts.values())
+
+        placed = []
+        for node in nodes:
+            start = round((starts[node.key] - origin).total_seconds() / 60)
+            placed.append(
+                ScheduledOperation(
+                    node=node, start_time=start, end_time=start + node.duration, machine_slot=0
+                )
+            )
+        return Timeline.from_operations(placed)
 
     @staticmethod
     def to_nodes(entries: Sequence[ScheduleEntryRecord]) -> list[TimelineNode]:
@@ -105,38 +111,14 @@ class FloorSyncScheduleAdapter:
         ]
 
     @staticmethod
-    def to_edges(
-        dependencies: Iterable[ScheduleDependencyRecord], known_keys: set[str]
-    ) -> list[PrecedenceEdge]:
-        """Translate schedule dependencies into precedence edges.
-
-        Raises:
-            ScheduleMismatchError: If a dependency names an entry outside
-                ``known_keys``.
-        """
-        edges: list[PrecedenceEdge] = []
-        for dependency in dependencies:
-            before = str(dependency.depends_on_entry_id)
-            after = str(dependency.entry_id)
-            if before not in known_keys or after not in known_keys:
-                missing = before if before not in known_keys else after
-                raise ScheduleMismatchError(
-                    f"Schedule dependency references entry {missing}, which is not part of the "
-                    f"loaded schedule. The dependency cache may be stale, or entries and "
-                    f"dependencies were loaded from different schedules."
-                )
-            edges.append(PrecedenceEdge(before=before, after=after, reason=dependency.reason))
-        return edges
-
-    @staticmethod
     def entries_from_rows(
-        rows: Iterable[tuple[UUID, UUID, UUID, int, str, str, str]],
+        rows: Iterable[tuple[UUID, UUID, UUID, int, str, str, str, datetime | None]],
     ) -> list[ScheduleEntryRecord]:
         """Build entry records from a query returning columns in declared order.
 
         The expected column order is ``entry_id, job_id, machine_id, duration,
-        job_name, machine_name, operation_name`` -- the shape of the join a
-        ``load_schedule_inputs()`` read produces.
+        job_name, machine_name, operation_name, start_time`` -- the shape of the
+        join a ``load_schedule_entries()`` read produces.
         """
         return [
             ScheduleEntryRecord(
@@ -147,6 +129,7 @@ class FloorSyncScheduleAdapter:
                 job_name=job_name,
                 machine_name=machine_name,
                 operation_name=operation_name,
+                start_time=start_time,
             )
             for (
                 entry_id,
@@ -156,34 +139,9 @@ class FloorSyncScheduleAdapter:
                 job_name,
                 machine_name,
                 operation_name,
+                start_time,
             ) in rows
         ]
-
-    @staticmethod
-    def dependencies_from_rows(
-        rows: Iterable[tuple[UUID, UUID, str]],
-    ) -> list[ScheduleDependencyRecord]:
-        """Build dependency records from ``entry_id, depends_on_entry_id, reason`` rows.
-
-        Raises:
-            ScheduleMismatchError: If a stored ``reason`` is not a known value.
-        """
-        records: list[ScheduleDependencyRecord] = []
-        for entry_id, depends_on_entry_id, reason in rows:
-            try:
-                parsed = PrecedenceReason(reason)
-            except ValueError as exc:
-                raise ScheduleMismatchError(
-                    f"Schedule dependency has unknown reason '{reason}'."
-                ) from exc
-            records.append(
-                ScheduleDependencyRecord(
-                    entry_id=entry_id,
-                    depends_on_entry_id=depends_on_entry_id,
-                    reason=parsed,
-                )
-            )
-        return records
 
     @staticmethod
     def label_lookup(records: Mapping[UUID, str]) -> dict[str, str]:

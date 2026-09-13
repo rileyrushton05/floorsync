@@ -1,7 +1,6 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 
 /**
  * Indeterminate top loading bar shown during client-side route transitions.
@@ -13,25 +12,16 @@ import { useEffect, useState } from "react";
  */
 export function TransitionProgress() {
     const pathname = usePathname();
-    const [active, setActive] = useState(false);
-
-    useEffect(() => {
-        setActive(true);
-        const done = setTimeout(() => setActive(false), 500);
-        return () => clearTimeout(done);
-    }, [pathname]);
 
     return (
         <div
             aria-hidden
-            className={`pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 transition-opacity duration-300 ${active ? "opacity-100" : "opacity-0"
-                }`}
+            className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 animate-[transition-progress-fade_0.5s_ease-out_forwards]"
+            key={pathname}
         >
-            {active && (
-                <div className="h-full w-full overflow-hidden bg-primary/20">
-                    <div className="h-full w-2/5 animate-[transition-progress_0.5s_ease-in-out_forwards] bg-primary" />
-                </div>
-            )}
+            <div className="h-full w-full overflow-hidden bg-primary/20">
+                <div className="h-full w-2/5 animate-[transition-progress_0.5s_ease-in-out_forwards] bg-primary" />
+            </div>
         </div>
     );
 }

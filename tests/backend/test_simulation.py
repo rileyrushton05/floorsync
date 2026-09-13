@@ -21,7 +21,6 @@ from floorsync_common.simulation import (
     PrecedenceEdge,
     PrecedenceReason,
     Schedule,
-    ScheduleDependencyRecord,
     ScheduleEntryRecord,
     ScheduleFormatError,
     ScheduleMismatchError,
@@ -140,31 +139,27 @@ def event(
     )
 
 
-def floorsync_fixture() -> tuple[
-    list[ScheduleEntryRecord], list[ScheduleDependencyRecord], dict[str, UUID]
-]:
+def floorsync_fixture() -> tuple[list[ScheduleEntryRecord], dict[str, UUID]]:
     """The same problem as SIMPLE_INSTANCE, expressed as FloorSync schedule rows.
 
-    Frame runs Cut then Polish; Panel runs Trim then Finish. Machine queueing puts
-    Cut before Finish on the Cutter, and Trim before Polish on the Polisher.
+    Frame runs Cut then Polish; Panel runs Trim then Finish. Machine queueing put
+    Cut before Finish on the Cutter, and Trim before Polish on the Polisher — the
+    scheduler already resolved that into the start times below.
     """
     ids = {name: uuid4() for name in ("cut", "polish", "trim", "finish")}
     frame, panel = uuid4(), uuid4()
     cutter, polisher = uuid4(), uuid4()
 
+    later = START + timedelta(minutes=4)
     entries = [
-        ScheduleEntryRecord(ids["cut"], frame, cutter, 3, "Frame", "Cutter", "Cut"),
-        ScheduleEntryRecord(ids["polish"], frame, polisher, 2, "Frame", "Polisher", "Polish"),
-        ScheduleEntryRecord(ids["trim"], panel, polisher, 4, "Panel", "Polisher", "Trim"),
-        ScheduleEntryRecord(ids["finish"], panel, cutter, 1, "Panel", "Cutter", "Finish"),
+        ScheduleEntryRecord(ids["cut"], frame, cutter, 3, "Frame", "Cutter", "Cut", START),
+        ScheduleEntryRecord(
+            ids["polish"], frame, polisher, 2, "Frame", "Polisher", "Polish", later
+        ),
+        ScheduleEntryRecord(ids["trim"], panel, polisher, 4, "Panel", "Polisher", "Trim", START),
+        ScheduleEntryRecord(ids["finish"], panel, cutter, 1, "Panel", "Cutter", "Finish", later),
     ]
-    dependencies = [
-        ScheduleDependencyRecord(ids["polish"], ids["cut"], PrecedenceReason.JOB_ORDER),
-        ScheduleDependencyRecord(ids["finish"], ids["trim"], PrecedenceReason.JOB_ORDER),
-        ScheduleDependencyRecord(ids["finish"], ids["cut"], PrecedenceReason.MACHINE_QUEUE),
-        ScheduleDependencyRecord(ids["polish"], ids["trim"], PrecedenceReason.MACHINE_QUEUE),
-    ]
-    return entries, dependencies, ids
+    return entries, ids
 
 
 # -- instance parsing ----------------------------------------------------
@@ -383,9 +378,9 @@ def test_builder_detects_a_deadlocked_schedule() -> None:
 
 
 def test_floorsync_adapter_resolves_schedule_rows() -> None:
-    entries, dependencies, _ = floorsync_fixture()
+    entries, _ = floorsync_fixture()
 
-    timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+    timeline = FloorSyncScheduleAdapter.build_timeline(entries)
 
     assert placement(timeline) == {
         ("Frame", "Cut"): (0, 3),
@@ -399,9 +394,9 @@ def test_floorsync_adapter_resolves_schedule_rows() -> None:
 
 def test_floorsync_adapter_matches_the_equivalent_benchmark_schedule() -> None:
     """The same problem through both adapters must resolve identically."""
-    entries, dependencies, _ = floorsync_fixture()
+    entries, _ = floorsync_fixture()
 
-    floorsync = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+    floorsync = FloorSyncScheduleAdapter.build_timeline(entries)
     benchmark = build(SIMPLE_INSTANCE, SIMPLE_SCHEDULE)
 
     assert floorsync.makespan == benchmark.makespan
@@ -409,9 +404,9 @@ def test_floorsync_adapter_matches_the_equivalent_benchmark_schedule() -> None:
 
 
 def test_floorsync_timeline_carries_real_names_for_display() -> None:
-    entries, dependencies, _ = floorsync_fixture()
+    entries, _ = floorsync_fixture()
 
-    timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+    timeline = FloorSyncScheduleAdapter.build_timeline(entries)
 
     machine = timeline.machine_status_at(timeline.machine_keys[0], 1)
     assert machine.machine_label == "Cutter"
@@ -420,10 +415,10 @@ def test_floorsync_timeline_carries_real_names_for_display() -> None:
     assert [state.job_label for state in jobs] == ["Frame", "Panel"]
 
 
-def test_floorsync_adapter_derives_the_machine_queue_it_never_stored() -> None:
-    entries, dependencies, _ = floorsync_fixture()
+def test_floorsync_adapter_derives_machine_slot_from_stored_start_times() -> None:
+    entries, _ = floorsync_fixture()
 
-    timeline = FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+    timeline = FloorSyncScheduleAdapter.build_timeline(entries)
     cutter = next(
         key for key in timeline.machine_keys if timeline.machine_status_at(key, 0).machine_label
     )
@@ -432,44 +427,33 @@ def test_floorsync_adapter_derives_the_machine_queue_it_never_stored() -> None:
     assert [item.machine_slot for item in queue] == list(range(len(queue)))
 
 
-def test_floorsync_adapter_rejects_a_stale_dependency_cache() -> None:
-    entries, dependencies, _ = floorsync_fixture()
-    dependencies.append(
-        ScheduleDependencyRecord(entries[0].entry_id, uuid4(), PrecedenceReason.JOB_ORDER)
+def test_floorsync_adapter_rejects_an_entry_missing_start_time() -> None:
+    entries, _ = floorsync_fixture()
+    entries[0] = ScheduleEntryRecord(
+        entries[0].entry_id,
+        entries[0].job_id,
+        entries[0].machine_id,
+        entries[0].duration,
+        entries[0].job_name,
+        entries[0].machine_name,
+        entries[0].operation_name,
+        None,
     )
 
-    with pytest.raises(ScheduleMismatchError, match="not part of the loaded schedule"):
-        FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
-
-
-def test_floorsync_adapter_detects_a_deadlocked_dependency_cache() -> None:
-    entries, dependencies, ids = floorsync_fixture()
-    dependencies.append(
-        ScheduleDependencyRecord(ids["cut"], ids["polish"], PrecedenceReason.MACHINE_QUEUE)
-    )
-
-    with pytest.raises(CyclicScheduleError, match="deadlock"):
-        FloorSyncScheduleAdapter.build_timeline(entries, dependencies)
+    with pytest.raises(ScheduleMismatchError, match="start_time"):
+        FloorSyncScheduleAdapter.build_timeline(entries)
 
 
 def test_floorsync_adapter_builds_records_from_query_rows() -> None:
     entry_id, job_id, machine_id = uuid4(), uuid4(), uuid4()
 
     entries = FloorSyncScheduleAdapter.entries_from_rows(
-        [(entry_id, job_id, machine_id, 5, "Frame", "Cutter", "Cut")]
-    )
-    dependencies = FloorSyncScheduleAdapter.dependencies_from_rows(
-        [(entry_id, entry_id, "machine_queue")]
+        [(entry_id, job_id, machine_id, 5, "Frame", "Cutter", "Cut", START)]
     )
 
     assert entries[0].duration == 5
     assert entries[0].machine_name == "Cutter"
-    assert dependencies[0].reason is PrecedenceReason.MACHINE_QUEUE
-
-
-def test_floorsync_adapter_rejects_an_unknown_dependency_reason() -> None:
-    with pytest.raises(ScheduleMismatchError, match="unknown reason"):
-        FloorSyncScheduleAdapter.dependencies_from_rows([(uuid4(), uuid4(), "vibes")])
+    assert entries[0].start_time == START
 
 
 # -- timeline queries ----------------------------------------------------
@@ -741,8 +725,8 @@ def test_engine_requires_an_instance_before_a_benchmark_schedule() -> None:
 
 
 def test_engine_plays_a_floorsync_timeline() -> None:
-    entries, dependencies, _ = floorsync_fixture()
-    engine = SimulationEngine(FloorSyncScheduleAdapter.build_timeline(entries, dependencies))
+    entries, _ = floorsync_fixture()
+    engine = SimulationEngine(FloorSyncScheduleAdapter.build_timeline(entries))
 
     snapshot = engine.seek(4)
 
