@@ -423,6 +423,7 @@ function JobsPageInner() {
             routes.forEach((route, routeIndex) => {
                 const label = `Operation ${index + 1}, route ${routeIndex + 1}`;
                 if (!(route.durationMins > 0)) found.push(`${label} needs a duration greater than zero.`);
+                if (!Number.isInteger(route.durationMins)) found.push(`${label} needs a whole number of minutes.`);
                 if (route.machineId === "") found.push(`${label} needs a machine.`);
                 if (seenMachines.has(route.machineId)) found.push(`${label} repeats a machine.`);
                 seenMachines.add(route.machineId);
@@ -907,10 +908,11 @@ function JobsPageInner() {
                                                                 <NumberField
                                                                     aria-label={`Operation ${index + 1}, route ${routeIndex + 1} duration in minutes`}
                                                                     minValue={1}
-                                                                    step={5}
+                                                                    step={1}
+                                                                    formatOptions={{ maximumFractionDigits: 0 }}
                                                                     value={route.durationMins}
                                                                     onChange={(durationMins) =>
-                                                                        patchRoute(index, routeIndex, { durationMins })
+                                                                        patchRoute(index, routeIndex, { durationMins: Math.round(durationMins) })
                                                                     }
                                                                 >
                                                                     <NumberInput placeholder="Minutes" />

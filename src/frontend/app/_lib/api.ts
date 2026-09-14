@@ -349,24 +349,6 @@ export function fetchJobs(token: string, limit = 100, cursor?: string): Promise<
     return request<CursorPage<Job>>(`/api/v1/jobs?${query.toString()}`, token);
 }
 
-/** Create the persistent part of a job definition currently supported by the API. */
-export function createJob(name: string, token: string): Promise<Job> {
-    return request<Job>("/api/v1/jobs", token, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-    });
-}
-
-/** Rename an existing job. Operations and dependencies need a future builder endpoint. */
-export function updateJobName(jobId: string, name: string, token: string): Promise<Job> {
-    return request<Job>(`/api/v1/jobs/${encodeURIComponent(jobId)}`, token, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-    });
-}
-
 /** Delete a job that has not appeared in a generated schedule. */
 export function deleteJob(jobId: string, token: string): Promise<void> {
     return request<void>(`/api/v1/jobs/${encodeURIComponent(jobId)}`, token, {
