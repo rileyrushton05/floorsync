@@ -4,12 +4,24 @@ Loads a FAJSP instance from JSON, builds the disjunctive MILP formulation,
 solves for the minimum makespan, and plots the resulting schedule.
 """
 
+import time
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
 import gurobipy as gp
 from sqlalchemy.orm import Session
 
+from floorsync_common.scheduling.contracts import (
+    ScheduleDependencySpec,
+    ScheduledOperation,
+    SchedulePlan,
+    ScheduleMetrics,
+)
+from floorsync_common.scheduling.service import SchedulingService
 from load_data_from_db import load_fajsp, load_fajsp_from_db
 
 INSTANCE_PATH = './data/mk07.json'
+TIME_LIMIT_SECONDS = 60
 
 
 def processing_time(operation_data, operation, machine):
@@ -27,6 +39,7 @@ def build_model(operations, eligible_machines, operation_data):
     )
 
     model = gp.Model('fajsp')
+    model.Params.TimeLimit = TIME_LIMIT_SECONDS
 
     # assignment[i, k]: operation i is assigned to machine k
     assignment = {
@@ -146,12 +159,98 @@ def main():
     report(operation_data, eligible_machines, assignment, start_time, makespan)
 
 
-def main_from_db(db: Session):
-    """Solve using the floor's current jobs, machines, routes and dependencies."""
-    jobs, machines, operations, eligible_machines, operation_data = load_fajsp_from_db(db)
+def build_schedule_plan(operation_data, eligible_machines, assignment, start_time, makespan,
+                         machine_meta, starts_at):
+    """Turn a solved model into a `SchedulePlan`, ready for `SchedulingService.store_draft`."""
+    assignments = []
+    for operation, record in enumerate(operation_data):
+        machine = next(
+            candidate
+            for candidate in eligible_machines[operation]
+            if assignment[operation, candidate].X > 0.5
+        )
+        duration = processing_time(operation_data, operation, machine)
+        machine_id, salary_per_minute = machine_meta[machine]
+        op_starts_at = starts_at + timedelta(minutes=int(start_time[operation].X))
+        assignments.append(
+            ScheduledOperation(
+                operation_id=record['op_id'],
+                machine_id=machine_id,
+                starts_at=op_starts_at,
+                ends_at=op_starts_at + timedelta(minutes=duration),
+                duration_minutes=duration,
+                energy=record['energy_by_machine'].get(machine),
+                machine_salary_per_minute=salary_per_minute,
+            )
+        )
+
+    dependencies = tuple(
+        ScheduleDependencySpec(
+            schedule_operation_id=operation_data[operation]['op_id'],
+            depends_on_operation_id=operation_data[predecessor]['op_id'],
+            reason='job_order',
+        )
+        for operation, record in enumerate(operation_data)
+        for predecessor in record['pre']
+    )
+
+    energy_values = [a.energy for a in assignments]
+    salary_values = [a.machine_salary_per_minute for a in assignments]
+    total_energy = (
+        sum((energy for energy in energy_values if energy is not None), Decimal('0'))
+        if all(energy is not None for energy in energy_values)
+        else None
+    )
+    total_labour_cost = (
+        sum(
+            (
+                Decimal(a.duration_minutes) * salary
+                for a, salary in zip(assignments, salary_values, strict=True)
+                if salary is not None
+            ),
+            Decimal('0'),
+        )
+        if all(salary is not None for salary in salary_values)
+        else None
+    )
+
+    return SchedulePlan(
+        assignments=tuple(assignments),
+        dependencies=dependencies,
+        metrics=ScheduleMetrics(
+            makespan_minutes=int(makespan.X),
+            total_energy=total_energy,
+            total_labour_cost=total_labour_cost,
+        ),
+    )
+
+
+def main_from_db(db: Session, starts_at: datetime | None = None):
+    """Solve using the floor's current jobs, machines, routes and dependencies,
+    then write the result back to the database as a draft schedule.
+    """
+    starts_at = starts_at or datetime.now(UTC)
+    jobs, machines, operations, eligible_machines, operation_data, machine_meta = load_fajsp_from_db(db)
     model, assignment, start_time, makespan = build_model(operations, eligible_machines, operation_data)
+
+    started = time.monotonic()
     model.optimize()
+    runtime_ms = int((time.monotonic() - started) * 1000)
+
+    if model.SolCount == 0:
+        raise RuntimeError(
+            f'Gurobi found no feasible schedule within the {TIME_LIMIT_SECONDS}s time limit.'
+        )
+
     report(operation_data, eligible_machines, assignment, start_time, makespan)
+    plan = build_schedule_plan(
+        operation_data, eligible_machines, assignment, start_time, makespan, machine_meta, starts_at
+    )
+    stored = SchedulingService.store_draft(
+        db, plan=plan, runtime_ms=runtime_ms, input_operation_count=len(operation_data)
+    )
+    db.commit()
+    return stored
 
 
 if __name__ == '__main__':

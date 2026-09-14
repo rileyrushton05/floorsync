@@ -8,6 +8,7 @@ Every function takes a caller-owned `Session` and never commits.
 """
 
 from collections.abc import Sequence
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -19,15 +20,17 @@ from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
 
 
-def load_active_machines(db: Session) -> Sequence[tuple[UUID, str]]:
-    """Load every machine the solver may assign work to.
+def load_active_machines(db: Session) -> Sequence[tuple[UUID, str, Decimal | None]]:
+    """Load every machine the solver may assign work to, with its labour cost.
 
     Inactive machines are excluded: they have no eligible route for ReSchedEngine
     either (see `resched.py`'s `active_machine_ids`), and the exact solver should
-    size the same problem, not a larger one for Gurobi to explore.
+    size the same problem, not a larger one for Gurobi to explore. `salary` is
+    carried along so a persisted schedule entry can snapshot its labour cost the
+    same way `ReSchedEngine` does.
     """
     statement = (
-        select(Machine.id, Machine.name)
+        select(Machine.id, Machine.name, Machine.salary)
         .where(Machine.active.is_(True))
         .order_by(Machine.name, Machine.id)
     )
@@ -50,14 +53,21 @@ def load_operations(db: Session) -> Sequence[tuple[UUID, UUID, int]]:
     return db.execute(statement).tuples().all()
 
 
-def load_routes(db: Session) -> Sequence[tuple[UUID, UUID, int]]:
+def load_routes(db: Session) -> Sequence[tuple[UUID, UUID, int, Decimal | None]]:
     """Load operation-machine processing options, restricted to active machines.
 
     A route onto an inactive machine is not a real option today, so it is
     excluded rather than handed to the solver as something it could assign.
+    `energy` is carried along so a persisted schedule entry can snapshot it,
+    the same way `ReSchedEngine` does.
     """
     statement = (
-        select(Compatibility.operation_id, Compatibility.machine_id, Compatibility.duration)
+        select(
+            Compatibility.operation_id,
+            Compatibility.machine_id,
+            Compatibility.duration,
+            Compatibility.energy,
+        )
         .join(Machine, Machine.id == Compatibility.machine_id)
         .where(Machine.active.is_(True))
         .order_by(Compatibility.operation_id, Compatibility.machine_id)
