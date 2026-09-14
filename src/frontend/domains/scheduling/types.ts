@@ -24,14 +24,12 @@ export interface OperationRoute {
     energy: string | null;
 }
 
-/** One step of a job. Steps run in array order; each occupies one machine. */
+/** One step of a job. Steps run in array order and may have several machine routes. */
 export interface OperationDef {
     id: string;
     name: string;
-    machineId: string;
-    durationMins: number;
-    /** Every route returned by the builder API. */
-    routes?: OperationRoute[];
+    /** Every route returned by, and submitted to, the builder API. */
+    routes: OperationRoute[];
 }
 
 export interface JobDef {

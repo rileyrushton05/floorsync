@@ -1,4 +1,4 @@
-import type { JobDef } from "./types";
+import type { JobDef, OperationDef } from "./types";
 
 /**
  * Formatting and job-graph helpers for the manager planning flow.
@@ -11,9 +11,19 @@ import type { JobDef } from "./types";
  * view shares.
  */
 
-/** Sum of every operation's duration — the machine time a job consumes. */
-export function totalWorkMins(job: JobDef): number {
-    return job.operations.reduce((total, op) => total + op.durationMins, 0);
+/**
+ * The sum of the first listed route for each operation.
+ *
+ * Compatible routes are alternatives, not work performed in parallel. The
+ * builder presents the first route as its concise estimate; the backend still
+ * selects the actual route when it generates a schedule.
+ */
+export function totalWorkMins(job: Pick<JobDef, "operations">): number {
+    return job.operations.reduce((total, operation) => total + (primaryRoute(operation)?.durationMins ?? 0), 0);
+}
+
+export function primaryRoute(operation: OperationDef) {
+    return operation.routes[0];
 }
 
 /** 135 -> "2h 15m". Durations and offsets are always shown relative to T+0. */

@@ -30,3 +30,16 @@ that point.
 The manager overview and operator queue are explicitly prototype features until
 their backend contracts exist. Their fixtures/prototype components live only in
 their feature areas; API-backed manager features never use them as a fallback.
+
+## Backend-authoritative mutations
+
+The browser guides data entry but does not decide whether a persisted change is
+valid. Every create, update and delete reaches the API, which is the authority
+for validation, normalisation, uniqueness, current machine state and scheduling
+rules. Mutation failures display the API's RFC 9457 problem `detail` in a toast;
+validation responses also retain the backend's `invalid_params` reasons.
+
+Only local interaction safeguards remain in the UI, such as preventing a
+duplicate submission while a request is in progress. Failed reads use their
+page's inline retry state so background refreshes do not generate noisy toasts.
+The full policy is in the [Frontend development standard](../../docs/frontend-architecture.md#backend-authority-validation-and-errors).

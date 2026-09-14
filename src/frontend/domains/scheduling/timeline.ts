@@ -68,8 +68,11 @@ export function timelineToPlan(timeline: ScheduleTimeline): TimelinePlan {
             operations: chain.map((operation) => ({
                 id: operation.key,
                 name: operation.label,
-                machineId: operation.machine_key,
-                durationMins: operation.end - operation.start,
+                routes: [{
+                    machineId: operation.machine_key,
+                    durationMins: operation.end - operation.start,
+                    energy: null,
+                }],
             })),
         });
 

@@ -45,7 +45,7 @@ src/frontend/
 └── features/
     └── <feature>/
         ├── data/                # endpoint functions, query keys and query hooks
-        ├── model/               # pure mapping, validation and view-model helpers
+        ├── model/               # pure mapping and view-model helpers
         ├── screens/             # route-level controllers/composition
         ├── ui/                  # presentational components
         └── fixtures/            # explicit prototype-only data/components, if needed
@@ -71,9 +71,11 @@ A component under `features/*/ui` is presentational:
   router, or import a feature `data/api` module.
 - It reports interaction through callbacks rather than reaching into state.
 
-Pure transformations, validation and API-to-view mapping belong in `model/`.
-No React hook or JSX belongs there. Business concepts used by two features move
-to `domains/`, never to `core/`.
+Pure transformations and API-to-view mapping belong in `model/`. No React hook
+or JSX belongs there. Persistent-data validation and business rules do **not**
+belong in a frontend model: the API is the authority and must decide whether a
+mutation is valid. Business concepts used by two features move to `domains/`,
+never to `core/`.
 
 ## Backend and TanStack Query policy
 
@@ -100,6 +102,44 @@ the following defaults unless it documents a reason not to:
 
 Endpoint functions return API contracts. Convert them at the data/model edge;
 the rest of the UI should not know `snake_case` or response-only fields.
+The endpoint module is the frontend's explicit mirror of that contract: update
+it in the same change as its backend schema and test the backend response. Do
+not expose a selector, payload field, or optimistic state for a capability the
+backend does not advertise or accept.
+
+### Backend authority, validation and errors
+
+The backend is the source of truth for every persisted-data constraint and
+business rule. A browser cache is only a snapshot; it cannot reliably decide
+whether a machine is active, a name is unique, an operation is schedulable, or
+a concurrent change makes a save invalid. Therefore:
+
+- A feature sends the user's draft to the API. It must not reject a save using
+  a duplicate client-side validator, local uniqueness check, or cached
+  relationship lookup.
+- Do not trim, normalise, coerce, or silently repair a persisted value before
+  sending it unless the API contract explicitly defines that client-side
+  transformation. The server owns normalisation and reports invalid input.
+- UX affordances may make normal input easier — input modes, sensible defaults,
+  unavailable choices, drag bounds, and disabling duplicate submissions while
+  pending. They must not become a second business-rule gate. The user can still
+  submit a draft and receive the authoritative API result.
+- `core/http/client.ts` preserves the complete RFC 9457 problem response:
+  `type`, `title`, `status`, `detail`, `instance`, and `invalid_params`.
+  Never collapse it to a hand-written screen message.
+- User-initiated mutation failures and terminal asynchronous failures call
+  `core/feedback/reportMutationError.ts`. Its toast displays the backend
+  `detail` unchanged and, for validation responses, the backend-provided field
+  reasons. Do not call `toast.error` directly from a feature screen.
+- Failed reads use an inline loading/error/retry state. A background refetch
+  must not create an unsolicited toast. Network failures and malformed
+  responses are the only cases where the frontend supplies a fallback message,
+  because no server message exists.
+
+Async command resources follow the same rule. A terminal failure status must
+include a safe API-authored `detail`; it must never expose an exception or make
+the client speculate about worker state. A polling timeout is a client
+observation and should say only that polling stopped, not diagnose the worker.
 
 ## Shell, design and feedback policy
 
@@ -131,7 +171,8 @@ fixture path instead of maintaining two ambiguous implementations.
 
 1. Write/update the API contract and endpoint functions in `data/api.ts`.
 2. Add a stable key and query/mutation hook in `data/` with explicit invalidation.
-3. Put pure conversions and validations in `model/`.
+3. Put pure conversions and view-model helpers in `model/`; put persistent
+   validation and business rules in the backend contract/service.
 4. Build accessible visual panels in `ui/`; compose them from a `screens/` file.
 5. Add a one-line route export and select the shared shell/guard deliberately.
 6. Remove the replaced code in the same PR. Do not leave an old route helper,
@@ -143,6 +184,7 @@ fixture path instead of maintaining two ambiguous implementations.
 `pnpm check:architecture` fails if legacy route-local architecture returns, a
 route page stops delegating to a feature screen, a feature UI layer imports
 TanStack/auth/router/API data, a domain imports a feature or route, a core module
-imports a feature/domain, or a second `fetch` is introduced outside the shared
-transport. It is included in `pnpm lint` and is intentionally a lightweight
-guardrail rather than a substitute for code review.
+imports a feature/domain, a feature screen bypasses the shared mutation-error
+reporter, or a second `fetch` is introduced outside the shared transport. It is
+included in `pnpm lint` and is intentionally a lightweight guardrail rather
+than a substitute for code review.

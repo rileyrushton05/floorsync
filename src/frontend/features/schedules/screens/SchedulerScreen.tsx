@@ -1,14 +1,14 @@
 "use client";
 
 import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-    type ScheduleStrategy,
     type ScheduleTimeline,
     type SchedulingIssue,
 } from "../data/api";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
+import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { useJobSummaries } from "@/features/jobs/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
@@ -35,7 +35,6 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
@@ -78,7 +77,7 @@ type Generation =
     /** `createdAt` is null for a plan generated in this session — it is "just now". */
     | { status: "ready"; scheduleId: string; timeline: ScheduleTimeline; createdAt: string | null }
     | { status: "rejected"; issues: SchedulingIssue[] }
-    | { status: "unavailable" }
+    | { status: "unavailable"; message: string }
     | { status: "failed"; message: string }
     | { status: "timedOut"; generationId: string }
     | { status: "error"; message: string };
@@ -88,12 +87,6 @@ const IN_FLIGHT: ReadonlySet<Generation["status"]> = new Set([
     "running",
     "drawing",
 ] as const);
-
-/** The engines a manager can choose between when queuing a run. */
-const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
-    { value: "resched", label: "ReSched", hint: "Learned policy — fast, approximate" },
-    { value: "exact", label: "Exact", hint: "Gurobi MILP — optimal, slower" },
-];
 
 /** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
 function formatCreated(iso: string): string {
@@ -199,12 +192,8 @@ function GenerationState({ generation }: { generation: Generation }) {
         case "unavailable":
             return (
                 <Note intent="warning" role="alert" indicator={false}>
-                    <strong>The scheduling engine is not installed</strong>
-                    <p className="mt-1">
-                        The worker reached the run but has no learned runtime to do it with, so
-                        nothing was written. The worker image installs it; a worker started outside
-                        Docker needs <code>uv sync --extra resched</code>.
-                    </p>
+                    <strong>The scheduling engine is unavailable</strong>
+                    <p className="mt-1">{generation.message}</p>
                 </Note>
             );
 
@@ -213,11 +202,9 @@ function GenerationState({ generation }: { generation: Generation }) {
                 <Note intent="warning" role="alert" indicator={false}>
                     <strong>Nothing picked up the run</strong>
                     <p className="mt-1">
-                        The API queued run <code>{shortId(generation.generationId)}</code> and
-                        accepted it, but three minutes later no worker had reported starting it. A
-                        queued command and a command nothing is listening for look identical from
-                        here, so this most likely means the scheduling worker is not running —
-                        check <code>docker compose ps worker</code>.
+                        Polling for run <code>{shortId(generation.generationId)}</code> stopped
+                        before the API reported a terminal result. Refresh to check its current
+                        status, or ask an administrator to inspect the worker.
                     </p>
                 </Note>
             );
@@ -257,8 +244,8 @@ export default function SchedulerPage() {
     const requestSchedule = useRequestSchedule();
     const [generationRequest, setGenerationRequest] = useState<{ id: string; deadline: number } | null>(null);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
-    const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
     const generationQuery = useScheduleGeneration(generationRequest);
+    const reportedGenerationFailure = useRef<string | null>(null);
     const latestSchedule = schedulesQuery.data?.[0] ?? null;
     const completedScheduleId =
         generationQuery.data?.status === "completed" ? generationQuery.data.schedule_id ?? null : null;
@@ -291,25 +278,20 @@ export default function SchedulerPage() {
             return { status: "running", generationId: generationRequest.id };
         }
         if (generationQuery.data.status === "rejected") {
-            return { status: "rejected", issues: generationQuery.data.issues ?? [] };
+            return { status: "rejected", issues: generationQuery.data.issues };
         }
-        if (generationQuery.data.status === "unavailable") return { status: "unavailable" };
+        if (generationQuery.data.status === "unavailable") {
+            return { status: "unavailable", message: generationQuery.data.detail };
+        }
         if (generationQuery.data.status === "failed") {
             return {
                 status: "failed",
-                message:
-                    "The worker did not finish the run. The API deliberately does not forward the exception, so the worker's logs are where the reason is.",
-            };
-        }
-        if (!completedScheduleId) {
-            return {
-                status: "failed",
-                message: "The run completed but reported no schedule to open, so there is nothing to draw.",
+                message: generationQuery.data.detail,
             };
         }
         if (timelineQuery.error) return { status: "error", message: errorMessage(timelineQuery.error) };
-        if (!timelineQuery.data) return { status: "drawing", scheduleId: completedScheduleId };
-        return { status: "ready", scheduleId: completedScheduleId, timeline: timelineQuery.data, createdAt: null };
+        if (!timelineQuery.data) return { status: "drawing", scheduleId: completedScheduleId! };
+        return { status: "ready", scheduleId: completedScheduleId!, timeline: timelineQuery.data, createdAt: null };
     }, [
         completedScheduleId,
         generationQuery.data,
@@ -324,10 +306,11 @@ export default function SchedulerPage() {
 
     const generate = () => {
         setHighlightedJobId(null);
-        requestSchedule.mutate({ startsAt: new Date().toISOString(), strategy }, {
+        requestSchedule.mutate({ startsAt: new Date().toISOString() }, {
             onSuccess: (accepted) => {
                 setGenerationRequest({ id: accepted.id, deadline: Date.now() + 180_000 });
             },
+            onError: reportMutationError,
         });
     };
 
@@ -348,6 +331,28 @@ export default function SchedulerPage() {
     );
 
     const busy = requestSchedule.isPending || IN_FLIGHT.has(generation.status);
+
+    // The poll endpoint is a successful HTTP read even when the queued command
+    // failed. Surface its API-authored failure once as feedback, while the
+    // persistent state below keeps the full issue list available for review.
+    useEffect(() => {
+        const outcome = generationQuery.data;
+        if (!outcome) return;
+
+        if (outcome.status === "rejected") {
+            const reportKey = `${outcome.id}:${outcome.status}`;
+            if (reportedGenerationFailure.current === reportKey) return;
+            reportedGenerationFailure.current = reportKey;
+            const [firstIssue, ...remainingIssues] = outcome.issues.map((issue) => issue.message);
+            if (firstIssue) reportBackendFailure(firstIssue, remainingIssues);
+            return;
+        }
+        if (outcome.status !== "unavailable" && outcome.status !== "failed") return;
+        const reportKey = `${outcome.id}:${outcome.status}`;
+        if (reportedGenerationFailure.current === reportKey) return;
+        reportedGenerationFailure.current = reportKey;
+        reportBackendFailure(outcome.detail);
+    }, [generationQuery.data]);
 
     function toggleHighlight(jobId: string) {
         setHighlightedJobId((previous) => (previous === jobId ? null : jobId));
@@ -402,28 +407,6 @@ export default function SchedulerPage() {
 
     return (
         <ManagerShell actions={<>
-                <ToggleGroup
-                    aria-label="Scheduling engine"
-                    selectionMode="single"
-                    disallowEmptySelection
-                    isDisabled={busy}
-                    selectedKeys={new Set([strategy])}
-                    onSelectionChange={(keys) => {
-                        const [first] = Array.from(keys);
-                        if (first === "resched" || first === "exact") setStrategy(first);
-                    }}
-                >
-                    {STRATEGIES.map((option) => (
-                        <ToggleGroupItem
-                            key={option.value}
-                            id={option.value}
-                            aria-label={`${option.label} — ${option.hint}`}
-                        >
-                            {option.label}
-                        </ToggleGroupItem>
-                    ))}
-                </ToggleGroup>
-
                 {/* `isPending` rather than `isDisabled`: React Aria already stops
                     onPress firing while pending, and keeps the control focusable
                     and announced as busy instead of silently going dead. */}

@@ -2,6 +2,7 @@
 
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
+import { reportMutationError } from "@/core/feedback/reportMutationError";
 import type { MachineSummary } from "../data/api";
 import { Button } from "@/components/ui/button";
 import { PlusIcon } from "@heroicons/react/24/outline";
@@ -10,7 +11,6 @@ import { toast } from "sonner";
 import {
     EMPTY_MACHINE_DRAFT,
     draftFromMachine,
-    isValidMachineSalary,
     machineInputFromDraft,
     toMachineRow,
     type MachineDraft,
@@ -64,22 +64,13 @@ export default function MachinesPage() {
 
     async function save() {
         if (saving) return;
-        if (draft.name.trim() === "") {
-            toast.error("Give the machine a name.");
-            return;
-        }
-        if (!isValidMachineSalary(draft.salary)) {
-            toast.error("Salary must be a non-negative number.");
-            return;
-        }
-
         try {
             const saved = await saveMachine.mutateAsync({ id: draft.id, values: machineInputFromDraft(draft) });
             setSelectedId(saved.id);
             setDraft(draftFromMachine(saved));
             toast.success(draft.id ? `${saved.name} updated.` : `${saved.name} added to the floor.`);
         } catch (error) {
-            toast.error(errorMessage(error));
+            reportMutationError(error);
         }
     }
 
@@ -90,7 +81,7 @@ export default function MachinesPage() {
             setDraft(draftFromMachine(saved));
             toast.success(`${saved.name} deactivated.`);
         } catch (error) {
-            toast.error(errorMessage(error));
+            reportMutationError(error);
         }
     }
 

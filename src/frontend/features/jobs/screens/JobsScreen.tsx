@@ -26,6 +26,7 @@ import { useJobDefinitions, useCreateJobDefinition, useDeleteJobDefinition, useU
 import { useMachines } from "@/features/machines/data/queries";
 import { priorityIntent } from "@/core/presentation/badge-intent";
 import { errorMessage } from "@/core/http/errors";
+import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { buildJobColors, jobColor } from "@/domains/scheduling/colors";
 import { formatDuration, totalWorkMins } from "@/domains/scheduling/format";
@@ -37,10 +38,7 @@ import {
     filterJobs,
     JOB_PRIORITIES,
     type JobDraft,
-    routesFor,
     SORT_OPTIONS,
-    validateJobDraft,
-    withRoutes,
     draftFromJob,
 } from "@/features/jobs/model/editor";
 
@@ -79,7 +77,6 @@ function JobsPageInner() {
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<JobDraft>(() => (jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT));
     const [isCreating, setIsCreating] = useState(false);
-    const [errors, setErrors] = useState<string[]>([]);
     const [savedOrder, setSavedOrder] = useState<string[]>(() =>
         jobs.length > 0 ? jobs[0].operations.map((op) => op.id) : []
     );
@@ -139,7 +136,6 @@ function JobsPageInner() {
             setIsCreating(false);
             setDraft(draftFromJob(match));
             setSavedOrder(match.operations.map((op) => op.id));
-            setErrors([]);
         }
     }
 
@@ -164,21 +160,19 @@ function JobsPageInner() {
         setDurationFilter("All");
     }
 
-    const draftWorkMins = draft.operations.reduce((total, op) => total + op.durationMins, 0);
-    const draftMachineIds = new Set(draft.operations.flatMap((operation) => routesFor(operation).map((route) => route.machineId)));
+    const draftWorkMins = totalWorkMins(draft);
+    const draftMachineIds = new Set(draft.operations.flatMap((operation) => operation.routes.map((route) => route.machineId)));
 
     function startNewJob() {
         setIsCreating(true);
         setDraft(EMPTY_JOB_DRAFT);
         setSavedOrder([]);
-        setErrors([]);
     }
 
     function editJob(job: JobDef) {
         setIsCreating(false);
         setDraft(draftFromJob(job));
         setSavedOrder(job.operations.map((op) => op.id));
-        setErrors([]);
     }
 
     function addOperation() {
@@ -190,8 +184,6 @@ function JobsPageInner() {
                 {
                     id: `new-op-${opCounter.current}`,
                     name: "",
-                    machineId: activeMachines[0]?.id ?? "",
-                    durationMins: 30,
                     routes: activeMachines[0]
                         ? [{ machineId: activeMachines[0].id, durationMins: 30, energy: null }]
                         : [],
@@ -202,7 +194,7 @@ function JobsPageInner() {
         setSavedOrder((previous) => [...previous, `new-op-${opCounter.current}`]);
     }
 
-    function patchOperation(index: number, patch: Partial<OperationDef>) {
+    function patchOperation(index: number, patch: Partial<Pick<OperationDef, "name">>) {
         setDraft((previous) => ({
             ...previous,
             operations: previous.operations.map((op, i) => (i === index ? { ...op, ...patch } : op)),
@@ -212,16 +204,16 @@ function JobsPageInner() {
     function patchRoute(
         operationIndex: number,
         routeIndex: number,
-        patch: Partial<NonNullable<OperationDef["routes"]>[number]>,
+        patch: Partial<OperationDef["routes"][number]>,
     ) {
         setDraft((previous) => ({
             ...previous,
             operations: previous.operations.map((operation, index) => {
                 if (index !== operationIndex) return operation;
-                const routes = routesFor(operation).map((route, currentRouteIndex) =>
+                const routes = operation.routes.map((route, currentRouteIndex) =>
                     currentRouteIndex === routeIndex ? { ...route, ...patch } : route,
                 );
-                return withRoutes(operation, routes);
+                return { ...operation, routes };
             }),
         }));
     }
@@ -231,15 +223,18 @@ function JobsPageInner() {
             ...previous,
             operations: previous.operations.map((operation, index) => {
                 if (index !== operationIndex) return operation;
-                const routes = routesFor(operation);
+                const routes = operation.routes;
                 const machine = activeMachines.find(
                     (candidate) => !routes.some((route) => route.machineId === candidate.id),
                 );
                 if (!machine) return operation;
-                return withRoutes(operation, [
+                return {
+                    ...operation,
+                    routes: [
                     ...routes,
                     { machineId: machine.id, durationMins: 30, energy: null },
-                ]);
+                    ],
+                };
             }),
         }));
     }
@@ -249,7 +244,7 @@ function JobsPageInner() {
             ...previous,
             operations: previous.operations.map((operation, index) => {
                 if (index !== operationIndex) return operation;
-                return withRoutes(operation, routesFor(operation).filter((_, current) => current !== routeIndex));
+                return { ...operation, routes: operation.routes.filter((_, current) => current !== routeIndex) };
             }),
         }));
     }
@@ -303,20 +298,10 @@ function JobsPageInner() {
     }
 
     async function saveDraft() {
-        const found = validateJobDraft(draft, machines);
-        setErrors(found);
-        if (found.length > 0) return;
-
-        const payload = {
-            name: draft.name.trim(),
-            priority: draft.priority,
-            operations: draft.operations.map((op) => ({ ...op, name: op.name.trim() })),
-        };
-
         try {
             const saved = draft.id
-                ? await updateJob.mutateAsync({ id: draft.id, job: payload })
-                : await createJob.mutateAsync(payload);
+                ? await updateJob.mutateAsync({ id: draft.id, job: draft })
+                : await createJob.mutateAsync(draft);
             setDraft(draftFromJob(saved));
             if (draft.id) {
                 toast.success(`${saved.id} definition saved.`);
@@ -326,7 +311,7 @@ function JobsPageInner() {
             }
             setSavedOrder(saved.operations.map((op) => op.id));
         } catch (error) {
-            setErrors([errorMessage(error)]);
+            reportMutationError(error);
         }
     }
 
@@ -337,12 +322,11 @@ function JobsPageInner() {
             await deleteJob.mutateAsync(removedId);
             setIsCreating(false);
             setDraft(EMPTY_JOB_DRAFT);
-            setErrors([]);
             setConfirmingDelete(false);
             setDeleteClosing(false);
             toast.success(`${removedId} deleted.`);
         } catch (error) {
-            setErrors([errorMessage(error)]);
+            reportMutationError(error);
             setConfirmingDelete(false);
             setDeleteClosing(false);
         }
@@ -534,17 +518,6 @@ function JobsPageInner() {
                             </Note>
                         )}
 
-                        {errors.length > 0 && (
-                            <Note intent="danger" role="alert">
-                                <strong>Fix before saving</strong>
-                                <ul className="mt-1 list-disc ps-5">
-                                    {errors.map((error) => (
-                                        <li key={error}>{error}</li>
-                                    ))}
-                                </ul>
-                            </Note>
-                        )}
-
                         <div className="flex flex-col gap-4 sm:flex-row">
                             <TextField
                                 className="flex-2"
@@ -612,7 +585,7 @@ function JobsPageInner() {
                                     // Rows whose position differs from the last-saved order
                                     // stay light yellow until the draft is saved.
                                     const reordered = savedOrder[index] !== op.id;
-                                    const routes = routesFor(op);
+                                    const routes = op.routes;
                                     const canAddRoute = activeMachines.some(
                                         (machine) => !routes.some((route) => route.machineId === machine.id),
                                     );
@@ -830,7 +803,7 @@ function JobsPageInner() {
 
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="text-muted-fg text-sm">
-                                {draft.operations.length} operations · {formatDuration(draftWorkMins)} on primary routes ·{" "}
+                                {draft.operations.length} operations · {formatDuration(draftWorkMins)} on first listed routes ·{" "}
                                 {draftMachineIds.size} compatible machines
                             </div>
                             <div className="flex items-center gap-2.5">

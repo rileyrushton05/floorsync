@@ -18,15 +18,10 @@ function toRoute(route: JobDefinition["operations"][number]["routes"][number]): 
 }
 
 function toOperation(operation: JobDefinition["operations"][number]): OperationDef {
-    const routes = operation.routes.map(toRoute);
-    const primary = routes[0];
-    if (!primary) throw new Error(`The API returned operation ${operation.id} without a machine route.`);
     return {
         id: operation.id,
         name: operation.name,
-        machineId: primary.machineId,
-        durationMins: primary.durationMins,
-        routes,
+        routes: operation.routes.map(toRoute),
     };
 }
 
@@ -42,10 +37,7 @@ export function toJobDefinition(job: JobDefinition): JobDef {
 }
 
 function toRoutes(operation: OperationDef): JobDefinitionInput["operations"][number]["routes"] {
-    const routes = operation.routes?.length
-        ? operation.routes
-        : [{ machineId: operation.machineId, durationMins: operation.durationMins, energy: null }];
-    return routes.map((route) => ({
+    return operation.routes.map((route) => ({
         machine_id: route.machineId,
         duration_minutes: route.durationMins,
         energy: route.energy,

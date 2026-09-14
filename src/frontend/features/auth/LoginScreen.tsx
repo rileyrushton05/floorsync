@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/field";
-import { Note } from "@/components/ui/note";
 import { TextField } from "@/components/ui/text-field";
 import { useAuth } from "@/core/auth/AuthProvider";
+import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { Wordmark } from "@/core/shell/Logo";
 
 /**
@@ -33,7 +33,6 @@ function LoginForm() {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     // Only ever follow a same-origin path. `next` comes from the URL, so an
     // absolute one would let a crafted link bounce somebody off-site straight
@@ -56,12 +55,11 @@ function LoginForm() {
     async function submit(event: React.FormEvent) {
         event.preventDefault();
         setSubmitting(true);
-        setError(null);
         try {
-            await signIn(username.trim(), password);
+            await signIn(username, password);
             // Navigation happens in the effect above, once the account resolves.
         } catch (caught: unknown) {
-            setError(caught instanceof Error ? caught.message : "Could not sign in.");
+            reportMutationError(caught);
             setSubmitting(false);
         }
     }
@@ -85,7 +83,6 @@ function LoginForm() {
                         name="username"
                         value={username}
                         onChange={setUsername}
-                        isRequired
                         autoComplete="username"
                     >
                         <Label>Username</Label>
@@ -96,24 +93,17 @@ function LoginForm() {
                         type="password"
                         value={password}
                         onChange={setPassword}
-                        isRequired
                         autoComplete="current-password"
                     >
                         <Label>Password</Label>
                         <Input />
                     </TextField>
 
-                    {error !== null && (
-                        <Note intent="danger" role="alert">
-                            {error}
-                        </Note>
-                    )}
-
                     <Button
                         type="submit"
                         className="w-full"
                         isPending={submitting}
-                        isDisabled={submitting || username === "" || password === ""}
+                        isDisabled={submitting}
                     >
                         {submitting ? "Signing in…" : "Sign in"}
                     </Button>

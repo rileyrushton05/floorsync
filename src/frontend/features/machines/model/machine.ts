@@ -30,17 +30,11 @@ export function draftFromMachine(machine: MachineSummary): MachineDraft {
 
 export function machineInputFromDraft(draft: MachineDraft): MachineInput {
     return {
-        name: draft.name.trim(),
+        name: draft.name,
         category_id: draft.categoryId,
-        salary: draft.salary.trim() === "" ? null : draft.salary.trim(),
+        salary: draft.salary === "" ? null : draft.salary,
         active: draft.active,
     };
-}
-
-export function isValidMachineSalary(value: string): boolean {
-    if (value.trim() === "") return true;
-    const salary = Number(value);
-    return Number.isFinite(salary) && salary >= 0;
 }
 
 export interface MachineRow {

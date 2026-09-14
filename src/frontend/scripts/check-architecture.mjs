@@ -39,6 +39,9 @@ for (const path of sourceFiles(root)) {
     if (/\bfetch\s*\(/.test(contents) && display !== "core/http/client.ts") {
         fail(`${display} calls fetch directly; use core/http/client.ts.`);
     }
+    if (/\btoast\.error\s*\(/.test(contents) && display !== "core/feedback/reportMutationError.ts") {
+        fail(`${display} reports a mutation failure directly; use core/feedback/reportMutationError.ts.`);
+    }
     if (display.startsWith("core/") && /@\/(features|domains)\//.test(contents)) {
         fail(`${display} breaks the core dependency boundary.`);
     }
@@ -51,6 +54,11 @@ for (const path of sourceFiles(root)) {
             fail(`${display} is UI but imports query, auth, router, or API data.`);
         }
     }
+}
+
+const schedulingTypes = readFileSync(join(root, "domains/scheduling/types.ts"), "utf8");
+if (/interface OperationDef\s*\{[^}]*\b(machineId|durationMins)\b/s.test(schedulingTypes)) {
+    fail("domains/scheduling/types.ts keeps legacy primary-route fields; OperationDef must use routes only.");
 }
 
 if (failures.length > 0) {

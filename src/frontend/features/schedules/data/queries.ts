@@ -7,7 +7,6 @@ import {
     fetchSchedules,
     requestSchedule,
     type ScheduleGenerationStatus,
-    type ScheduleStrategy,
 } from "./api";
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -76,15 +75,14 @@ export function useScheduleGeneration(generation: { id: string; deadline: number
 export function useRequestSchedule() {
     const { token } = useAuth();
     return useMutation({
-        mutationFn: ({ startsAt, strategy }: { startsAt: string; strategy: ScheduleStrategy }) =>
-            requestSchedule(startsAt, requireToken(token), strategy),
+        mutationFn: ({ startsAt }: { startsAt: string }) => requestSchedule(startsAt, requireToken(token)),
     });
 }
 
 export class GenerationTimeout extends Error {
     constructor(readonly generationId: string) {
         super(
-            "The API accepted the request, but nothing reported picking it up within three minutes. Check that the scheduling worker is running.",
+            "Polling stopped after three minutes without a terminal schedule status.",
         );
         this.name = "GenerationTimeout";
     }

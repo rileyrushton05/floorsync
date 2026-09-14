@@ -7,11 +7,17 @@
  * without turning navigation into a retryable network error.
  */
 
+import type { InvalidParameter, ProblemDetail } from "./contracts";
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
+
+const apiFallbackMessage = (status: number, statusText: string) =>
+    `The API answered ${status} ${statusText}.`;
 
 export class ApiError extends Error {
     constructor(
         readonly status: number,
+        readonly problem: ProblemDetail | null,
         message: string,
     ) {
         super(message);
@@ -24,6 +30,11 @@ export class ApiError extends Error {
 
     get isForbidden(): boolean {
         return this.status === 403;
+    }
+
+    /** Backend-provided field reasons, preserved without client-side rewriting. */
+    get invalidParameters(): readonly InvalidParameter[] {
+        return this.problem?.invalid_params ?? [];
     }
 }
 
@@ -58,26 +69,45 @@ export async function apiRequest<Body>(
         if (init?.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
             throw error;
         }
-        throw new ApiError(0, `Could not reach the API at ${BASE_URL}.`);
+        throw new ApiError(0, null, `Could not reach the API at ${BASE_URL}.`);
     }
 
     if (!response.ok) {
         if (response.status === 401 && token !== null) onUnauthenticated?.();
-        throw new ApiError(response.status, await problemDetail(response));
+        const problem = await problemDetail(response);
+        throw new ApiError(
+            response.status,
+            problem,
+            problem?.detail ?? problem?.title ?? apiFallbackMessage(response.status, response.statusText),
+        );
     }
     if (response.status === 204) return undefined as Body;
     return (await response.json()) as Body;
 }
 
-async function problemDetail(response: Response): Promise<string> {
+async function problemDetail(response: Response): Promise<ProblemDetail | null> {
     try {
         const body: unknown = await response.json();
-        if (body !== null && typeof body === "object" && "detail" in body) {
-            const { detail } = body as { detail: unknown };
-            if (typeof detail === "string") return detail;
-        }
+        if (body === null || typeof body !== "object") return null;
+
+        const value = body as Record<string, unknown>;
+        const invalidParams = Array.isArray(value.invalid_params)
+            ? value.invalid_params.flatMap((parameter): InvalidParameter[] => {
+                if (parameter === null || typeof parameter !== "object") return [];
+                const { name, reason } = parameter as Record<string, unknown>;
+                return typeof name === "string" && typeof reason === "string" ? [{ name, reason }] : [];
+            })
+            : null;
+        return {
+            type: typeof value.type === "string" ? value.type : "about:blank",
+            title: typeof value.title === "string" ? value.title : apiFallbackMessage(response.status, response.statusText),
+            status: typeof value.status === "number" ? value.status : response.status,
+            detail: typeof value.detail === "string" ? value.detail : null,
+            instance: typeof value.instance === "string" ? value.instance : null,
+            invalid_params: invalidParams,
+        };
     } catch {
         // A proxy failure need not be JSON.
     }
-    return `The API answered ${response.status} ${response.statusText}.`;
+    return null;
 }
