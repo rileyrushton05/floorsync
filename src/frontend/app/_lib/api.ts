@@ -159,6 +159,22 @@ export interface MachineSummary {
     updated_at: string;
 }
 
+/** A named grouping a machine may belong to. */
+export interface MachineCategory {
+    id: string;
+    name: string;
+    created_at: string;
+    updated_at: string;
+}
+
+/** Fields the machine API permits a manager to create or change. */
+export interface MachineInput {
+    name: string;
+    category_id?: string | null;
+    salary?: string | null;
+    active?: boolean;
+}
+
 /** One reason the scheduling engine refused an input, safe to show a person. */
 export interface SchedulingIssue {
     code: string;
@@ -401,4 +417,31 @@ export function fetchMachines(
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
     return request<CursorPage<MachineSummary>>(`/api/v1/machines?${query.toString()}`, token);
+}
+
+/** Read the finite set of machine categories for the machine editor. */
+export function fetchMachineCategories(token: string): Promise<MachineCategory[]> {
+    return request<MachineCategory[]>("/api/v1/categories", token);
+}
+
+/** Add a machine to the persistent floor inventory. */
+export function createMachine(input: MachineInput, token: string): Promise<MachineSummary> {
+    return request<MachineSummary>("/api/v1/machines", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+/** Persist an allowed partial change to a machine. */
+export function updateMachine(
+    machineId: string,
+    input: Partial<MachineInput>,
+    token: string,
+): Promise<MachineSummary> {
+    return request<MachineSummary>(`/api/v1/machines/${encodeURIComponent(machineId)}`, token, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
 }
