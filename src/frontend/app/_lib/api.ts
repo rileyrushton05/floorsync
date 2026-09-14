@@ -95,6 +95,52 @@ export interface Job {
     updated_at: string;
 }
 
+export type JobPriority = "high" | "med" | "low";
+
+/** One compatible machine route in the job-definition builder contract. */
+export interface JobDefinitionRoute {
+    machine_id: string;
+    duration_minutes: number;
+    energy: string | null;
+}
+
+/** One ordered operation in a complete job definition. */
+export interface JobDefinitionOperation {
+    id: string;
+    position: number;
+    name: string;
+    routes: JobDefinitionRoute[];
+}
+
+/** The complete, editable job-builder resource. */
+export interface JobDefinition {
+    id: string;
+    name: string;
+    priority: JobPriority;
+    created_at: string;
+    updated_at: string;
+    operations: JobDefinitionOperation[];
+}
+
+export interface JobDefinitionRouteInput {
+    machine_id: string;
+    duration_minutes: number;
+    energy?: string | null;
+}
+
+export interface JobDefinitionOperationInput {
+    /** Omit for a new operation; retain it when replacing an existing one. */
+    id?: string;
+    name: string;
+    routes: JobDefinitionRouteInput[];
+}
+
+export interface JobDefinitionInput {
+    name: string;
+    priority: JobPriority;
+    operations: JobDefinitionOperationInput[];
+}
+
 /**
  * A machine on the floor.
  *
@@ -111,6 +157,22 @@ export interface MachineSummary {
     active: boolean;
     created_at: string;
     updated_at: string;
+}
+
+/** A named grouping a machine may belong to. */
+export interface MachineCategory {
+    id: string;
+    name: string;
+    created_at: string;
+    updated_at: string;
+}
+
+/** Fields the machine API permits a manager to create or change. */
+export interface MachineInput {
+    name: string;
+    category_id?: string | null;
+    salary?: string | null;
+    active?: boolean;
 }
 
 /** One reason the scheduling engine refused an input, safe to show a person. */
@@ -190,6 +252,9 @@ async function request<Body>(path: string, token: string | null, init?: RequestI
         if (response.status === 401 && token !== null) signOut();
         throw new ApiError(response.status, await problemDetail(response));
     }
+    // A successful DELETE intentionally has no JSON body. Keep callers on the
+    // same typed wrapper rather than making each one special-case 204.
+    if (response.status === 204) return undefined as Body;
     return (await response.json()) as Body;
 }
 
@@ -294,11 +359,89 @@ export function fetchScheduleGeneration(
  * nothing here reports how much work a job carries. 100 is the largest page the
  * API will serve.
  */
-export function fetchJobs(token: string, limit = 100): Promise<CursorPage<Job>> {
-    return request<CursorPage<Job>>(`/api/v1/jobs?limit=${limit}`, token);
+export function fetchJobs(token: string, limit = 100, cursor?: string): Promise<CursorPage<Job>> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<CursorPage<Job>>(`/api/v1/jobs?${query.toString()}`, token);
+}
+
+/** Delete a job that has not appeared in a generated schedule. */
+export function deleteJob(jobId: string, token: string): Promise<void> {
+    return request<void>(`/api/v1/jobs/${encodeURIComponent(jobId)}`, token, {
+        method: "DELETE",
+    });
+}
+
+/** List complete editable definitions, including operations and routes. */
+export function fetchJobDefinitions(
+    token: string,
+    limit = 100,
+    cursor?: string,
+): Promise<CursorPage<JobDefinition>> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<CursorPage<JobDefinition>>(`/api/v1/job-definitions?${query.toString()}`, token);
+}
+
+/** Create a complete job, its operation sequence, and its compatible machine routes. */
+export function createJobDefinition(
+    definition: JobDefinitionInput,
+    token: string,
+): Promise<JobDefinition> {
+    return request<JobDefinition>("/api/v1/job-definitions", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(definition),
+    });
+}
+
+/** Atomically replace an editable job definition. */
+export function replaceJobDefinition(
+    jobId: string,
+    definition: JobDefinitionInput,
+    token: string,
+): Promise<JobDefinition> {
+    return request<JobDefinition>(`/api/v1/jobs/${encodeURIComponent(jobId)}/definition`, token, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(definition),
+    });
 }
 
 /** List the machines on the floor, active or not. Requires a manager account. */
-export function fetchMachines(token: string, limit = 100): Promise<CursorPage<MachineSummary>> {
-    return request<CursorPage<MachineSummary>>(`/api/v1/machines?limit=${limit}`, token);
+export function fetchMachines(
+    token: string,
+    limit = 100,
+    cursor?: string,
+): Promise<CursorPage<MachineSummary>> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<CursorPage<MachineSummary>>(`/api/v1/machines?${query.toString()}`, token);
+}
+
+/** Read the finite set of machine categories for the machine editor. */
+export function fetchMachineCategories(token: string): Promise<MachineCategory[]> {
+    return request<MachineCategory[]>("/api/v1/categories", token);
+}
+
+/** Add a machine to the persistent floor inventory. */
+export function createMachine(input: MachineInput, token: string): Promise<MachineSummary> {
+    return request<MachineSummary>("/api/v1/machines", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+/** Persist an allowed partial change to a machine. */
+export function updateMachine(
+    machineId: string,
+    input: Partial<MachineInput>,
+    token: string,
+): Promise<MachineSummary> {
+    return request<MachineSummary>(`/api/v1/machines/${encodeURIComponent(machineId)}`, token, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
 }

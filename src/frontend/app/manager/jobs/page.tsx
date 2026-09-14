@@ -24,6 +24,7 @@ import { Suspense, useMemo, useRef, useState } from "react";
 import { Modal as AriaModal, ModalOverlay } from "react-aria-components";
 import { toast } from "sonner";
 import { priorityIntent } from "../../_lib/badge-intent";
+import { errorMessage } from "../../_lib/load-state";
 import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { usePlanning } from "../_components/PlanningProvider";
 import { buildJobColors, jobColor } from "../_lib/colors";
@@ -122,7 +123,23 @@ function draftFrom(job: JobDef): Draft {
         id: job.id,
         name: job.name,
         priority: job.priority,
-        operations: job.operations.map((op) => ({ ...op })),
+        operations: job.operations.map((op) => ({ ...op, routes: op.routes?.map((route) => ({ ...route })) })),
+    };
+}
+
+function routesFor(operation: OperationDef): NonNullable<OperationDef["routes"]> {
+    return operation.routes?.length
+        ? operation.routes
+        : [{ machineId: operation.machineId, durationMins: operation.durationMins, energy: null }];
+}
+
+function withRoutes(operation: OperationDef, routes: NonNullable<OperationDef["routes"]>): OperationDef {
+    const primary = routes[0];
+    return {
+        ...operation,
+        routes,
+        machineId: primary?.machineId ?? "",
+        durationMins: primary?.durationMins ?? 0,
     };
 }
 
@@ -135,10 +152,12 @@ export default function JobsPage() {
 }
 
 function JobsPageInner() {
-    const { machines, jobs, createJob, updateJob, deleteJob } = usePlanning();
+    const { machines, jobs, loadState, createJob, updateJob, deleteJob } = usePlanning();
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<Draft>(() => (jobs.length > 0 ? draftFrom(jobs[0]) : EMPTY_DRAFT));
+    const [isCreating, setIsCreating] = useState(false);
     const [errors, setErrors] = useState<string[]>([]);
+    const [saving, setSaving] = useState(false);
     const [savedOrder, setSavedOrder] = useState<string[]>(() =>
         jobs.length > 0 ? jobs[0].operations.map((op) => op.id) : []
     );
@@ -167,6 +186,15 @@ function JobsPageInner() {
     const [durationFilter, setDurationFilter] = useState<(typeof DURATION_FILTERS)[number]["id"]>("All");
     const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]["id"]>("Manual");
 
+    // The floor definition arrives after authentication. Select its first job
+    // only while the editor is pristine, so a delayed API response never
+    // overwrites a new draft a manager has already started. This guarded render
+    // update settles immediately, without a transient blank draft after load.
+    if (jobs.length > 0 && !isCreating && draft.id === null && draft.name === "") {
+        setDraft(draftFrom(jobs[0]));
+        setSavedOrder(jobs[0].operations.map((op) => op.id));
+    }
+
     function dismissDelete() {
         if (deleteClosing) return;
         setDeleteClosing(true);
@@ -186,6 +214,7 @@ function JobsPageInner() {
         const match = jobs.find((job) => job.id === requestedJobId);
         if (match) {
             setLastOpenedJobId(requestedJobId);
+            setIsCreating(false);
             setDraft(draftFrom(match));
             setSavedOrder(match.operations.map((op) => op.id));
             setErrors([]);
@@ -193,14 +222,21 @@ function JobsPageInner() {
     }
 
     const colors = useMemo(() => buildJobColors(jobs), [jobs]);
-    const machineName = (id: string) => machines.find((machine) => machine.id === id)?.name ?? "—";
+    const activeMachines = machines.filter((machine) => machine.active);
 
     const filteredJobs = useMemo(() => {
         const needle = query.trim().toLowerCase();
         const matching = jobs.filter((job) => {
             if (needle && !`${job.id} ${job.name}`.toLowerCase().includes(needle)) return false;
             if (priorityFilter !== "All" && job.priority !== priorityFilter) return false;
-            if (machineFilter !== "All" && !job.operations.some((op) => op.machineId === machineFilter)) return false;
+            if (
+                machineFilter !== "All" &&
+                !job.operations.some((op) =>
+                    (op.routes ?? [{ machineId: op.machineId }]).some((route) => route.machineId === machineFilter),
+                )
+            ) {
+                return false;
+            }
             const work = totalWorkMins(job);
             if (durationFilter === "Short" && !(work < 60)) return false;
             if (durationFilter === "Medium" && !(work >= 60 && work < 240)) return false;
@@ -238,14 +274,17 @@ function JobsPageInner() {
     }
 
     const draftWorkMins = draft.operations.reduce((total, op) => total + op.durationMins, 0);
+    const draftMachineIds = new Set(draft.operations.flatMap((operation) => routesFor(operation).map((route) => route.machineId)));
 
     function startNewJob() {
+        setIsCreating(true);
         setDraft(EMPTY_DRAFT);
         setSavedOrder([]);
         setErrors([]);
     }
 
     function editJob(job: JobDef) {
+        setIsCreating(false);
         setDraft(draftFrom(job));
         setSavedOrder(job.operations.map((op) => op.id));
         setErrors([]);
@@ -260,8 +299,11 @@ function JobsPageInner() {
                 {
                     id: `new-op-${opCounter.current}`,
                     name: "",
-                    machineId: machines[0]?.id ?? "",
+                    machineId: activeMachines[0]?.id ?? "",
                     durationMins: 30,
+                    routes: activeMachines[0]
+                        ? [{ machineId: activeMachines[0].id, durationMins: 30, energy: null }]
+                        : [],
                 },
             ],
         }));
@@ -273,6 +315,51 @@ function JobsPageInner() {
         setDraft((previous) => ({
             ...previous,
             operations: previous.operations.map((op, i) => (i === index ? { ...op, ...patch } : op)),
+        }));
+    }
+
+    function patchRoute(
+        operationIndex: number,
+        routeIndex: number,
+        patch: Partial<NonNullable<OperationDef["routes"]>[number]>,
+    ) {
+        setDraft((previous) => ({
+            ...previous,
+            operations: previous.operations.map((operation, index) => {
+                if (index !== operationIndex) return operation;
+                const routes = routesFor(operation).map((route, currentRouteIndex) =>
+                    currentRouteIndex === routeIndex ? { ...route, ...patch } : route,
+                );
+                return withRoutes(operation, routes);
+            }),
+        }));
+    }
+
+    function addRoute(operationIndex: number) {
+        setDraft((previous) => ({
+            ...previous,
+            operations: previous.operations.map((operation, index) => {
+                if (index !== operationIndex) return operation;
+                const routes = routesFor(operation);
+                const machine = activeMachines.find(
+                    (candidate) => !routes.some((route) => route.machineId === candidate.id),
+                );
+                if (!machine) return operation;
+                return withRoutes(operation, [
+                    ...routes,
+                    { machineId: machine.id, durationMins: 30, energy: null },
+                ]);
+            }),
+        }));
+    }
+
+    function removeRoute(operationIndex: number, routeIndex: number) {
+        setDraft((previous) => ({
+            ...previous,
+            operations: previous.operations.map((operation, index) => {
+                if (index !== operationIndex) return operation;
+                return withRoutes(operation, routesFor(operation).filter((_, current) => current !== routeIndex));
+            }),
         }));
     }
 
@@ -330,12 +417,28 @@ function JobsPageInner() {
         if (draft.operations.length === 0) found.push("Add at least one operation.");
         draft.operations.forEach((op, index) => {
             if (op.name.trim() === "") found.push(`Operation ${index + 1} needs a name.`);
-            if (!(op.durationMins > 0)) found.push(`Operation ${index + 1} needs a duration greater than zero.`);
+            const routes = routesFor(op);
+            if (routes.length === 0) found.push(`Operation ${index + 1} needs at least one machine route.`);
+            const seenMachines = new Set<string>();
+            routes.forEach((route, routeIndex) => {
+                const label = `Operation ${index + 1}, route ${routeIndex + 1}`;
+                if (!(route.durationMins > 0)) found.push(`${label} needs a duration greater than zero.`);
+                if (!Number.isInteger(route.durationMins)) found.push(`${label} needs a whole number of minutes.`);
+                if (route.machineId === "") found.push(`${label} needs a machine.`);
+                if (seenMachines.has(route.machineId)) found.push(`${label} repeats a machine.`);
+                seenMachines.add(route.machineId);
+                const machine = machines.find((candidate) => candidate.id === route.machineId);
+                if (route.machineId !== "" && !machine) found.push(`${label} uses a machine that no longer exists.`);
+                if (machine && !machine.active) found.push(`${label} uses an inactive machine.`);
+                if (route.energy !== null && (!Number.isFinite(Number(route.energy)) || Number(route.energy) < 0)) {
+                    found.push(`${label} needs a non-negative energy value.`);
+                }
+            });
         });
         return found;
     }
 
-    function saveDraft() {
+    async function saveDraft() {
         const found = validateDraft();
         setErrors(found);
         if (found.length > 0) return;
@@ -346,33 +449,51 @@ function JobsPageInner() {
             operations: draft.operations.map((op) => ({ ...op, name: op.name.trim() })),
         };
 
-        if (draft.id) {
-            updateJob(draft.id, payload);
-            toast.success(`${draft.id} saved.`);
-        } else {
-            const id = createJob(payload);
-            setDraft((previous) => ({ ...previous, id }));
-            toast.success(`${id} created and added to the selection.`);
+        setSaving(true);
+        try {
+            const saved = draft.id
+                ? await updateJob(draft.id, payload)
+                : await createJob(payload);
+            setDraft(draftFrom(saved));
+            if (draft.id) {
+                toast.success(`${saved.id} definition saved.`);
+            } else {
+                setIsCreating(false);
+                toast.success(`${saved.id} created in the backlog.`);
+            }
+            setSavedOrder(saved.operations.map((op) => op.id));
+        } catch (error) {
+            setErrors([errorMessage(error)]);
+        } finally {
+            setSaving(false);
         }
-        // Committing clears the "order changed" highlight.
-        setSavedOrder(draft.operations.map((op) => op.id));
     }
 
-    function removeJob() {
+    async function removeJob() {
         if (!draft.id) return;
         const removedId = draft.id;
-        deleteJob(removedId);
-        setDraft(EMPTY_DRAFT);
-        setErrors([]);
-        setConfirmingDelete(false);
-        setDeleteClosing(false);
-        toast.success(`${removedId} deleted.`);
+        setSaving(true);
+        try {
+            await deleteJob(removedId);
+            setIsCreating(false);
+            setDraft(EMPTY_DRAFT);
+            setErrors([]);
+            setConfirmingDelete(false);
+            setDeleteClosing(false);
+            toast.success(`${removedId} deleted.`);
+        } catch (error) {
+            setErrors([errorMessage(error)]);
+            setConfirmingDelete(false);
+            setDeleteClosing(false);
+        } finally {
+            setSaving(false);
+        }
     }
 
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
             <ManagerTopbar>
-                <Button onPress={startNewJob}>
+                <Button onPress={startNewJob} isDisabled={loadState.status === "loading" || saving}>
                     <PlusIcon /> New job
                 </Button>
             </ManagerTopbar>
@@ -534,6 +655,26 @@ function JobsPageInner() {
                         )}
                     </CardHeader>
                     <CardContent className="space-y-5">
+                        {loadState.status === "loading" && (
+                            <Note intent="info" role="status">
+                                Loading the job backlog and machines from the API…
+                            </Note>
+                        )}
+
+                        {loadState.status === "error" && (
+                            <Note intent="danger" role="alert">
+                                <strong>Could not load the job backlog.</strong>
+                                <div className="mt-1">{loadState.message}</div>
+                            </Note>
+                        )}
+
+                        {loadState.status === "ready" && (
+                            <Note intent="info">
+                                <strong>Job definitions are saved to the API.</strong> Saving writes the name,
+                                priority, ordered operations, and their machine routes as one atomic change.
+                            </Note>
+                        )}
+
                         {errors.length > 0 && (
                             <Note intent="danger" role="alert">
                                 <strong>Fix before saving</strong>
@@ -612,6 +753,10 @@ function JobsPageInner() {
                                     // Rows whose position differs from the last-saved order
                                     // stay light yellow until the draft is saved.
                                     const reordered = savedOrder[index] !== op.id;
+                                    const routes = routesFor(op);
+                                    const canAddRoute = activeMachines.some(
+                                        (machine) => !routes.some((route) => route.machineId === machine.id),
+                                    );
                                     return (
                                         <li
                                             key={op.id}
@@ -639,7 +784,7 @@ function JobsPageInner() {
                                                 resetDrag();
                                             }}
                                             onDragEnd={resetDrag}
-                                            className={`grid items-end gap-2.5 rounded-lg border p-2.5 transition-colors sm:grid-cols-[auto_2fr_1.2fr_auto_auto] ${reordered ? "border-warning/50 bg-warning-subtle/60" : "border-border bg-muted"
+                                            className={`grid items-end gap-2.5 rounded-lg border p-2.5 transition-colors sm:grid-cols-[auto_1fr_auto] ${reordered ? "border-warning/50 bg-warning-subtle/60" : "border-border bg-muted"
                                                 } ${isDragging ? "opacity-40" : ""
                                                 } ${landing ? "ring-2 ring-primary" : ""} ${dropBefore
                                                     ? "border-t-primary border-t-2"
@@ -675,34 +820,6 @@ function JobsPageInner() {
                                                 <Input placeholder="Operation name" />
                                             </TextField>
 
-                                            <Select
-                                                aria-label={`Operation ${index + 1} machine`}
-                                                value={op.machineId}
-                                                onChange={(machineId) =>
-                                                    patchOperation(index, { machineId: String(machineId) })
-                                                }
-                                            >
-                                                <SelectTrigger />
-                                                <SelectContent items={machines}>
-                                                    {(machine) => (
-                                                        <SelectItem id={machine.id} textValue={machine.name}>
-                                                            {machine.name}
-                                                        </SelectItem>
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
-
-                                            <NumberField
-                                                aria-label={`Operation ${index + 1} duration in minutes`}
-                                                className="w-38"
-                                                minValue={1}
-                                                step={5}
-                                                value={op.durationMins}
-                                                onChange={(durationMins) => patchOperation(index, { durationMins })}
-                                            >
-                                                <NumberInput />
-                                            </NumberField>
-
                                             <span className="flex items-center gap-1 self-center">
                                                 <Button
                                                     intent="plain"
@@ -731,6 +848,104 @@ function JobsPageInner() {
                                                     <XMarkIcon />
                                                 </Button>
                                             </span>
+
+                                            <div className="col-span-full rounded-md border bg-overlay p-2.5">
+                                                <div className="mb-2 flex items-center justify-between gap-2">
+                                                    <span className="font-medium text-muted-fg text-xs">Compatible machine routes</span>
+                                                    <Button
+                                                        intent="outline"
+                                                        size="sm"
+                                                        onPress={() => addRoute(index)}
+                                                        isDisabled={saving || !canAddRoute}
+                                                    >
+                                                        <PlusIcon /> Add route
+                                                    </Button>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {routes.map((route, routeIndex) => {
+                                                        const currentMachine = machines.find(
+                                                            (machine) => machine.id === route.machineId,
+                                                        );
+                                                        return (
+                                                            <div
+                                                                key={`${route.machineId}-${routeIndex}`}
+                                                                className="grid gap-2 sm:grid-cols-[minmax(12rem,1fr)_9rem_9rem_auto]"
+                                                            >
+                                                                <Select
+                                                                    aria-label={`Operation ${index + 1}, route ${routeIndex + 1} machine`}
+                                                                    value={route.machineId}
+                                                                    onChange={(machineId) =>
+                                                                        patchRoute(index, routeIndex, { machineId: String(machineId) })
+                                                                    }
+                                                                >
+                                                                    <SelectTrigger />
+                                                                    <SelectContent>
+                                                                        {activeMachines.map((machine) => (
+                                                                            <SelectItem
+                                                                                key={machine.id}
+                                                                                id={machine.id}
+                                                                                textValue={machine.name}
+                                                                                isDisabled={routes.some(
+                                                                                    (existing, existingIndex) =>
+                                                                                        existingIndex !== routeIndex && existing.machineId === machine.id,
+                                                                                )}
+                                                                            >
+                                                                                {machine.name}
+                                                                            </SelectItem>
+                                                                        ))}
+                                                                        {currentMachine && !currentMachine.active && (
+                                                                            <SelectItem
+                                                                                id={currentMachine.id}
+                                                                                textValue={`${currentMachine.name} (inactive)`}
+                                                                                isDisabled
+                                                                            >
+                                                                                {currentMachine.name} (inactive)
+                                                                            </SelectItem>
+                                                                        )}
+                                                                    </SelectContent>
+                                                                </Select>
+
+                                                                <NumberField
+                                                                    aria-label={`Operation ${index + 1}, route ${routeIndex + 1} duration in minutes`}
+                                                                    minValue={1}
+                                                                    step={1}
+                                                                    formatOptions={{ maximumFractionDigits: 0 }}
+                                                                    value={route.durationMins}
+                                                                    onChange={(durationMins) =>
+                                                                        patchRoute(index, routeIndex, { durationMins: Math.round(durationMins) })
+                                                                    }
+                                                                >
+                                                                    <NumberInput placeholder="Minutes" />
+                                                                </NumberField>
+
+                                                                <NumberField
+                                                                    aria-label={`Operation ${index + 1}, route ${routeIndex + 1} energy`}
+                                                                    minValue={0}
+                                                                    step={0.1}
+                                                                    value={route.energy === null ? undefined : Number(route.energy)}
+                                                                    onChange={(energy) =>
+                                                                        patchRoute(index, routeIndex, {
+                                                                            energy: energy === null ? null : String(energy),
+                                                                        })
+                                                                    }
+                                                                >
+                                                                    <NumberInput placeholder="Energy (optional)" />
+                                                                </NumberField>
+
+                                                                <Button
+                                                                    intent="plain"
+                                                                    size="sq-xs"
+                                                                    onPress={() => removeRoute(index, routeIndex)}
+                                                                    isDisabled={saving || routes.length === 1}
+                                                                    aria-label={`Remove route ${routeIndex + 1} from operation ${index + 1}`}
+                                                                >
+                                                                    <XMarkIcon />
+                                                                </Button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
                                         </li>
                                     );
                                 })}
@@ -741,7 +956,13 @@ function JobsPageInner() {
                                 )}
                             </ol>
 
-                            <Button intent="outline" size="sm" className="mt-3" onPress={addOperation}>
+                            <Button
+                                intent="outline"
+                                size="sm"
+                                className="mt-3"
+                                onPress={addOperation}
+                                isDisabled={saving || loadState.status !== "ready" || activeMachines.length === 0}
+                            >
                                 <PlusIcon /> Add operation
                             </Button>
                         </div>
@@ -750,18 +971,21 @@ function JobsPageInner() {
 
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="text-muted-fg text-sm">
-                                {draft.operations.length} operations · {formatDuration(draftWorkMins)} of machine
-                                time ·{" "}
-                                {new Set(draft.operations.map((op) => machineName(op.machineId))).size} machines
+                                {draft.operations.length} operations · {formatDuration(draftWorkMins)} on primary routes ·{" "}
+                                {draftMachineIds.size} compatible machines
                             </div>
                             <div className="flex items-center gap-2.5">
                                 {draft.id && (
-                                    <Button intent="danger" onPress={() => setConfirmingDelete(true)}>
+                                    <Button
+                                        intent="danger"
+                                        onPress={() => setConfirmingDelete(true)}
+                                        isDisabled={saving || loadState.status !== "ready"}
+                                    >
                                         Delete job
                                     </Button>
                                 )}
-                                <Button onPress={saveDraft}>
-                                    {draft.id ? "Save changes" : "Create job"}
+                                <Button onPress={saveDraft} isDisabled={saving || loadState.status !== "ready"}>
+                                    {saving ? "Saving…" : draft.id ? "Save changes" : "Create job"}
                                 </Button>
                             </div>
                         </div>
