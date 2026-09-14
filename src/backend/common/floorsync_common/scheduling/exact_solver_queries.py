@@ -34,14 +34,20 @@ def load_active_machines(db: Session) -> Sequence[tuple[UUID, str]]:
     return db.execute(statement).tuples().all()
 
 
-def load_operations(db: Session) -> Sequence[UUID]:
-    """Load every operation id.
+def load_operations(db: Session) -> Sequence[tuple[UUID, UUID, int]]:
+    """Load every operation id together with its job id and builder position.
 
-    Ordering only keeps the read deterministic -- the solver derives each job's
-    actual processing order from `load_precedences`, not from this order.
+    `job_id` is required to group operations into jobs -- without it, an operation
+    with no precedence edges (a single-operation job) can't be placed in any job at
+    all. `position` is carried along only as a deterministic tiebreaker among an
+    job's operations that share no precedence order; the solver still derives each
+    job's actual processing order from `load_precedences`, not from this column.
     """
-    statement = select(Operation.id).order_by(Operation.job_id, Operation.position)
-    return [row[0] for row in db.execute(statement).tuples().all()]
+    statement = (
+        select(Operation.id, Operation.job_id, Operation.position)
+        .order_by(Operation.job_id, Operation.position)
+    )
+    return db.execute(statement).tuples().all()
 
 
 def load_routes(db: Session) -> Sequence[tuple[UUID, UUID, int]]:
