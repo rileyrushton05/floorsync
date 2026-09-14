@@ -1,0 +1,65 @@
+import type { JobDefinition, JobDefinitionInput } from "../data/api";
+import type { JobDef, OperationDef, OperationRoute, Priority } from "@/domains/scheduling/types";
+
+const PRIORITY_FROM_API: Record<JobDefinition["priority"], Priority> = {
+    high: "High",
+    med: "Med",
+    low: "Low",
+};
+
+const PRIORITY_TO_API: Record<Priority, JobDefinition["priority"]> = {
+    High: "high",
+    Med: "med",
+    Low: "low",
+};
+
+function toRoute(route: JobDefinition["operations"][number]["routes"][number]): OperationRoute {
+    return { machineId: route.machine_id, durationMins: route.duration_minutes, energy: route.energy };
+}
+
+function toOperation(operation: JobDefinition["operations"][number]): OperationDef {
+    const routes = operation.routes.map(toRoute);
+    const primary = routes[0];
+    if (!primary) throw new Error(`The API returned operation ${operation.id} without a machine route.`);
+    return {
+        id: operation.id,
+        name: operation.name,
+        machineId: primary.machineId,
+        durationMins: primary.durationMins,
+        routes,
+    };
+}
+
+export function toJobDefinition(job: JobDefinition): JobDef {
+    return {
+        id: job.id,
+        name: job.name,
+        priority: PRIORITY_FROM_API[job.priority],
+        operations: [...job.operations]
+            .sort((left, right) => left.position - right.position)
+            .map(toOperation),
+    };
+}
+
+function toRoutes(operation: OperationDef): JobDefinitionInput["operations"][number]["routes"] {
+    const routes = operation.routes?.length
+        ? operation.routes
+        : [{ machineId: operation.machineId, durationMins: operation.durationMins, energy: null }];
+    return routes.map((route) => ({
+        machine_id: route.machineId,
+        duration_minutes: route.durationMins,
+        energy: route.energy,
+    }));
+}
+
+export function toJobDefinitionInput(job: Omit<JobDef, "id">, retainOperationIds: boolean): JobDefinitionInput {
+    return {
+        name: job.name,
+        priority: PRIORITY_TO_API[job.priority],
+        operations: job.operations.map((operation) => ({
+            ...(retainOperationIds && !operation.id.startsWith("new-op-") ? { id: operation.id } : {}),
+            name: operation.name,
+            routes: toRoutes(operation),
+        })),
+    };
+}

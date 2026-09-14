@@ -1,288 +1,148 @@
-# Frontend architecture guide
+# Frontend development standard
 
-This guide implements [decision 0012](decisions/0012-query-managed-frontend-server-state.md).
-The decision explains why FloorSync uses TanStack Query; this document shows how to build features
-without coupling visual UI to FastAPI, authentication, or data-fetching code.
+This is the required structure for FloorSync frontend work. It exists to keep
+route files small, visual components testable, and backend integration
+predictable as more floors, roles, and scheduling workflows are added.
 
-## Outcomes
-
-- Build and review a screen with fixtures, without an API or logged-in user.
-- Contain backend changes to transport functions, hooks, and mappers—not JSX.
-- Make mutations refresh every dependent screen without a browser reload.
-- Keep an unsaved form draft safe during background revalidation.
-
-## Four layers
+## The dependency direction
 
 ```text
-FastAPI DTOs
-   │
-   ▼
-1. app/_lib/api.ts                 typed HTTP, Problem Details, AbortSignal
-   │
-   ▼
-2. features/<feature>/queries.ts   TanStack Query, mutations, polling, invalidation
-   │
-   ▼
-3. features/<feature>/Page.tsx     DTO → view model; intents → mutations
-   │
-   ▼
-4. features/<feature>/ui/          props, callbacks, layout, local visual state
+app routes  →  feature screens  →  feature data / model / UI
+                   ↓                    ↓
+              core + domains       core + domains + components/ui
+
+core       → components/ui only
+domains    → core + components/ui only
 ```
 
-Only layers 1–3 may know the backend exists. A file in `ui/` must not import `api.ts`, TanStack
-Query, `useAuth`, `useRouter`, API DTO types, or `ApiError`.
+`app/` is routing and provider composition, not an application code bucket.
+Every `page.tsx` is a one-line re-export of a feature screen. A feature may use
+another feature's public query hook or key only when it is a real dependency;
+it must never reach into another feature's screen or UI implementation.
 
-## Project structure
+`core/` contains application-wide, business-neutral concerns: authentication,
+HTTP transport, query provider/pagination, feedback states, and shell chrome.
+It cannot import a feature or domain. `domains/` holds business concepts shared
+by multiple features. Scheduling types, timeline translation, colours, Gantt
+geometry and time formatting live in `domains/scheduling/`, rather than under a
+manager route.
 
-Feature code belongs in `src/frontend/features/`, not in a Next.js route directory. Route files then
-remain small entry points.
+## Required layout
 
 ```text
 src/frontend/
-├── app/
-│   ├── _lib/api.ts
-│   ├── _lib/query-keys.ts
-│   └── manager/machines/page.tsx       # imports <MachinesPage /> only
-├── features/
-│   └── machines/
-│       ├── model.ts                     # UI contracts and DTO mapper
-│       ├── queries.ts                   # query and mutation hooks
-│       ├── MachinesPage.tsx             # connected screen
-│       ├── fixtures.ts                  # fixture data and states
-│       └── ui/
-│           └── MachineInventoryList.tsx # prop-driven presentation
-├── features/jobs/
-│   ├── JobsPage.tsx
-│   ├── model.ts
-│   ├── queries.ts
-│   └── fixtures.ts
-└── features/schedules/
-    ├── SchedulerPage.tsx
-    ├── SimulationPage.tsx
-    ├── model.ts
-    ├── queries.ts
-    ├── fixtures.ts
-    └── ui/ScheduleBar.tsx
-└── components/ui/                       # shared Button, Card, Select, etc.
+├── app/                         # layouts, providers and one-line route exports
+├── components/ui/               # owned, accessible design primitives
+├── core/
+│   ├── auth/                    # token store, session context and route guards
+│   ├── http/                    # apiRequest, ApiError and wire-level helpers
+│   ├── query/                   # QueryClient policy and pagination
+│   ├── feedback/                # reusable state messages
+│   ├── presentation/            # generic UI mappings, e.g. badge intent
+│   └── shell/                   # reusable navigation and page shells
+├── domains/
+│   └── scheduling/              # shared scheduling business vocabulary + Gantt
+└── features/
+    └── <feature>/
+        ├── data/                # endpoint functions, query keys and query hooks
+        ├── model/               # pure mapping, validation and view-model helpers
+        ├── screens/             # route-level controllers/composition
+        ├── ui/                  # presentational components
+        └── fixtures/            # explicit prototype-only data/components, if needed
 ```
 
-Keep FloorSync workflow components in their feature directory. `components/ui/` is only for
-feature-neutral design-system primitives.
+Not every feature needs every folder. Do not create a generic component, hook,
+or `utils` folder until it has a second genuine caller. Conversely, move a
+single-purpose piece out of a screen once it is independently understandable
+or makes the screen hard to scan.
 
-## 1. Transport stays transport-only
+## Screen, UI and business responsibilities
 
-`app/_lib/api.ts` owns URLs, headers, JSON parsing, Problem Details conversion, and the existing
-401 sign-out rule. It must not import React or cache keys. Every read accepts an optional signal so
-TanStack Query can cancel obsolete requests.
+A screen owns URL state, local interaction state, feature query hooks,
+mutation orchestration, and the composition of its visual pieces. It should
+read as the story of the screen, not as an implementation dump. Extract a UI
+component for a dense panel, editor, list, dialog, or table; pass it explicit
+values and callbacks.
 
-```ts
-export function fetchMachines(
-  token: string,
-  limit = 100,
-  cursor?: string,
-  signal?: AbortSignal,
-): Promise<CursorPage<MachineSummary>> {
-  // Pass `signal` through the shared request() wrapper to fetch().
-}
-```
+A component under `features/*/ui` is presentational:
 
-Components never call raw `fetch`. A feature hook calls a named transport function.
+- It may import `components/ui`, the feature's `model`, and `domains`.
+- It must not call `fetch`, use TanStack Query, read auth context, read the
+  router, or import a feature `data/api` module.
+- It reports interaction through callbacks rather than reaching into state.
 
-## 2. Configure TanStack Query once
+Pure transformations, validation and API-to-view mapping belong in `model/`.
+No React hook or JSX belongs there. Business concepts used by two features move
+to `domains/`, never to `core/`.
 
-```bash
-pnpm add @tanstack/react-query
-```
+## Backend and TanStack Query policy
 
-Create `app/_components/QueryProvider.tsx` and wrap it around the current providers in
-`app/providers.tsx`:
+There is one browser transport: `core/http/client.ts`. It owns the API base URL,
+JSON headers, problem-detail errors, authenticated 401 handling, and crucially
+rethrows aborted requests. Cancellation is normal TanStack Query control flow;
+it must never be turned into an `ApiError(0)` or retried.
 
-```tsx
-"use client";
+Each feature owns its endpoint functions, types, cache keys and query hooks in
+`data/`. Query functions accept and forward TanStack's `signal`. A feature uses
+the following defaults unless it documents a reason not to:
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+- Reads use `useQuery`, are disabled without a token, and use stable feature
+  keys. Do not put tokens, objects, or timestamps in a key.
+- Writes use `useMutation` and invalidate the smallest affected feature keys.
+  Cross-feature invalidation is allowed only for actual data dependencies
+  (for example, changing machines invalidates job-definition and schedule
+  views).
+- Async commands do not invalidate their result collection on `202 Accepted`.
+  The scheduling generation hook invalidates schedules only after its poller
+  reports `completed`.
+- Cache is cleared when the session token changes, so data never crosses
+  accounts in a browser tab.
 
-export function QueryProvider({ children }: { children: React.ReactNode }) {
-  const [client] = useState(() => new QueryClient({
-    defaultOptions: { queries: { retry: 1, refetchOnReconnect: true } },
-  }));
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
-```
+Endpoint functions return API contracts. Convert them at the data/model edge;
+the rest of the UI should not know `snake_case` or response-only fields.
 
-When the account or token changes, call `queryClient.clear()`. Never include a bearer token in a
-query key or persist the query cache.
+## Shell, design and feedback policy
 
-## 3. Define keys before hooks
+Use `components/ui` for buttons, forms, cards, tables and accessible interaction
+primitives. Use `core/shell` only for app-wide chrome such as `ManagerShell`,
+not for arbitrary cards. Use `core/feedback` and `ManagerPageState` for
+consistent loading, permission, empty, and failure states.
 
-All query keys live in one factory; no handwritten key arrays elsewhere.
+The UI must distinguish a reusable shell from a feature panel. A manager page
+gets the manager navigation from `ManagerShell`; a machine editor is owned by
+the machines feature. Keep Tailwind classes close to the component they style
+and prefer the design tokens in `app/styles.css` over new literal colours.
 
-```ts
-export const queryKeys = {
-  machines: {
-    all: ["machines"] as const,
-    detail: (id: string) => ["machines", id] as const,
-    categories: ["machines", "categories"] as const,
-  },
-  jobDefinitions: {
-    all: ["job-definitions"] as const,
-    detail: (id: string) => ["job-definitions", id] as const,
-  },
-  schedules: {
-    all: ["schedules"] as const,
-    timeline: (id: string) => ["schedules", id, "timeline"] as const,
-    generation: (id: string) => ["schedule-generations", id] as const,
-  },
-  simulations: { detail: (id: string) => ["simulations", id] as const },
-};
-```
+## Fixtures and prototype routes
 
-## 4. Map API resources to UI models
+Fixtures are allowed only in `features/<name>/fixtures/`. Their module and any
+screen using them must say that the data is prototype-only. A self-contained
+prototype component may live there too, so its static interaction state cannot
+be mistaken for an API-backed screen. Fixtures cannot be silently mixed with
+API results or used as a failed-query fallback. The current overview and
+operator screens are explicitly prototype features because the backend does not
+yet expose their required live contracts.
 
-`MachineSummary` is an API contract; `MachineRow` is a visual contract. Map between them once at
-the feature boundary, rather than leaking API fields through views.
+When an API contract is introduced, create the feature `data` module, model
+adapter, query hook and loading/error states in the same change, then delete the
+fixture path instead of maintaining two ambiguous implementations.
 
-```ts
-// features/machines/model.ts
-import type { MachineSummary } from "@/app/_lib/api";
+## Adding or changing a feature
 
-export interface MachineRow {
-  id: string;
-  name: string;
-  categoryLabel: string;
-  statusLabel: "Active" | "Inactive";
-  isActive: boolean;
-}
+1. Write/update the API contract and endpoint functions in `data/api.ts`.
+2. Add a stable key and query/mutation hook in `data/` with explicit invalidation.
+3. Put pure conversions and validations in `model/`.
+4. Build accessible visual panels in `ui/`; compose them from a `screens/` file.
+5. Add a one-line route export and select the shared shell/guard deliberately.
+6. Remove the replaced code in the same PR. Do not leave an old route helper,
+   duplicate API function, or alternate fixture flow behind.
+7. Run `pnpm typecheck`, `pnpm lint`, and `pnpm check:architecture`.
 
-export function toMachineRow(machine: MachineSummary, categories: ReadonlyMap<string, string>): MachineRow {
-  return {
-    id: machine.id,
-    name: machine.name,
-    categoryLabel: machine.category_id ? categories.get(machine.category_id) ?? "Unknown" : "No category",
-    statusLabel: machine.active ? "Active" : "Inactive",
-    isActive: machine.active,
-  };
-}
-```
+## Enforced boundaries
 
-If the API changes, adjust the mapper or hook. If design changes, adjust `MachineRow` and the view.
-Neither change should cascade through the other layer.
-
-## 5. Put backend work in hooks
-
-```tsx
-// features/machines/queries.ts
-export function useMachines() {
-  const { token } = useAuth();
-  return useQuery({
-    queryKey: queryKeys.machines.all,
-    enabled: token !== null,
-    queryFn: ({ signal }) => fetchAllMachinePages(token!, signal),
-    refetchOnMount: "always",
-  });
-}
-
-export function useSaveMachine() {
-  const client = useQueryClient();
-  const { token } = useAuth();
-  return useMutation({
-    mutationFn: ({ id, values }: { id?: string; values: MachineInput }) =>
-      id ? updateMachine(id, values, token!) : createMachine(values, token!),
-    onSuccess: async (machine) => {
-      client.setQueryData(queryKeys.machines.detail(machine.id), machine);
-      await client.invalidateQueries({ queryKey: queryKeys.machines.all });
-      await client.invalidateQueries({ queryKey: queryKeys.jobDefinitions.all });
-      await client.invalidateQueries({ queryKey: queryKeys.schedules.all });
-    },
-  });
-}
-```
-
-`fetchAllMachinePages` is a named cursor-pagination helper in the data layer, never table JSX. In
-production hook code, enforce token availability through the manager guard and `enabled` condition.
-
-## 6. Keep the connected screen thin
-
-The screen owns local draft state and converts query output to UI props. It does not contain the
-dense visual layout.
-
-```tsx
-export function MachinesPage() {
-  const machines = useMachines();
-  const saveMachine = useSaveMachine();
-  const [draft, setDraft] = useState<MachineDraft>(EMPTY_DRAFT);
-
-  if (machines.isPending) return <MachineInventoryView state={{ kind: "loading" }} />;
-  if (machines.isError) return <MachineInventoryView state={{ kind: "error", onRetry: machines.refetch }} />;
-
-  return <MachineInventoryView
-    state={{ kind: "ready", rows: machines.data.map(toMachineRow), isRefreshing: machines.isFetching }}
-    draft={draft}
-    saving={saveMachine.isPending}
-    onDraftChange={setDraft}
-    onSave={() => saveMachine.mutate({ values: toMachineInput(draft) })}
-  />;
-}
-```
-
-The view is controlled by props and emits only intents. Parent-owned state includes selected record,
-form draft, save state, and errors; a small visual detail such as a disclosure's open state may stay
-local to the view.
-
-## 7. Build UI with fixtures first
-
-Create believable fixture data before API integration:
-
-```ts
-export const readyMachines: MachineRow[] = [/* active and inactive examples */];
-export const longNameMachine: MachineRow = { /* overflow/accessibility case */ };
-export const validationError = "Machine name is required.";
-```
-
-Every feature supplies ready, empty, loading, background-refresh, permission, validation-error,
-request-error, and long-content states. Designers can render those views in a development route or
-component test with no backend. Introduce Storybook when several components need repeatable visual
-review; its stories provide fixture props and are not included in the production bundle. Use MSW
-only for connected-page stories or browser tests requiring an HTTP boundary, never as runtime data.
-
-## Freshness and invalidation matrix
-
-| Event | Required query action |
-| --- | --- |
-| Open Jobs | Revalidate machines and job definitions needed by Jobs |
-| Open Machines | Revalidate machines/categories |
-| Create/update/deactivate machine | Invalidate machines, job definitions, scheduler input |
-| Save/delete job definition | Invalidate job definitions and scheduler input |
-| Generation succeeds | Invalidate schedules; fetch returned timeline by id |
-| Simulation runs | Poll authoritative simulation state only; never poll immutable timeline per frame |
-| Sign out/account changes | Clear cache |
-
-Do not create a global “refresh everything” counter. A mutation names the resources it can make
-stale; a route mounts and revalidates only the resources it actually needs.
-
-## Migration order
-
-1. Add `QueryProvider`, query keys, and transport `AbortSignal` support.
-2. Migrate Machines and Jobs together, then delete `PlanningProvider` and its pathname workaround. ✓
-3. Migrate Scheduler generation to a mutation plus terminal-status query polling. ✓
-4. Migrate Simulation to immutable timeline and authoritative-state hooks. ✓
-5. Add Storybook/MSW after stable fixture views need regular visual review.
-
-## Review checklist
-
-- Does a `ui/` file import a query hook, DTO, API client, token, router, or `ApiError`? Move that
-  concern to the connected screen or feature hook.
-- Does an API DTO appear in a UI prop? Add a view model and mapper.
-- Is an unsaved draft in server cache? Move it to local state.
-- Does each mutation invalidate every dependent query family?
-- Does every screen have fixture states before backend integration?
-- Is polling conditional on a transient backend state and bounded by product rules?
-
-## References
-
-- [Decision 0012](decisions/0012-query-managed-frontend-server-state.md)
-- [React: Sharing State Between Components](https://react.dev/learn/sharing-state-between-components)
-- [TanStack Query: important defaults](https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults)
-- [TanStack Query: query invalidation](https://tanstack.com/query/latest/docs/framework/react/guides/query-invalidation)
-- [Storybook: build UI in isolation](https://storybook.js.org/docs/get-started/why-storybook)
+`pnpm check:architecture` fails if legacy route-local architecture returns, a
+route page stops delegating to a feature screen, a feature UI layer imports
+TanStack/auth/router/API data, a domain imports a feature or route, a core module
+imports a feature/domain, or a second `fetch` is introduced outside the shared
+transport. It is included in `pnpm lint` and is intentionally a lightweight
+guardrail rather than a substitute for code review.

@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { MachineRow } from "../model";
+import type { MachineRow } from "../model/machine";
 
 /** Presentational inventory list; the connected screen owns filtering and selection intent. */
 export function MachineInventoryList({

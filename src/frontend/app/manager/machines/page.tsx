@@ -1,1 +1,1 @@
-export { default } from "@/features/machines/MachinesPage";
+export { default } from "@/features/machines/screens/MachinesScreen";
