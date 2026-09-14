@@ -6,6 +6,7 @@ import { Toast } from "@/components/ui/toast";
 import { useRouter } from "next/navigation";
 import { RouterProvider } from "react-aria-components";
 import { AuthProvider } from "./_components/AuthProvider";
+import { ClearQueryCacheOnAuthChange, QueryProvider } from "./_components/QueryProvider";
 
 /**
  * App-wide client providers.
@@ -26,10 +27,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <ThemeProvider>
             <TransitionProgress />
             <RouterProvider navigate={(href) => router.push(href)}>
-                <AuthProvider>
-                    {children}
-                    <Toast position="top-right" />
-                </AuthProvider>
+                <QueryProvider>
+                    <AuthProvider>
+                        <ClearQueryCacheOnAuthChange />
+                        {children}
+                        <Toast position="top-right" />
+                    </AuthProvider>
+                </QueryProvider>
             </RouterProvider>
         </ThemeProvider>
     );
