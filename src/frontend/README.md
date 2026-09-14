@@ -295,9 +295,9 @@ definition. Deletes use `DELETE /api/v1/jobs/{id}` and correctly handle its empt
 `204 No Content` response.
 
 It no longer holds a generated plan. Generation moved to the backend, and both
-the scheduler and the simulation read what is actually stored. The simplified
-editor exposes one primary machine route per operation but retains any additional
-routes returned by the API, so saving a definition cannot silently discard them.
+the scheduler and the simulation read what is actually stored. The builder edits
+every compatible machine route, including its duration and optional energy, and
+only offers active machines for new routes.
 
 | File | Structure | Replaced by |
 | --- | --- | --- |

@@ -74,25 +74,18 @@ function planningJob(job: JobDefinition): JobDef {
 }
 
 function planningMachine(machine: MachineSummary): Machine {
-    return { id: machine.id, name: machine.name, operator: "Unassigned" };
+    return { id: machine.id, name: machine.name, operator: "Unassigned", active: machine.active };
 }
 
-/** Preserve non-primary routes when the simplified editor changes its primary route. */
 function definitionRoutes(operation: OperationDef): JobDefinitionInput["operations"][number]["routes"] {
-    const primary = {
-        machine_id: operation.machineId,
-        duration_minutes: operation.durationMins,
-        energy: operation.routes?.[0]?.energy ?? null,
-    };
-    const alternatives = (operation.routes ?? [])
-        .slice(1)
-        .filter((route) => route.machineId !== primary.machine_id)
-        .map((route) => ({
+    const routes = operation.routes?.length
+        ? operation.routes
+        : [{ machineId: operation.machineId, durationMins: operation.durationMins, energy: null }];
+    return routes.map((route) => ({
             machine_id: route.machineId,
             duration_minutes: route.durationMins,
             energy: route.energy,
         }));
-    return [primary, ...alternatives];
 }
 
 function definitionInput(job: Omit<JobDef, "id">, retainOperationIds: boolean): JobDefinitionInput {

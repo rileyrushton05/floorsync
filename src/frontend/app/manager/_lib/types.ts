@@ -13,6 +13,7 @@ export interface Machine {
     id: string;
     name: string;
     operator: string;
+    active: boolean;
 }
 
 /** One compatible machine route for an operation. */
@@ -29,10 +30,7 @@ export interface OperationDef {
     name: string;
     machineId: string;
     durationMins: number;
-    /**
-     * Every route returned by the builder API. The current editor exposes the
-     * primary route and preserves the remaining compatible routes on save.
-     */
+    /** Every route returned by the builder API. */
     routes?: OperationRoute[];
 }
 
