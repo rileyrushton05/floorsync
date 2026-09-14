@@ -64,7 +64,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Mirrors the categorical job palette in app/manager/_lib/colors.ts. */
+  /* Mirrors the categorical job palette in domains/scheduling/colors.ts. */
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);

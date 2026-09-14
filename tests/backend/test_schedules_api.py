@@ -243,6 +243,41 @@ def test_rejected_generation_exposes_its_input_issues(monkeypatch: Any) -> None:
     ]
 
 
+def test_failed_generation_exposes_a_safe_api_detail(monkeypatch: Any) -> None:
+    queue = FakeTaskQueue(FakeTaskResult("FAILURE", RuntimeError("database credentials leaked")))
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/generations/{queue.task_id}"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": str(queue.task_id),
+        "status": "failed",
+        "detail": schedules_router.SCHEDULING_GENERATION_FAILED_DETAIL,
+    }
+    assert "credentials" not in response.json()["detail"]
+
+
+def test_unavailable_generation_exposes_a_safe_api_detail(monkeypatch: Any) -> None:
+    queue = FakeTaskQueue(FakeTaskResult("SUCCESS", {"outcome": "unavailable"}))
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/generations/{queue.task_id}"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": str(queue.task_id),
+        "status": "unavailable",
+        "detail": schedules_router.SCHEDULING_ENGINE_UNAVAILABLE_DETAIL,
+    }
+
+
 def test_manager_can_read_a_saved_schedule() -> None:
     schedule, entry, dependency = schedule_fixture()
     manager = User(id=uuid4(), name="Manager", role="manager")

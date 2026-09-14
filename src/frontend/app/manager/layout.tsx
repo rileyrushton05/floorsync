@@ -1,6 +1,6 @@
 "use client";
 
-import { RequireManager } from "../_components/RequireManager";
+import { RequireManager } from "@/core/auth/RequireManager";
 
 /**
  * Guards every /manager route behind a signed-in manager account. Each screen

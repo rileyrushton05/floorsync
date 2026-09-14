@@ -1,6 +1,6 @@
 "use client";
 
-import { RequireAuth } from "../_components/RequireAuth";
+import { RequireAuth } from "@/core/auth/RequireAuth";
 
 /**
  * Guards the operator dashboard.

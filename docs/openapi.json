@@ -1365,8 +1365,19 @@
         "type": "object"
       },
       "ScheduleGenerationStatusResponse": {
-        "description": "The externally visible state of one queued schedule-generation command.",
+        "description": "The externally visible state of one queued schedule-generation command.\n\nTerminal operational failures include a safe, API-authored detail. It is\nintentionally not a worker exception: clients can show it directly while\noperational diagnostics remain in worker logs.",
         "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -3384,7 +3395,7 @@
     },
     "/api/v1/schedules/generations/{generation_id}": {
       "get": {
-        "description": "Read the queued command's state without exposing worker exception details.",
+        "description": "Read a queued command's state with safe API-authored terminal details.",
         "operationId": "get_schedule_generation_api_v1_schedules_generations__generation_id__get",
         "parameters": [
           {

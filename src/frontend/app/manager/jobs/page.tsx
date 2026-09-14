@@ -1,1 +1,1 @@
-export { default } from "@/features/jobs/JobsPage";
+export { default } from "@/features/jobs/screens/JobsScreen";

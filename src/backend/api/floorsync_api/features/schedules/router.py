@@ -31,6 +31,15 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 Manager = Annotated[User, Depends(require_roles("manager"))]
 task_queue = create_task_queue()
 
+SCHEDULING_ENGINE_UNAVAILABLE_DETAIL = (
+    "The scheduling engine is unavailable for this run. "
+    "Try again later or contact an administrator."
+)
+SCHEDULING_GENERATION_FAILED_DETAIL = (
+    "The scheduling worker could not complete this run. "
+    "Try again later or contact an administrator."
+)
+
 
 @router.post(
     "",
@@ -100,7 +109,7 @@ async def get_schedule_generation(
     request: Request,
     _: Manager,
 ) -> ScheduleGenerationStatusResponse | JSONResponse:
-    """Read the queued command's state without exposing worker exception details."""
+    """Read a queued command's state with safe API-authored terminal details."""
 
     try:
         task_result = task_queue.AsyncResult(str(generation_id))
@@ -185,7 +194,13 @@ def schedule_generation_status(
         status_name: Literal["failed", "pending"] = (
             "failed" if task_state == "FAILURE" else "pending"
         )
-        return ScheduleGenerationStatusResponse(id=generation_id, status=status_name)
+        if status_name == "failed":
+            return ScheduleGenerationStatusResponse(
+                id=generation_id,
+                status="failed",
+                detail=SCHEDULING_GENERATION_FAILED_DETAIL,
+            )
+        return ScheduleGenerationStatusResponse(id=generation_id, status="pending")
 
     outcome = task_result.get("outcome")
     if outcome == "stored":
@@ -206,8 +221,16 @@ def schedule_generation_status(
                 issues=issues,
             )
     if outcome == "unavailable":
-        return ScheduleGenerationStatusResponse(id=generation_id, status="unavailable")
-    return ScheduleGenerationStatusResponse(id=generation_id, status="failed")
+        return ScheduleGenerationStatusResponse(
+            id=generation_id,
+            status="unavailable",
+            detail=SCHEDULING_ENGINE_UNAVAILABLE_DETAIL,
+        )
+    return ScheduleGenerationStatusResponse(
+        id=generation_id,
+        status="failed",
+        detail=SCHEDULING_GENERATION_FAILED_DETAIL,
+    )
 
 
 def queue_unavailable_problem(request: Request) -> JSONResponse:
