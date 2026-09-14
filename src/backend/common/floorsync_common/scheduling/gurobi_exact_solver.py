@@ -20,14 +20,14 @@ from floorsync_common.scheduling.contracts import (
 from floorsync_common.scheduling.load_data_from_db import load_fajsp, load_fajsp_from_db
 from floorsync_common.scheduling.service import SchedulingService
 
-INSTANCE_PATH = './data/mk07.json'
+INSTANCE_PATH = "./data/mk07.json"
 TIME_LIMIT_SECONDS = 60
-STRATEGY = 'gurobi_exact_v1'
+STRATEGY = "gurobi_exact_v1"
 
 
 def processing_time(operation_data, operation, machine):
     """Processing time of `operation` on `machine`, or None if ineligible."""
-    for duration, candidate_machine in operation_data[operation]['options']:
+    for duration, candidate_machine in operation_data[operation]["options"]:
         if candidate_machine == machine:
             return duration
     return None
@@ -35,17 +35,15 @@ def processing_time(operation_data, operation, machine):
 
 def build_model(operations, eligible_machines, operation_data):
     """Build the disjunctive MILP. Returns the model and its variables."""
-    horizon = sum(
-        max(duration for duration, _ in record['options']) for record in operation_data
-    )
+    horizon = sum(max(duration for duration, _ in record["options"]) for record in operation_data)
 
-    model = gp.Model('fajsp')
+    model = gp.Model("fajsp")
     model.Params.TimeLimit = TIME_LIMIT_SECONDS
 
     # assignment[i, k]: operation i is assigned to machine k
     assignment = {
         (operation, machine): model.addVar(
-            vtype=gp.GRB.BINARY, name=f'assign[{operation},{machine}]'
+            vtype=gp.GRB.BINARY, name=f"assign[{operation},{machine}]"
         )
         for operation in operations
         for machine in eligible_machines[operation]
@@ -53,9 +51,7 @@ def build_model(operations, eligible_machines, operation_data):
 
     # sequenced_before[i, ii]: operation i is sequenced before operation ii
     sequenced_before = {
-        (first, second): model.addVar(
-            vtype=gp.GRB.BINARY, name=f'before[{first},{second}]'
-        )
+        (first, second): model.addVar(vtype=gp.GRB.BINARY, name=f"before[{first},{second}]")
         for first in operations
         for second in operations
         if first != second
@@ -63,11 +59,11 @@ def build_model(operations, eligible_machines, operation_data):
 
     # start_time[i]: start time of operation i
     start_time = {
-        operation: model.addVar(vtype=gp.GRB.INTEGER, name=f'start[{operation}]')
+        operation: model.addVar(vtype=gp.GRB.INTEGER, name=f"start[{operation}]")
         for operation in operations
     }
 
-    makespan = model.addVar(vtype=gp.GRB.INTEGER, name='makespan')
+    makespan = model.addVar(vtype=gp.GRB.INTEGER, name="makespan")
 
     def duration_expression(operation):
         """Processing time of an operation as a linear expression."""
@@ -82,18 +78,17 @@ def build_model(operations, eligible_machines, operation_data):
     # (2) each operation runs on exactly one eligible machine
     for operation in operations:
         model.addConstr(
-            gp.quicksum(
-                assignment[operation, machine] for machine in eligible_machines[operation]
-            ) == 1,
-            name=f'assign_once[{operation}]',
+            gp.quicksum(assignment[operation, machine] for machine in eligible_machines[operation])
+            == 1,
+            name=f"assign_once[{operation}]",
         )
 
     # (3) precedence: an operation starts after each of its predecessors finishes
     for operation in operations:
-        for predecessor in operation_data[operation]['pre']:
+        for predecessor in operation_data[operation]["pre"]:
             model.addConstr(
                 start_time[operation] >= start_time[predecessor] + duration_expression(predecessor),
-                name=f'precedence[{predecessor},{operation}]',
+                name=f"precedence[{predecessor},{operation}]",
             )
 
     # (4) and (5) two operations sharing a machine cannot overlap
@@ -114,33 +109,35 @@ def build_model(operations, eligible_machines, operation_data):
                     >= start_time[second]
                     + processing_time(operation_data, second, machine)
                     - slack * horizon,
-                    name=f'no_overlap_a[{first},{second},{machine}]',
+                    name=f"no_overlap_a[{first},{second},{machine}]",
                 )
                 model.addConstr(
                     start_time[second]
                     >= start_time[first]
                     + processing_time(operation_data, first, machine)
-                    - (3 - assignment[first, machine] - assignment[second, machine] - sequenced_before[first, second])
+                    - (
+                        3
+                        - assignment[first, machine]
+                        - assignment[second, machine]
+                        - sequenced_before[first, second]
+                    )
                     * horizon,
-                    name=f'no_overlap_b[{first},{second},{machine}]',
+                    name=f"no_overlap_b[{first},{second},{machine}]",
                 )
 
     # (6) the makespan covers every operation
     for operation in operations:
         model.addConstr(
             makespan >= start_time[operation] + duration_expression(operation),
-            name=f'makespan[{operation}]',
+            name=f"makespan[{operation}]",
         )
 
     return model, assignment, start_time, makespan
 
 
-
-
-
 def report(operation_data, eligible_machines, assignment, start_time, makespan):
     """Print the solved schedule to stdout."""
-    print(f'makespan: {makespan.X:.0f}')
+    print(f"makespan: {makespan.X:.0f}")
     for operation, record in enumerate(operation_data):
         machine = next(
             candidate
@@ -149,19 +146,22 @@ def report(operation_data, eligible_machines, assignment, start_time, makespan):
         )
         print(
             f"job {record['job']} op {record['op_id']}: "
-            f'machine {machine}, start {start_time[operation].X:.0f}'
+            f"machine {machine}, start {start_time[operation].X:.0f}"
         )
 
 
 def main():
     jobs, machines, operations, eligible_machines, operation_data = load_fajsp(INSTANCE_PATH)
-    model, assignment, start_time, makespan = build_model(operations, eligible_machines, operation_data)
+    model, assignment, start_time, makespan = build_model(
+        operations, eligible_machines, operation_data
+    )
     model.optimize()
     report(operation_data, eligible_machines, assignment, start_time, makespan)
 
 
-def build_schedule_plan(operation_data, eligible_machines, assignment, start_time, makespan,
-                         machine_meta, starts_at):
+def build_schedule_plan(
+    operation_data, eligible_machines, assignment, start_time, makespan, machine_meta, starts_at
+):
     """Turn a solved model into a `SchedulePlan`, ready for `SchedulingService.store_draft`."""
     assignments = []
     for operation, record in enumerate(operation_data):
@@ -175,30 +175,30 @@ def build_schedule_plan(operation_data, eligible_machines, assignment, start_tim
         op_starts_at = starts_at + timedelta(minutes=int(start_time[operation].X))
         assignments.append(
             ScheduledOperation(
-                operation_id=record['op_id'],
+                operation_id=record["op_id"],
                 machine_id=machine_id,
                 starts_at=op_starts_at,
                 ends_at=op_starts_at + timedelta(minutes=duration),
                 duration_minutes=duration,
-                energy=record['energy_by_machine'].get(machine),
+                energy=record["energy_by_machine"].get(machine),
                 machine_salary_per_minute=salary_per_minute,
             )
         )
 
     dependencies = tuple(
         ScheduleDependencySpec(
-            schedule_operation_id=operation_data[operation]['op_id'],
-            depends_on_operation_id=operation_data[predecessor]['op_id'],
-            reason='job_order',
+            schedule_operation_id=operation_data[operation]["op_id"],
+            depends_on_operation_id=operation_data[predecessor]["op_id"],
+            reason="job_order",
         )
         for operation, record in enumerate(operation_data)
-        for predecessor in record['pre']
+        for predecessor in record["pre"]
     )
 
     energy_values = [a.energy for a in assignments]
     salary_values = [a.machine_salary_per_minute for a in assignments]
     total_energy = (
-        sum((energy for energy in energy_values if energy is not None), Decimal('0'))
+        sum((energy for energy in energy_values if energy is not None), Decimal("0"))
         if all(energy is not None for energy in energy_values)
         else None
     )
@@ -209,7 +209,7 @@ def build_schedule_plan(operation_data, eligible_machines, assignment, start_tim
                 for a, salary in zip(assignments, salary_values, strict=True)
                 if salary is not None
             ),
-            Decimal('0'),
+            Decimal("0"),
         )
         if all(salary is not None for salary in salary_values)
         else None
@@ -236,7 +236,9 @@ def solve_fajsp(operations, eligible_machines, operation_data, machine_meta, sta
     Raises:
         RuntimeError: if Gurobi found no feasible schedule within the time limit.
     """
-    model, assignment, start_time, makespan = build_model(operations, eligible_machines, operation_data)
+    model, assignment, start_time, makespan = build_model(
+        operations, eligible_machines, operation_data
+    )
 
     started = time.monotonic()
     model.optimize()
@@ -244,7 +246,7 @@ def solve_fajsp(operations, eligible_machines, operation_data, machine_meta, sta
 
     if model.SolCount == 0:
         raise RuntimeError(
-            f'Gurobi found no feasible schedule within the {TIME_LIMIT_SECONDS}s time limit.'
+            f"Gurobi found no feasible schedule within the {TIME_LIMIT_SECONDS}s time limit."
         )
 
     report(operation_data, eligible_machines, assignment, start_time, makespan)
@@ -276,5 +278,5 @@ def main_from_db(db: Session, starts_at: datetime | None = None):
     return stored
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -16,13 +16,13 @@ def load_fajsp(path):
         raw = json.load(f)
 
     options_by_op = defaultdict(list)
-    for e in raw['operations']:
-        options_by_op[e['operation']].append((e['duration'], e['machine']))
+    for e in raw["operations"]:
+        options_by_op[e["operation"]].append((e["duration"], e["machine"]))
 
     op_to_job = {}
-    for p in raw['precedences']:
-        op_to_job[p['before']] = p['job']
-        op_to_job[p['after']] = p['job']
+    for p in raw["precedences"]:
+        op_to_job[p["before"]] = p["job"]
+        op_to_job[p["after"]] = p["job"]
 
     # lay out ops job by job, preserving their original job IDs from the data
     ops_by_job = defaultdict(list)
@@ -35,21 +35,28 @@ def load_fajsp(path):
     for j in jobs:
         for pos, op in enumerate(sorted(ops_by_job[j])):
             index_of[op] = len(op_list)
-            op_list.append({'op_id': op, 'job': j, 'pos': pos,
-                            'options': options_by_op[op],
-                            'pre': [], 'post': []})
+            op_list.append(
+                {
+                    "op_id": op,
+                    "job": j,
+                    "pos": pos,
+                    "options": options_by_op[op],
+                    "pre": [],
+                    "post": [],
+                }
+            )
 
     # one pass over the raw edges
-    for p in raw['precedences']:
-        b, a = index_of[p['before']], index_of[p['after']]
-        op_list[a]['pre'].append(b)
-        op_list[b]['post'].append(a)
+    for p in raw["precedences"]:
+        b, a = index_of[p["before"]], index_of[p["after"]]
+        op_list[a]["pre"].append(b)
+        op_list[b]["post"].append(a)
 
     J = jobs
-    num_machines = max(mach for e in op_list for (_, mach) in e['options']) + 1
+    num_machines = max(mach for e in op_list for (_, mach) in e["options"]) + 1
     R = range(num_machines)
     O = range(len(op_list))
-    R_i = {i: [k for (_, k) in op_list[i]['options']] for i in O}
+    R_i = {i: [k for (_, k) in op_list[i]["options"]] for i in O}
 
     return J, R, O, R_i, op_list
 
@@ -105,20 +112,28 @@ def load_fajsp_from_db(db: Session):
         for pos, operation_id in enumerate(ordered_ops):
             options = options_by_op[operation_id]
             if not options:
-                raise ValueError(f'Operation {operation_id} has no compatible active machine.')
+                raise ValueError(f"Operation {operation_id} has no compatible active machine.")
             index_of[operation_id] = len(op_list)
-            op_list.append({'op_id': operation_id, 'job': job_index, 'pos': pos,
-                            'options': options, 'pre': [], 'post': [],
-                            'energy_by_machine': energy_by_op[operation_id]})
+            op_list.append(
+                {
+                    "op_id": operation_id,
+                    "job": job_index,
+                    "pos": pos,
+                    "options": options,
+                    "pre": [],
+                    "post": [],
+                    "energy_by_machine": energy_by_op[operation_id],
+                }
+            )
 
     for before_id, after_id in precedence_rows:
         b, a = index_of[before_id], index_of[after_id]
-        op_list[a]['pre'].append(b)
-        op_list[b]['post'].append(a)
+        op_list[a]["pre"].append(b)
+        op_list[b]["post"].append(a)
 
     J = list(range(len(job_ids)))
     R = range(len(machine_rows))
     O = range(len(op_list))
-    R_i = {i: [k for (_, k) in op_list[i]['options']] for i in O}
+    R_i = {i: [k for (_, k) in op_list[i]["options"]] for i in O}
 
     return J, R, O, R_i, op_list, machine_meta

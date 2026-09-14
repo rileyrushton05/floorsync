@@ -31,8 +31,8 @@ optimizing time alone.
    the planning window:
 
 ```python
-m.Params.TimeLimit = 1800       # seconds; hard budget
-m.Params.MIPGap = 0.02          # accept within 2% of best known bound if TimeLimit is hit
+m.Params.TimeLimit = 1800  # seconds; hard budget
+m.Params.MIPGap = 0.02  # accept within 2% of best known bound if TimeLimit is hit
 ```
 
 4. No live-repair, warm-start, or incremental re-optimization path is implemented. A

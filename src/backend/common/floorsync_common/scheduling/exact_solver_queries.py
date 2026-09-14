@@ -46,9 +46,8 @@ def load_operations(db: Session) -> Sequence[tuple[UUID, UUID, int]]:
     job's operations that share no precedence order; the solver still derives each
     job's actual processing order from `load_precedences`, not from this column.
     """
-    statement = (
-        select(Operation.id, Operation.job_id, Operation.position)
-        .order_by(Operation.job_id, Operation.position)
+    statement = select(Operation.id, Operation.job_id, Operation.position).order_by(
+        Operation.job_id, Operation.position
     )
     return db.execute(statement).tuples().all()
 
