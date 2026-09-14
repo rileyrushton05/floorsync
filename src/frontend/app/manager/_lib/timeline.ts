@@ -34,6 +34,7 @@ export function timelineToPlan(timeline: ScheduleTimeline): TimelinePlan {
         id: machine.key,
         name: machine.label,
         operator: NO_OPERATOR,
+        active: true,
     }));
 
     // Position within a job is read off the resolved start times rather than the

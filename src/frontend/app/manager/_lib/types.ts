@@ -13,6 +13,15 @@ export interface Machine {
     id: string;
     name: string;
     operator: string;
+    active: boolean;
+}
+
+/** One compatible machine route for an operation. */
+export interface OperationRoute {
+    machineId: string;
+    durationMins: number;
+    /** The API serialises decimal energy values as strings. */
+    energy: string | null;
 }
 
 /** One step of a job. Steps run in array order; each occupies one machine. */
@@ -21,6 +30,8 @@ export interface OperationDef {
     name: string;
     machineId: string;
     durationMins: number;
+    /** Every route returned by the builder API. */
+    routes?: OperationRoute[];
 }
 
 export interface JobDef {

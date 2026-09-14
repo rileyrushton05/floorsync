@@ -1,10 +1,10 @@
 import type { JobDef, Machine } from "./types";
 
 export const SEED_MACHINES: Machine[] = [
-    { id: "m-a", name: "Machine A", operator: "Anita Sandburg" },
-    { id: "m-b", name: "Machine B", operator: "Chelsea Okoro" },
-    { id: "m-c", name: "Machine C", operator: "Fiona Alvarez" },
-    { id: "m-d", name: "Machine D", operator: "George Whitlam" },
+    { id: "m-a", name: "Machine A", operator: "Anita Sandburg", active: true },
+    { id: "m-b", name: "Machine B", operator: "Chelsea Okoro", active: true },
+    { id: "m-c", name: "Machine C", operator: "Fiona Alvarez", active: true },
+    { id: "m-d", name: "Machine D", operator: "George Whitlam", active: true },
 ];
 
 /**

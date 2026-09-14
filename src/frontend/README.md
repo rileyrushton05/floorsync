@@ -137,7 +137,7 @@ app/
 │   │   └── seed.ts                # Starting machines and backlog
 │   │
 │   ├── _components/
-│   │   ├── PlanningProvider.tsx   # The job builder's in-memory backlog (context)
+│   │   ├── PlanningProvider.tsx   # API-backed job-definition builder
 │   │   ├── SubNav.tsx             # Overview / Jobs / Schedule / Simulation tabs
 │   │   └── GanttChart.tsx         # The schedule grid, shared by plan + simulation
 │   │
@@ -287,27 +287,27 @@ generated schedule.
 
 ## State and the API seam
 
-`PlanningProvider` (`app/manager/_components/PlanningProvider.tsx`) holds the job
-backlog for `/manager/jobs`. It is **in-memory only**: client-side navigation
-between the tabs preserves it, but a browser reload resets it to the seed
-backlog.
+`PlanningProvider` (`app/manager/_components/PlanningProvider.tsx`) loads complete
+job definitions and machines from the API. Saving uses the atomic definition
+contract: `POST /api/v1/job-definitions` creates a job with its priority,
+operations, and routes; `PUT /api/v1/jobs/{id}/definition` replaces that complete
+definition. Deletes use `DELETE /api/v1/jobs/{id}` and correctly handle its empty
+`204 No Content` response.
 
 It no longer holds a generated plan. Generation moved to the backend, and both
-the scheduler and the simulation read what is actually stored — so the provider
-is now only the job builder's working copy. What keeps it alive is that its model
-is *richer than the API's*: priorities and per-operation durations have nowhere
-to be written, because there is no operations endpoint.
-`GET /jobs` answers an id and a name and nothing else.
+the scheduler and the simulation read what is actually stored. The builder edits
+every compatible machine route, including its duration and optional energy, and
+only offers active machines for new routes.
 
 | File | Structure | Replaced by |
 | --- | --- | --- |
-| `manager/_lib/seed.ts` | `SEED_MACHINES`, `SEED_JOBS` | An operations endpoint, once one exists |
+| `manager/_lib/seed.ts` | Legacy prototype fixtures, no longer imported | Remove when the UI fixtures are no longer useful |
 | `manager/_lib/scheduling.ts` | ~~`generateSchedule`~~ | ✅ done — `POST /api/v1/schedules` |
 | `manager/page.tsx` | `weeks: WeekData[]` | KPI rollup endpoint |
 | `operator/page.tsx` | `initialMachine: MachineState` | Per-machine queue endpoint / WebSocket |
 
-`/manager/simulation` and `/manager/scheduler` have both crossed that seam. The
-jobs route has not, and cannot until the API can store what it writes.
+`/manager/simulation`, `/manager/scheduler`, and `/manager/jobs` have crossed
+that seam.
 
 Pages that read the API share `app/_lib/load-state.ts`: a four-state
 `LoadState<Value>` union and the `errorMessage` helper, so `forbidden` stays
@@ -496,11 +496,6 @@ the first time, and it reads the task queue synchronously inside an async route.
 `/operator` still run on their own hardcoded fixtures. The operator view is the
 obvious next integration: its queue should be the operations the generated plan
 assigned to that machine.
-
-**The plan does not survive a reload.** `PlanningProvider` is in-memory. Fine for
-a prototype, but a user-testing session where a refresh wipes the plan is worth
-avoiding — `sessionStorage` hydration (read after mount, to avoid an SSR
-mismatch) would be a small, contained fix.
 
 **No manual override of a generated plan.** The previous scheduler let a manager
 drag an operation to a different machine or time; that was editing hardcoded
