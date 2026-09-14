@@ -5,8 +5,10 @@ solves for the minimum makespan, and plots the resulting schedule.
 """
 
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import gurobipy as gp
 from sqlalchemy.orm import Session
@@ -17,15 +19,22 @@ from floorsync_common.scheduling.contracts import (
     ScheduleMetrics,
     SchedulePlan,
 )
-from floorsync_common.scheduling.load_data_from_db import load_fajsp, load_fajsp_from_db
-from floorsync_common.scheduling.service import SchedulingService
+from floorsync_common.scheduling.load_data_from_db import (
+    DbOpRecord,
+    OpRecord,
+    load_fajsp,
+    load_fajsp_from_db,
+)
+from floorsync_common.scheduling.service import ScheduleStored, SchedulingService
 
 INSTANCE_PATH = "./data/mk07.json"
 TIME_LIMIT_SECONDS = 60
 STRATEGY = "gurobi_exact_v1"
 
 
-def processing_time(operation_data, operation, machine):
+def processing_time(
+    operation_data: Sequence[OpRecord | DbOpRecord], operation: int, machine: int
+) -> int | None:
     """Processing time of `operation` on `machine`, or None if ineligible."""
     for duration, candidate_machine in operation_data[operation]["options"]:
         if candidate_machine == machine:
@@ -33,7 +42,20 @@ def processing_time(operation_data, operation, machine):
     return None
 
 
-def build_model(operations, eligible_machines, operation_data):
+def _required_processing_time(
+    operation_data: Sequence[OpRecord | DbOpRecord], operation: int, machine: int
+) -> int:
+    """Like `processing_time`, but for call sites where `machine` is already known eligible."""
+    duration = processing_time(operation_data, operation, machine)
+    assert duration is not None
+    return duration
+
+
+def build_model(
+    operations: range,
+    eligible_machines: dict[int, list[int]],
+    operation_data: Sequence[OpRecord | DbOpRecord],
+) -> tuple[gp.Model, dict[tuple[int, int], gp.Var], dict[int, gp.Var], gp.Var]:
     """Build the disjunctive MILP. Returns the model and its variables."""
     horizon = sum(max(duration for duration, _ in record["options"]) for record in operation_data)
 
@@ -65,10 +87,11 @@ def build_model(operations, eligible_machines, operation_data):
 
     makespan = model.addVar(vtype=gp.GRB.INTEGER, name="makespan")
 
-    def duration_expression(operation):
+    def duration_expression(operation: int) -> gp.LinExpr:
         """Processing time of an operation as a linear expression."""
         return gp.quicksum(
-            processing_time(operation_data, operation, machine) * assignment[operation, machine]
+            _required_processing_time(operation_data, operation, machine)
+            * assignment[operation, machine]
             for machine in eligible_machines[operation]
         )
 
@@ -107,14 +130,14 @@ def build_model(operations, eligible_machines, operation_data):
                 model.addConstr(
                     start_time[first]
                     >= start_time[second]
-                    + processing_time(operation_data, second, machine)
+                    + _required_processing_time(operation_data, second, machine)
                     - slack * horizon,
                     name=f"no_overlap_a[{first},{second},{machine}]",
                 )
                 model.addConstr(
                     start_time[second]
                     >= start_time[first]
-                    + processing_time(operation_data, first, machine)
+                    + _required_processing_time(operation_data, first, machine)
                     - (
                         3
                         - assignment[first, machine]
@@ -135,7 +158,13 @@ def build_model(operations, eligible_machines, operation_data):
     return model, assignment, start_time, makespan
 
 
-def report(operation_data, eligible_machines, assignment, start_time, makespan):
+def report(
+    operation_data: Sequence[OpRecord | DbOpRecord],
+    eligible_machines: dict[int, list[int]],
+    assignment: dict[tuple[int, int], gp.Var],
+    start_time: dict[int, gp.Var],
+    makespan: gp.Var,
+) -> None:
     """Print the solved schedule to stdout."""
     print(f"makespan: {makespan.X:.0f}")
     for operation, record in enumerate(operation_data):
@@ -150,8 +179,8 @@ def report(operation_data, eligible_machines, assignment, start_time, makespan):
         )
 
 
-def main():
-    jobs, machines, operations, eligible_machines, operation_data = load_fajsp(INSTANCE_PATH)
+def main() -> None:
+    _jobs, _machines, operations, eligible_machines, operation_data = load_fajsp(INSTANCE_PATH)
     model, assignment, start_time, makespan = build_model(
         operations, eligible_machines, operation_data
     )
@@ -160,17 +189,23 @@ def main():
 
 
 def build_schedule_plan(
-    operation_data, eligible_machines, assignment, start_time, makespan, machine_meta, starts_at
-):
+    operation_data: Sequence[DbOpRecord],
+    eligible_machines: dict[int, list[int]],
+    assignment: dict[tuple[int, int], gp.Var],
+    start_time: dict[int, gp.Var],
+    makespan: gp.Var,
+    machine_meta: list[tuple[UUID, Decimal | None]],
+    starts_at: datetime,
+) -> SchedulePlan:
     """Turn a solved model into a `SchedulePlan`, ready for `SchedulingService.store_draft`."""
-    assignments = []
+    assignments: list[ScheduledOperation] = []
     for operation, record in enumerate(operation_data):
         machine = next(
             candidate
             for candidate in eligible_machines[operation]
             if assignment[operation, candidate].X > 0.5
         )
-        duration = processing_time(operation_data, operation, machine)
+        duration = _required_processing_time(operation_data, operation, machine)
         machine_id, salary_per_minute = machine_meta[machine]
         op_starts_at = starts_at + timedelta(minutes=int(start_time[operation].X))
         assignments.append(
@@ -226,7 +261,13 @@ def build_schedule_plan(
     )
 
 
-def solve_fajsp(operations, eligible_machines, operation_data, machine_meta, starts_at):
+def solve_fajsp(
+    operations: range,
+    eligible_machines: dict[int, list[int]],
+    operation_data: Sequence[DbOpRecord],
+    machine_meta: list[tuple[UUID, Decimal | None]],
+    starts_at: datetime,
+) -> tuple[SchedulePlan, int]:
     """Build and solve one FAJSP instance already loaded from the database.
 
     Kept separate from the database calls on either side so a caller (the
@@ -256,12 +297,12 @@ def solve_fajsp(operations, eligible_machines, operation_data, machine_meta, sta
     return plan, runtime_ms
 
 
-def main_from_db(db: Session, starts_at: datetime | None = None):
+def main_from_db(db: Session, starts_at: datetime | None = None) -> ScheduleStored:
     """Solve using the floor's current jobs, machines, routes and dependencies,
     then write the result back to the database as a draft schedule.
     """
     starts_at = starts_at or datetime.now(UTC)
-    jobs, machines, operations, eligible_machines, operation_data, machine_meta = (
+    _jobs, _machines, operations, eligible_machines, operation_data, machine_meta = (
         load_fajsp_from_db(db)
     )
     plan, runtime_ms = solve_fajsp(

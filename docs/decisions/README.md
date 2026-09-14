@@ -18,7 +18,7 @@ Decision records help explain why the team made particular design, technical, sc
 | [0008](0008-route-declared-authorization.md) | Accepted | Route-declared role and machine authorization |
 | [0009](0009-derived-simulation-timeline.md) | Accepted | Derived simulation timeline from one format-neutral resolver |
 | [0010](0010-event-sourced-simulated-time.md) | Accepted | Simulated time derived by replaying the event log |
-| [0011](0011-jajsp_milp_formulation) | Pending | Describes the model to use for generating the schedule |
+| [0012](0012-jajsp_milp_formulation) | Accepted | Describes the model to use for generating the schedule |
 
 ## Suggested Decision Record Format
 

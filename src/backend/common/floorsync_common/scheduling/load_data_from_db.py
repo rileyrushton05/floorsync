@@ -1,5 +1,8 @@
 import json
 from collections import defaultdict
+from decimal import Decimal
+from typing import TypedDict
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -11,27 +14,78 @@ from floorsync_common.scheduling.exact_solver_queries import (
 )
 
 
-def load_fajsp(path):
-    with open(path) as f:
-        raw = json.load(f)
+class OpRecord(TypedDict):
+    """One operation as laid out for the solver, indexed by its position in `op_list`.
 
-    options_by_op = defaultdict(list)
+    Produced by `load_fajsp` from a JSON instance, where operation ids are plain ints.
+    """
+
+    op_id: int
+    job: int
+    pos: int
+    options: list[tuple[int, int]]
+    pre: list[int]
+    post: list[int]
+
+
+class DbOpRecord(TypedDict):
+    """One operation as laid out for the solver, produced by `load_fajsp_from_db`.
+
+    Like `OpRecord`, but `op_id` is the database `UUID` and each record also carries
+    `energy_by_machine`, keyed by the same machine indices as `options`, so a solved
+    schedule can be written back to the database with the cost snapshot
+    `ScheduleEntry` expects.
+    """
+
+    op_id: UUID
+    job: int
+    pos: int
+    options: list[tuple[int, int]]
+    pre: list[int]
+    post: list[int]
+    energy_by_machine: dict[int, Decimal | None]
+
+
+class _OperationEntry(TypedDict):
+    operation: int
+    machine: int
+    duration: int
+
+
+class _PrecedenceEntry(TypedDict):
+    before: int
+    after: int
+    job: int
+
+
+class _RawInstance(TypedDict):
+    operations: list[_OperationEntry]
+    precedences: list[_PrecedenceEntry]
+
+
+def load_fajsp(
+    path: str,
+) -> tuple[list[int], range, range, dict[int, list[int]], list[OpRecord]]:
+    with open(path) as f:
+        raw: _RawInstance = json.load(f)
+
+    options_by_op: defaultdict[int, list[tuple[int, int]]] = defaultdict(list)
     for e in raw["operations"]:
         options_by_op[e["operation"]].append((e["duration"], e["machine"]))
 
-    op_to_job = {}
+    op_to_job: dict[int, int] = {}
     for p in raw["precedences"]:
         op_to_job[p["before"]] = p["job"]
         op_to_job[p["after"]] = p["job"]
 
     # lay out ops job by job, preserving their original job IDs from the data
-    ops_by_job = defaultdict(list)
+    ops_by_job: defaultdict[int, list[int]] = defaultdict(list)
     for op, j in op_to_job.items():
         ops_by_job[j].append(op)
 
     jobs = sorted(ops_by_job)
-    op_list = []
-    index_of = {}
+    op_list: list[OpRecord] = []
+    index_of: dict[int, int] = {}
     for j in jobs:
         for pos, op in enumerate(sorted(ops_by_job[j])):
             index_of[op] = len(op_list)
@@ -55,13 +109,22 @@ def load_fajsp(path):
     J = jobs
     num_machines = max(mach for e in op_list for (_, mach) in e["options"]) + 1
     R = range(num_machines)
-    O = range(len(op_list))
-    R_i = {i: [k for (_, k) in op_list[i]["options"]] for i in O}
+    operations = range(len(op_list))
+    R_i = {i: [k for (_, k) in op_list[i]["options"]] for i in operations}
 
-    return J, R, O, R_i, op_list
+    return J, R, operations, R_i, op_list
 
 
-def load_fajsp_from_db(db: Session):
+def load_fajsp_from_db(
+    db: Session,
+) -> tuple[
+    list[int],
+    range,
+    range,
+    dict[int, list[int]],
+    list[DbOpRecord],
+    list[tuple[UUID, Decimal | None]],
+]:
     """Load the current floor configuration and shape it like `load_fajsp`.
 
     Each op_list record carries its job, its position within that job, its
@@ -72,8 +135,8 @@ def load_fajsp_from_db(db: Session):
     indices as `options`, so a solved schedule can be written back to the
     database with the cost snapshot `ScheduleEntry` expects.
 
-    Besides the usual `J, R, O, R_i, op_list` returned by `load_fajsp`, this also
-    returns `machine_meta`: a list of (machine_id, salary_per_minute) ordered so
+    Besides the usual `J, R, operations, R_i, op_list` returned by `load_fajsp`, this
+    also returns `machine_meta`: a list of (machine_id, salary_per_minute) ordered so
     that machine index `k` in `R` corresponds to `machine_meta[k]`, letting a
     caller translate the solver's machine indices back into real machine ids.
 
@@ -90,8 +153,8 @@ def load_fajsp_from_db(db: Session):
     }
     machine_meta = [(machine_id, salary) for machine_id, _name, salary in machine_rows]
 
-    options_by_op = defaultdict(list)
-    energy_by_op = defaultdict(dict)
+    options_by_op: defaultdict[UUID, list[tuple[int, int]]] = defaultdict(list)
+    energy_by_op: defaultdict[UUID, dict[int, Decimal | None]] = defaultdict(dict)
     for operation_id, machine_id, duration, energy in route_rows:
         if machine_id in machine_index:
             index = machine_index[machine_id]
@@ -100,13 +163,13 @@ def load_fajsp_from_db(db: Session):
 
     # group operations by job, ordered by their builder position as a tiebreaker
     # among operations `load_precedences` doesn't otherwise order
-    ops_by_job = defaultdict(list)
+    ops_by_job: defaultdict[UUID, list[tuple[int, UUID]]] = defaultdict(list)
     for operation_id, job_id, position in operation_rows:
         ops_by_job[job_id].append((position, operation_id))
 
     job_ids = sorted(ops_by_job, key=str)
-    op_list = []
-    index_of = {}
+    op_list: list[DbOpRecord] = []
+    index_of: dict[UUID, int] = {}
     for job_index, job_id in enumerate(job_ids):
         ordered_ops = [op_id for _pos, op_id in sorted(ops_by_job[job_id])]
         for pos, operation_id in enumerate(ordered_ops):
@@ -133,7 +196,7 @@ def load_fajsp_from_db(db: Session):
 
     J = list(range(len(job_ids)))
     R = range(len(machine_rows))
-    O = range(len(op_list))
-    R_i = {i: [k for (_, k) in op_list[i]["options"]] for i in O}
+    operations = range(len(op_list))
+    R_i = {i: [k for (_, k) in op_list[i]["options"]] for i in operations}
 
-    return J, R, O, R_i, op_list, machine_meta
+    return J, R, operations, R_i, op_list, machine_meta
