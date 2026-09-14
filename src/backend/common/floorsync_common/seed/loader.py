@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from typing import Any
 from uuid import UUID, uuid4
@@ -39,6 +39,8 @@ from floorsync_common.seed.solutions import (
     validate_against,
     validate_flexible_against,
 )
+from floorsync_common.simulation import PrecedenceEdge, PrecedenceReason, TimelineNode
+from floorsync_common.simulation.graph import resolve_start_times as resolve_relative_start_times
 
 # Children before parents. Users are handled separately: an operator's login is bound to a machine
 # by a check constraint, so it has to go before the machine it points at.
@@ -194,6 +196,7 @@ async def _seed_schedule(
     """
 
     schedule_id = uuid4()
+    confirmed_at = datetime.now(UTC)
     await _insert_all(
         session,
         Schedule,
@@ -203,7 +206,7 @@ async def _seed_schedule(
                 "status": "confirmed",
                 "strategy": solution.solver,
                 "makespan": solution.makespan,
-                "confirmed_at": datetime.now(UTC),
+                "confirmed_at": confirmed_at,
             }
         ],
     )
@@ -257,10 +260,51 @@ async def _seed_schedule(
                     "reason": "machine_queue",
                 }
             )
+    _set_entry_start_times(confirmed_at, entry_rows, precedence_rows)
     await _insert_all(session, ScheduleEntry, entry_rows)
 
     await _insert_all(session, ScheduleDependency, precedence_rows)
     return len(entry_rows), len(precedence_rows)
+
+
+def _set_entry_start_times(
+    confirmed_at: datetime,
+    entry_rows: list[dict[str, Any]],
+    precedence_rows: list[dict[str, Any]],
+) -> None:
+    """Derive each entry's start_time and write it into `entry_rows` in place.
+
+    Reuses the simulation package's own longest-path resolution -- the same arithmetic that places a
+    benchmark instance's operations on the clock -- over exactly the job_order/machine_queue edges
+    `precedence_rows` is about to store, so a seeded schedule lands on the clock consistently with
+    the ScheduleDependency rows describing it, rather than by a separate, potentially disagreeing
+    calculation. Without this, every seeded entry keeps start_time NULL and Simulation refuses to
+    play the schedule back (see #251).
+    """
+
+    nodes = [
+        TimelineNode(
+            key=str(row["id"]),
+            job_key="",
+            machine_key="",
+            duration=row["duration"],
+            job_label="",
+            machine_label="",
+            operation_label="",
+        )
+        for row in entry_rows
+    ]
+    edges = [
+        PrecedenceEdge(
+            before=str(row["depends_on_schedule_entry_id"]),
+            after=str(row["schedule_entry_id"]),
+            reason=PrecedenceReason(row["reason"]),
+        )
+        for row in precedence_rows
+    ]
+    offsets = resolve_relative_start_times(nodes, edges)
+    for row in entry_rows:
+        row["start_time"] = confirmed_at + timedelta(minutes=offsets[str(row["id"])])
 
 
 async def clear_scheduling_data(session: AsyncSession) -> int:
@@ -423,6 +467,7 @@ async def _seed_flexible_schedule(
     """
 
     schedule_id = uuid4()
+    confirmed_at = datetime.now(UTC)
     await _insert_all(
         session,
         Schedule,
@@ -432,7 +477,7 @@ async def _seed_flexible_schedule(
                 "status": "confirmed",
                 "strategy": solution.solver,
                 "makespan": solution.makespan,
-                "confirmed_at": datetime.now(UTC),
+                "confirmed_at": confirmed_at,
             }
         ],
     )
@@ -458,7 +503,6 @@ async def _seed_flexible_schedule(
                     "duration": duration,
                 }
             )
-    await _insert_all(session, ScheduleEntry, entry_rows)
 
     recorded: set[tuple[int, int]] = set()
     precedence_rows: list[dict[str, Any]] = []
@@ -491,6 +535,8 @@ async def _seed_flexible_schedule(
                 }
             )
 
+    _set_entry_start_times(confirmed_at, entry_rows, precedence_rows)
+    await _insert_all(session, ScheduleEntry, entry_rows)
     await _insert_all(session, ScheduleDependency, precedence_rows)
     return len(entry_rows), len(precedence_rows)
 

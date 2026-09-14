@@ -25,9 +25,10 @@ class ScheduleEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     scheduler at generation time (see decision 0011); end time and queue position are still derived
     -- as start_time + duration, and by sorting a machine's entries on start_time -- rather than
     stored, since neither can disagree with the number beside it. Cost snapshots are nullable when
-    the source records durations but no energy or labour cost. start_time is nullable only because
-    schedules written before this column existed cannot backfill it without the derivation it
-    replaces; every schedule generated from here on sets it.
+    the source records durations but no energy or labour cost. start_time stays nullable because a
+    schedule can in principle still exist with no feasible placement recorded for it; every schedule
+    generation and seed load populates it, and 20260914_0001 backfilled every row that predated the
+    column from the legacy starts_at/ends_at columns it replaced (see #251).
     """
 
     __tablename__ = "schedule_entries"

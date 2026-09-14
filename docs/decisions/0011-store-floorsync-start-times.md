@@ -87,3 +87,27 @@ support the recomputation.
   simulated until regenerated -- `ScheduleTimelineService.get_timeline` and
   `SimulationService.get_simulation`/`record_control` all surface this as `ScheduleMismatchError`.
 - Benchmark instances are unaffected: `TimelineBuilder`, `graph.py`, and their tests are untouched.
+
+## Amendment (2026-09-14, issue #251)
+
+Schema drift left some databases with the legacy `starts_at`/`ends_at` columns this decision
+replaced still physically present and `NOT NULL`, because the migration that later removed them
+under the same revision id was never actually run there (see #251 for the full history). Any insert
+into `schedule_entries` on such a database fails outright, `start_time` or not.
+
+Migration `20260914_0001` fixes this by copying `starts_at` into `start_time` wherever `start_time`
+is still null, then dropping the legacy columns. This is **not** the "derive once and backfill"
+alternative this decision rejected above: that alternative meant re-running the `schedule_dependencies`
+graph resolver to invent a start time for a row that never had one. This is a plain column copy of a
+value the scheduler already computed at the time -- `starts_at` was itself real scheduler output, not
+a placeholder, so nothing is being derived or guessed. A row with genuinely no timing at all (neither
+column populated) is left with `start_time NULL`, unaffected, and still surfaces
+`ScheduleMismatchError` exactly as this decision intends.
+
+Separately, #251 also had the seed loader start writing `start_time` for the schedules it creates,
+using `resolve_start_times()` (the same longest-path resolver `graph.py` already provides for
+benchmark instances). This does not reopen point 2's removal of derivation from `build_timeline` --
+that stays read-time-derivation-free. The seed loader is instead acting as the "scheduler" for its
+own synthetic data, the same role `ReSchedEngine` plays for a live generation: it decides
+`start_time` once, at write time, exactly as `SchedulingService.store_draft` does with
+`SchedulePlan.assignments[].starts_at`. No existing row's `start_time` is touched by this part.
