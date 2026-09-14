@@ -12,6 +12,7 @@ This folder should help teaching staff understand how the team worked, what deci
 ## Engineering conventions
 
 - [Architecture](architecture.md)
+- [Frontend architecture guide](frontend-architecture.md) — TanStack Query, feature boundaries, fixtures, and UI/backend integration
 - [Scheduling and simulation backend](scheduling-simulation-backend.md) — request flows, target journeys, sequence diagrams, and implementation gaps
 - [Generated OpenAPI contract](openapi.json) — run `make openapi` after changing the FastAPI API; `make openapi-check` detects an uncommitted update
 - [API conventions](api-conventions.md)

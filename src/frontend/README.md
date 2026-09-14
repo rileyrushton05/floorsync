@@ -73,8 +73,8 @@ POST /api/v1/schedules              202 + generation id
         └─ failed      ─► the worker raised; its logs say why
 ```
 
-`app/manager/_lib/generation.ts` owns the waiting. Two things about it are worth
-knowing before changing it:
+`features/schedules/queries.ts` owns the polling query. Two things about it are
+worth knowing before changing it:
 
 - **The three-minute ceiling is what ends the loop, not a safety margin.** The
   task queue reports `pending` for a command it has never heard of, exactly as
@@ -122,22 +122,22 @@ app/
 ├── _lib/
 │   ├── api.ts                     # FloorSync API client (base URL + typed calls)
 │   ├── auth.ts                    # Token store (sessionStorage) + sign in / out
-│   ├── load-state.ts              # LoadState<T> + errorMessage, shared by API pages
+│   ├── errors.ts                  # API/query error-message formatting
+│   ├── pagination.ts              # Cancellation-aware cursor pagination
+│   └── query-keys.ts              # Shared TanStack Query cache-key factory
 │   └── badge-intent.ts            # priority/status → Intent UI badge intents
 │
 ├── manager/
-│   ├── layout.tsx                 # Wraps every /manager route in PlanningProvider
+│   ├── layout.tsx                 # Guards every manager route
 │   │
 │   ├── _lib/                      # Pure domain logic — no React
 │   │   ├── types.ts               # JobDef, ScheduledOperation, GeneratedSchedule…
 │   │   ├── scheduling.ts          # Job-graph helpers + T+0 formatters
-│   │   ├── generation.ts          # Polls a queued generation to a terminal state
 │   │   ├── timeline.ts            # API schedule timeline → GeneratedSchedule
 │   │   ├── colors.ts              # Validated categorical palette for job identity
 │   │   └── seed.ts                # Starting machines and backlog
 │   │
 │   ├── _components/
-│   │   ├── PlanningProvider.tsx   # API-backed job-definition builder
 │   │   ├── SubNav.tsx             # Overview / Jobs / Schedule / Simulation tabs
 │   │   └── GanttChart.tsx         # The schedule grid, shared by plan + simulation
 │   │
@@ -239,7 +239,7 @@ link cannot bounce someone off-site straight after they type a password.
 `GET /api/v1/schedules/{id}/timeline` for the one picked. Every start and end
 time was computed by the backend's simulation resolver from the schedule's
 stored entries and dependencies; this page places bars and moves a clock across
-them. It does not read the in-browser plan from `PlanningProvider` at all.
+them.
 
 **Schedule picker** — a select listing every schedule newest-first, labelled by
 strategy, makespan and creation time, with a status badge. A confirmed schedule
@@ -287,12 +287,11 @@ generated schedule.
 
 ## State and the API seam
 
-`PlanningProvider` (`app/manager/_components/PlanningProvider.tsx`) loads complete
-job definitions and machines from the API. Saving uses the atomic definition
-contract: `POST /api/v1/job-definitions` creates a job with its priority,
-operations, and routes; `PUT /api/v1/jobs/{id}/definition` replaces that complete
-definition. Deletes use `DELETE /api/v1/jobs/{id}` and correctly handle its empty
-`204 No Content` response.
+Feature query hooks own complete job definitions and machines. Saving uses the
+atomic definition contract: `POST /api/v1/job-definitions` creates a job with
+its priority, operations, and routes; `PUT /api/v1/jobs/{id}/definition`
+replaces that complete definition. Deletes use `DELETE /api/v1/jobs/{id}` and
+correctly handle its empty `204 No Content` response.
 
 It no longer holds a generated plan. Generation moved to the backend, and both
 the scheduler and the simulation read what is actually stored. The builder edits
@@ -305,12 +304,11 @@ only offers active machines for new routes.
 | `manager/page.tsx` | `weeks: WeekData[]` | KPI rollup endpoint |
 | `operator/page.tsx` | `initialMachine: MachineState` | Per-machine queue endpoint / WebSocket |
 
-`/manager/simulation`, `/manager/scheduler`, and `/manager/jobs` have crossed
+`/manager/jobs`, `/manager/scheduler`, and `/manager/simulation` have crossed
 that seam.
 
-Pages that read the API share `app/_lib/load-state.ts`: a four-state
-`LoadState<Value>` union and the `errorMessage` helper, so `forbidden` stays
-distinct from `error` on every screen rather than each page re-deciding.
+The target shape and migration guide live in
+[`docs/frontend-architecture.md`](../../docs/frontend-architecture.md).
 
 ### Talking to the API
 
@@ -512,10 +510,9 @@ bottleneck handling are all questions for the engine and its contract — see
 [docs/scheduling.md](../../docs/scheduling.md), which records what that adapter
 deliberately refuses.
 
-**No tests.** `_lib/generation.ts` is the obvious first target now that the
-solver is gone: it returns terminal states unchanged, stops at the ceiling rather
-than polling forever, and unwinds cleanly when aborted mid-wait.
-The operator queue state machine is the next target.
+**No tests.** The query hooks and their cache invalidation rules are the obvious
+first target now that the solver is gone. The operator queue state machine is
+the next target.
 
 **Mock data consistency.** The overview's `weeks` fixture uses `#254`-style job
 ids while the planning flow uses `JOB-254`, and the two disagree about the same
