@@ -301,7 +301,6 @@ only offers active machines for new routes.
 
 | File | Structure | Replaced by |
 | --- | --- | --- |
-| `manager/_lib/seed.ts` | Legacy prototype fixtures, no longer imported | Remove when the UI fixtures are no longer useful |
 | `manager/_lib/scheduling.ts` | ~~`generateSchedule`~~ | ✅ done — `POST /api/v1/schedules` |
 | `manager/page.tsx` | `weeks: WeekData[]` | KPI rollup endpoint |
 | `operator/page.tsx` | `initialMachine: MachineState` | Per-machine queue endpoint / WebSocket |
