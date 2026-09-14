@@ -14,14 +14,15 @@ from sqlalchemy.orm import Session
 from floorsync_common.scheduling.contracts import (
     ScheduleDependencySpec,
     ScheduledOperation,
-    SchedulePlan,
     ScheduleMetrics,
+    SchedulePlan,
 )
+from floorsync_common.scheduling.load_data_from_db import load_fajsp, load_fajsp_from_db
 from floorsync_common.scheduling.service import SchedulingService
-from load_data_from_db import load_fajsp, load_fajsp_from_db
 
 INSTANCE_PATH = './data/mk07.json'
 TIME_LIMIT_SECONDS = 60
+STRATEGY = 'gurobi_exact_v1'
 
 
 def processing_time(operation_data, operation, machine):
@@ -225,12 +226,16 @@ def build_schedule_plan(operation_data, eligible_machines, assignment, start_tim
     )
 
 
-def main_from_db(db: Session, starts_at: datetime | None = None):
-    """Solve using the floor's current jobs, machines, routes and dependencies,
-    then write the result back to the database as a draft schedule.
+def solve_fajsp(operations, eligible_machines, operation_data, machine_meta, starts_at):
+    """Build and solve one FAJSP instance already loaded from the database.
+
+    Kept separate from the database calls on either side so a caller (the
+    scheduling worker) can run the solve without holding a transaction open
+    for the duration of `model.optimize()`.
+
+    Raises:
+        RuntimeError: if Gurobi found no feasible schedule within the time limit.
     """
-    starts_at = starts_at or datetime.now(UTC)
-    jobs, machines, operations, eligible_machines, operation_data, machine_meta = load_fajsp_from_db(db)
     model, assignment, start_time, makespan = build_model(operations, eligible_machines, operation_data)
 
     started = time.monotonic()
@@ -246,8 +251,26 @@ def main_from_db(db: Session, starts_at: datetime | None = None):
     plan = build_schedule_plan(
         operation_data, eligible_machines, assignment, start_time, makespan, machine_meta, starts_at
     )
+    return plan, runtime_ms
+
+
+def main_from_db(db: Session, starts_at: datetime | None = None):
+    """Solve using the floor's current jobs, machines, routes and dependencies,
+    then write the result back to the database as a draft schedule.
+    """
+    starts_at = starts_at or datetime.now(UTC)
+    jobs, machines, operations, eligible_machines, operation_data, machine_meta = (
+        load_fajsp_from_db(db)
+    )
+    plan, runtime_ms = solve_fajsp(
+        operations, eligible_machines, operation_data, machine_meta, starts_at
+    )
     stored = SchedulingService.store_draft(
-        db, plan=plan, runtime_ms=runtime_ms, input_operation_count=len(operation_data)
+        db,
+        plan=plan,
+        runtime_ms=runtime_ms,
+        input_operation_count=len(operation_data),
+        strategy=STRATEGY,
     )
     db.commit()
     return stored

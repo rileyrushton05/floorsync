@@ -11,7 +11,13 @@ from floorsync_common.scheduling import (
     SchedulingInputInvalid,
     SchedulingService,
 )
-from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
+from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
+from floorsync_common.scheduling.gurobi_exact_solver import solve_fajsp
+from floorsync_common.scheduling.load_data_from_db import load_fajsp_from_db
+from floorsync_common.scheduling.task_names import (
+    EXACT_SCHEDULE_GENERATION_TASK,
+    SCHEDULE_GENERATION_TASK,
+)
 from floorsync_workers.celery_app import celery_app
 from floorsync_workers.database import worker_session_scope
 
@@ -54,5 +60,38 @@ def generate_schedule(starts_at: str) -> dict[str, object]:
             plan=plan,
             runtime_ms=runtime_ms,
             input_operation_count=len(problem.operations),
+        )
+    return {"outcome": "stored", "schedule_id": str(stored.schedule.id)}
+
+
+@celery_app.task(name=EXACT_SCHEDULE_GENERATION_TASK, queue="scheduling")  # type: ignore[untyped-decorator]
+def generate_schedule_exact(starts_at: str) -> dict[str, object]:
+    """Generate and persist a draft with the exact Gurobi solver.
+
+    Loading and storing each run in their own transaction, same as
+    `generate_schedule`, so the database connection isn't held for the
+    duration of `model.optimize()`.
+    """
+
+    with worker_session_scope() as db:
+        _jobs, _machines, operations, eligible_machines, operation_data, machine_meta = (
+            load_fajsp_from_db(db)
+        )
+
+    plan, runtime_ms = solve_fajsp(
+        operations,
+        eligible_machines,
+        operation_data,
+        machine_meta,
+        datetime.fromisoformat(starts_at),
+    )
+
+    with worker_session_scope() as db:
+        stored = SchedulingService.store_draft(
+            db,
+            plan=plan,
+            runtime_ms=runtime_ms,
+            input_operation_count=len(operation_data),
+            strategy=EXACT_SOLVER_STRATEGY,
         )
     return {"outcome": "stored", "schedule_id": str(stored.schedule.id)}

@@ -101,12 +101,13 @@ class SchedulingService:
         plan: SchedulePlan,
         runtime_ms: int,
         input_operation_count: int,
+        strategy: str | None = None,
     ) -> ScheduleStored:
         """Write one generated plan without re-running inference or changing prior schedules."""
 
         schedule = Schedule(
             status="draft",
-            strategy=SchedulingService.strategy,
+            strategy=strategy or SchedulingService.strategy,
             runtime_ms=runtime_ms,
             input_operation_count=input_operation_count,
             makespan=plan.metrics.makespan_minutes,

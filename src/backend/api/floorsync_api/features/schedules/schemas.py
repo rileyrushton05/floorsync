@@ -10,6 +10,7 @@ class ScheduleCreateRequest(RequestSchema):
     """Request a draft schedule from the current floor configuration."""
 
     starts_at: datetime
+    strategy: Literal["resched", "exact"] = "resched"
 
 
 class SchedulingIssueResponse(ResponseSchema):

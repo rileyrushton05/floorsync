@@ -24,12 +24,20 @@ from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
-from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
+from floorsync_common.scheduling.task_names import (
+    EXACT_SCHEDULE_GENERATION_TASK,
+    SCHEDULE_GENERATION_TASK,
+)
 from floorsync_common.task_queue import create_task_queue
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 Manager = Annotated[User, Depends(require_roles("manager"))]
 task_queue = create_task_queue()
+
+_GENERATION_TASK_BY_STRATEGY = {
+    "resched": SCHEDULE_GENERATION_TASK,
+    "exact": EXACT_SCHEDULE_GENERATION_TASK,
+}
 
 
 @router.post(
@@ -49,7 +57,7 @@ async def create_schedule(
 
     try:
         task = task_queue.send_task(
-            SCHEDULE_GENERATION_TASK,
+            _GENERATION_TASK_BY_STRATEGY[command.strategy],
             args=(command.starts_at.isoformat(),),
             queue="scheduling",
         )

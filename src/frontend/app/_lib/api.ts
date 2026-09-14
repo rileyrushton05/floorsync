@@ -324,14 +324,18 @@ export function fetchScheduleTimeline(
  * A broker outage answers 503 as a problem document, so the `ApiError` message
  * is already the sentence to show.
  */
+/** Which engine plans the floor: the learned ReSched policy, or the exact Gurobi solver. */
+export type ScheduleStrategy = "resched" | "exact";
+
 export function requestSchedule(
     startsAt: string,
     token: string,
+    strategy: ScheduleStrategy = "resched",
 ): Promise<ScheduleGenerationAccepted> {
     return request<ScheduleGenerationAccepted>("/api/v1/schedules", token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ starts_at: startsAt }),
+        body: JSON.stringify({ starts_at: startsAt, strategy }),
     });
 }
 

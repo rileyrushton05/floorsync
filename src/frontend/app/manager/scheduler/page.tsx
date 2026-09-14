@@ -6,6 +6,7 @@ import {
     ApiError,
     type Job,
     type MachineSummary,
+    type ScheduleStrategy,
     type ScheduleTimeline,
     type SchedulingIssue,
     fetchJobs,
@@ -32,6 +33,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { GanttChart } from "../_components/GanttChart";
 import { ManagerTopbar } from "../_components/ManagerTopbar";
 import { buildJobColors, jobColor } from "../_lib/colors";
@@ -90,6 +92,12 @@ const IN_FLIGHT: ReadonlySet<Generation["status"]> = new Set([
     "running",
     "drawing",
 ] as const);
+
+/** The engines a manager can choose between when queuing a run. */
+const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
+    { value: "resched", label: "ReSched", hint: "Learned policy — fast, approximate" },
+    { value: "exact", label: "Exact", hint: "Gurobi MILP — optimal, slower" },
+];
 
 /** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
 function formatCreated(iso: string): string {
@@ -274,6 +282,7 @@ export default function SchedulerPage() {
     const [floorAttempt, setFloorAttempt] = useState(0);
     const [generation, setGeneration] = useState<Generation>({ status: "idle" });
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+    const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
 
     // One run at a time. Held in a ref rather than state because nothing renders
     // from it — it exists so a second Generate, or leaving the page, can call
@@ -354,7 +363,7 @@ export default function SchedulerPage() {
 
         void (async () => {
             try {
-                const accepted = await requestSchedule(new Date().toISOString(), token);
+                const accepted = await requestSchedule(new Date().toISOString(), token, strategy);
                 if (signal.aborted) return;
                 setGeneration({ status: "queued", generationId: accepted.id });
 
@@ -407,7 +416,7 @@ export default function SchedulerPage() {
                 setGeneration({ status: "error", message: errorMessage(error) });
             }
         })();
-    }, [token]);
+    }, [token, strategy]);
 
     const retryFloor = useCallback(() => {
         setFloor({ status: "loading" });
@@ -476,6 +485,28 @@ export default function SchedulerPage() {
     return (
         <div className="flex min-h-dvh flex-col bg-bg text-fg">
             <ManagerTopbar>
+                <ToggleGroup
+                    aria-label="Scheduling engine"
+                    selectionMode="single"
+                    disallowEmptySelection
+                    isDisabled={busy}
+                    selectedKeys={new Set([strategy])}
+                    onSelectionChange={(keys) => {
+                        const [first] = Array.from(keys);
+                        if (first === "resched" || first === "exact") setStrategy(first);
+                    }}
+                >
+                    {STRATEGIES.map((option) => (
+                        <ToggleGroupItem
+                            key={option.value}
+                            id={option.value}
+                            aria-label={`${option.label} — ${option.hint}`}
+                        >
+                            {option.label}
+                        </ToggleGroupItem>
+                    ))}
+                </ToggleGroup>
+
                 {/* `isPending` rather than `isDisabled`: React Aria already stops
                     onPress firing while pending, and keeps the control focusable
                     and announced as busy instead of silently going dead. */}
