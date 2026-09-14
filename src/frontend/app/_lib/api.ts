@@ -199,7 +199,7 @@ export interface ScheduleGenerationAccepted {
  * `pending` is also what an **unknown** generation id reports, because the task
  * queue cannot tell "queued, not started" apart from "never existed" — so a
  * poller needs a ceiling of its own rather than waiting for a state that may
- * never arrive. See `manager/_lib/generation.ts`.
+ * never arrive. See `features/schedules/queries.ts`.
  */
 export interface ScheduleGenerationStatus {
     id: string;
@@ -287,23 +287,25 @@ export function authenticate(username: string, password: string): Promise<Access
 }
 
 /** Read the account a token belongs to. Also the cheapest way to test one. */
-export function fetchCurrentUser(token: string): Promise<CurrentUser> {
-    return request<CurrentUser>("/api/v1/auth/me", token);
+export function fetchCurrentUser(token: string, signal?: AbortSignal): Promise<CurrentUser> {
+    return request<CurrentUser>("/api/v1/auth/me", token, { signal });
 }
 
 /** List every schedule, newest first. Requires a manager account. */
-export function fetchSchedules(token: string): Promise<ScheduleSummary[]> {
-    return request<ScheduleSummary[]>("/api/v1/schedules", token);
+export function fetchSchedules(token: string, signal?: AbortSignal): Promise<ScheduleSummary[]> {
+    return request<ScheduleSummary[]>("/api/v1/schedules", token, { signal });
 }
 
 /** Fetch one schedule resolved onto the clock. */
 export function fetchScheduleTimeline(
     scheduleId: string,
     token: string,
+    signal?: AbortSignal,
 ): Promise<ScheduleTimeline> {
     return request<ScheduleTimeline>(
         `/api/v1/schedules/${encodeURIComponent(scheduleId)}/timeline`,
         token,
+        { signal },
     );
 }
 
@@ -349,10 +351,12 @@ export function requestSchedule(
 export function fetchScheduleGeneration(
     generationId: string,
     token: string,
+    signal?: AbortSignal,
 ): Promise<ScheduleGenerationStatus> {
     return request<ScheduleGenerationStatus>(
         `/api/v1/schedules/generations/${encodeURIComponent(generationId)}`,
         token,
+        { signal },
     );
 }
 
@@ -363,10 +367,15 @@ export function fetchScheduleGeneration(
  * nothing here reports how much work a job carries. 100 is the largest page the
  * API will serve.
  */
-export function fetchJobs(token: string, limit = 100, cursor?: string): Promise<CursorPage<Job>> {
+export function fetchJobs(
+    token: string,
+    limit = 100,
+    cursor?: string,
+    signal?: AbortSignal,
+): Promise<CursorPage<Job>> {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
-    return request<CursorPage<Job>>(`/api/v1/jobs?${query.toString()}`, token);
+    return request<CursorPage<Job>>(`/api/v1/jobs?${query.toString()}`, token, { signal });
 }
 
 /** Delete a job that has not appeared in a generated schedule. */
@@ -381,10 +390,11 @@ export function fetchJobDefinitions(
     token: string,
     limit = 100,
     cursor?: string,
+    signal?: AbortSignal,
 ): Promise<CursorPage<JobDefinition>> {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
-    return request<CursorPage<JobDefinition>>(`/api/v1/job-definitions?${query.toString()}`, token);
+    return request<CursorPage<JobDefinition>>(`/api/v1/job-definitions?${query.toString()}`, token, { signal });
 }
 
 /** Create a complete job, its operation sequence, and its compatible machine routes. */
@@ -417,15 +427,16 @@ export function fetchMachines(
     token: string,
     limit = 100,
     cursor?: string,
+    signal?: AbortSignal,
 ): Promise<CursorPage<MachineSummary>> {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
-    return request<CursorPage<MachineSummary>>(`/api/v1/machines?${query.toString()}`, token);
+    return request<CursorPage<MachineSummary>>(`/api/v1/machines?${query.toString()}`, token, { signal });
 }
 
 /** Read the finite set of machine categories for the machine editor. */
-export function fetchMachineCategories(token: string): Promise<MachineCategory[]> {
-    return request<MachineCategory[]>("/api/v1/categories", token);
+export function fetchMachineCategories(token: string, signal?: AbortSignal): Promise<MachineCategory[]> {
+    return request<MachineCategory[]>("/api/v1/categories", token, { signal });
 }
 
 /** Add a machine to the persistent floor inventory. */
