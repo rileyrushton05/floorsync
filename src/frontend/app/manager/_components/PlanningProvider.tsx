@@ -129,7 +129,6 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (token === null) return;
         let current = true;
-        setLoadState({ status: "loading" });
 
         void Promise.all([
             fetchEveryPage((cursor) => fetchJobDefinitions(token, 100, cursor)),
