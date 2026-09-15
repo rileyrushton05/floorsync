@@ -1,24 +1,5 @@
 "use client";
 
-import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    type ScheduleTimeline,
-    type SchedulingIssue,
-} from "../data/api";
-import { ApiError } from "@/core/http/client";
-import { errorMessage } from "@/core/http/errors";
-import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
-import { useAuth } from "@/core/auth/AuthProvider";
-import { useJobSummaries } from "@/features/jobs/data/queries";
-import { useMachines } from "@/features/machines/data/queries";
-import {
-    GenerationTimeout,
-    useRequestSchedule,
-    useScheduleGeneration,
-    useScheduleSummaries,
-    useScheduleTimeline,
-} from "@/features/schedules/data/queries";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,12 +16,32 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
+import { useAuth } from "@/core/auth/AuthProvider";
+import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
+import { ApiError } from "@/core/http/client";
+import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { buildJobColors, jobColor } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
+import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
+import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
+import { useJobSummaries } from "@/features/jobs/data/queries";
+import { useMachines } from "@/features/machines/data/queries";
+import {
+    GenerationTimeout,
+    useRequestSchedule,
+    useScheduleGeneration,
+    useScheduleSummaries,
+    useScheduleTimeline,
+} from "@/features/schedules/data/queries";
+import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    type ScheduleTimeline,
+    type SchedulingIssue,
+} from "../data/api";
 
 /**
  * Schedule builder.
@@ -318,6 +319,10 @@ export default function SchedulerPage() {
         () => (generation.status === "ready" ? timelineToPlan(generation.timeline) : null),
         [generation],
     );
+    // Zoom state for the plan chart: one number (pixels of track per hour) plus
+    // the visible window, shared between the navigator bar in the header and
+    // the chart's scroll container below.
+    const timelineZoom = useTimelineZoom(plan?.schedule?.makespanMins ?? 0);
 
     // Colour is keyed to a job's position in the backlog rather than to its
     // position in a plan, so the swatch beside a job on the left is the colour
@@ -407,13 +412,13 @@ export default function SchedulerPage() {
 
     return (
         <ManagerShell actions={<>
-                {/* `isPending` rather than `isDisabled`: React Aria already stops
+            {/* `isPending` rather than `isDisabled`: React Aria already stops
                     onPress firing while pending, and keeps the control focusable
                     and announced as busy instead of silently going dead. */}
-                <Button onPress={generate} isPending={busy}>
-                    {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
-                </Button>
-            </>}>
+            <Button onPress={generate} isPending={busy}>
+                {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
+            </Button>
+        </>}>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,2.2fr)_minmax(260px,0.9fr)]">
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
@@ -487,16 +492,18 @@ export default function SchedulerPage() {
 
                 {/* ===== PLAN ===== */}
                 <Card className="min-w-0">
-                    <CardHeader className="flex-row items-center justify-between gap-3">
+                    <CardHeader className="gap-3">
                         <CardTitle>Generated plan</CardTitle>
                         {generation.status === "ready" && schedule && (
-                            <span className="text-muted-fg text-sm">
-                                makespan {formatDuration(schedule.makespanMins)} ·{" "}
-                                {schedule.ops.length} operations ·{" "}
-                                {generation.createdAt === null
-                                    ? "generated just now"
-                                    : formatCreated(generation.createdAt)}
-                            </span>
+                            <div className="flex items-center gap-4">
+                                <span className="shrink-0 text-muted-fg text-xs">
+                                    makespan {formatDuration(schedule.makespanMins)} · {schedule.ops.length} operations ·{" "}
+                                    {generation.createdAt === null ? "generated just now" : formatCreated(generation.createdAt)}
+                                </span>
+                                <div className="ml-auto min-w-0 flex-1 max-w-md">
+                                    <TimelineNavigator controls={timelineZoom} />
+                                </div>
+                            </div>
                         )}
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -509,6 +516,7 @@ export default function SchedulerPage() {
                                 mode="plan"
                                 selectedJobId={highlightedJobId}
                                 onSelectJob={toggleHighlight}
+                                zoom={timelineZoom}
                             />
                         ) : (
                             <GenerationState generation={generation} />

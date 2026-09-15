@@ -5,6 +5,7 @@ import { Button } from "react-aria-components/Button";
 import { ToggleButton } from "react-aria-components/ToggleButton";
 import { jobColor, tint, type JobColor } from "../colors";
 import { formatDuration, formatOffset } from "../format";
+import { DEFAULT_HOUR_PX, timelineHourStyle, type TimelineZoomControls } from "./TimelineNavigator";
 import type { GeneratedSchedule, JobDef, Machine } from "../types";
 
 /**
@@ -62,6 +63,7 @@ export function GanttChart({
     selectedJobId = null,
     highlightedMachineId = null,
     onSelectJob,
+    zoom = null,
 }: {
     machines: Machine[];
     jobs: JobDef[];
@@ -72,6 +74,8 @@ export function GanttChart({
     selectedJobId?: string | null;
     highlightedMachineId?: string | null;
     onSelectJob?: (jobId: string) => void;
+    /** Live zoom state from `useTimelineZoom`; omit for the fixed default scale. */
+    zoom?: TimelineZoomControls | null;
 }) {
     const now = mode === "simulation" ? nowMins : null;
     const hours = Math.max(1, Math.ceil(schedule.makespanMins / 60));
@@ -83,7 +87,10 @@ export function GanttChart({
     const scheduledJobIds = schedule.order;
 
     return (
-        <div className="flex min-h-0 min-w-0 flex-col [--gutter:168px] [--hour:124px]">
+        <div
+            className="flex min-h-0 min-w-0 flex-col [--gutter:168px]"
+            style={timelineHourStyle(zoom?.hourPx ?? DEFAULT_HOUR_PX)}
+        >
             {/* The chart is routinely several screens wide, so the scrollbar is a
                 primary control here and `scroll-rail` gives it a real size and
                 colour. `max-h` keeps the bottom edge — where the horizontal bar
@@ -92,7 +99,10 @@ export function GanttChart({
                 are sticky, so scrolling inside the box never loses your place.
                 `overscroll-x-contain` stops a trackpad swipe past the end from
                 turning into browser back-navigation. */}
-            <div className="scroll-rail max-h-[68dvh] min-h-0 flex-1 overflow-auto overscroll-x-contain rounded-lg border bg-muted">
+            <div
+                className="scroll-rail max-h-[68dvh] min-h-0 flex-1 overflow-auto overscroll-x-contain rounded-lg border bg-muted"
+                {...(zoom ? zoom.chartProps : {})}
+            >
                 <div
                     className="relative flex flex-col"
                     style={{ width: `calc(var(--gutter) + var(--hour) * ${hours})` }}
@@ -105,14 +115,23 @@ export function GanttChart({
                         <div className="sticky start-0 z-1 w-(--gutter) shrink-0 border-e bg-muted px-2.5 py-2 font-bold text-[0.68rem] text-muted-fg uppercase tracking-[0.05em]">
                             Elapsed →
                         </div>
-                        {Array.from({ length: hours }, (_, hour) => (
-                            <div
-                                key={hour}
-                                className="w-(--hour) shrink-0 border-s py-2 ps-1.5 font-semibold text-muted-fg text-xs tabular-nums"
-                            >
-                                {hour === 0 ? "T+0h" : `${hour}h`}
-                            </div>
-                        ))}
+                        {/* Zoomed out, one hour can be a few pixels wide; label a
+                            stride that keeps the ruler readable instead of one
+                            cell per hour. */}
+                        {(() => {
+                            const hourPx = zoom?.hourPx ?? DEFAULT_HOUR_PX;
+                            const stride = Math.max(1, Math.ceil(36 / hourPx));
+                            return Array.from({ length: hours }, (_, hour) => (
+                                <div
+                                    key={hour}
+                                    className="w-(--hour) shrink-0 overflow-hidden border-s py-2 ps-1.5 font-semibold text-muted-fg text-xs tabular-nums"
+                                >
+                                    {hour % stride === 0
+                                        ? hour === 0 ? "T+0h" : `${hour}h`
+                                        : ""}
+                                </div>
+                            ));
+                        })()}
                     </div>
 
                     {usedMachines.map((machine) => (

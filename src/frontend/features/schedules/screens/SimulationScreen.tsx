@@ -1,11 +1,5 @@
 "use client";
 
-import { useAuth } from "@/core/auth/AuthProvider";
-import { ApiError } from "@/core/http/client";
-import { errorMessage } from "@/core/http/errors";
-import { toScheduleOption } from "@/features/schedules/model/schedule";
-import { useScheduleSummaries, useScheduleTimeline } from "@/features/schedules/data/queries";
-import { ScheduleBar } from "@/features/schedules/ui/ScheduleBar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,15 +16,22 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
+import { useAuth } from "@/core/auth/AuthProvider";
+import { ApiError } from "@/core/http/client";
+import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { buildJobColors, jobColor } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
 import type { GeneratedSchedule } from "@/domains/scheduling/types";
+import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
+import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
+import { useScheduleSummaries, useScheduleTimeline } from "@/features/schedules/data/queries";
+import { toScheduleOption } from "@/features/schedules/model/schedule";
+import { ScheduleBar } from "@/features/schedules/ui/ScheduleBar";
+import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
  * Simulation.
@@ -132,6 +133,9 @@ export default function SimulationPage() {
     const timelineQuery = useScheduleTimeline(selectedId);
     const timeline = timelineQuery.data ?? null;
     const plan = useMemo(() => (timeline ? timelineToPlan(timeline) : null), [timeline]);
+    // Zoom state for the playback chart: shared between the navigator bar in
+    // the header and the chart's scroll container below.
+    const timelineZoom = useTimelineZoom(plan?.schedule?.makespanMins ?? 0);
     const scheduleOptions = useMemo(() => schedules.map(toScheduleOption), [schedules]);
 
     const activeSchedule = plan?.schedule ?? null;
@@ -220,10 +224,10 @@ export default function SimulationPage() {
             onSelect={setSelectedOverrideId}
             timelineSummary={timeline
                 ? {
-                      jobs: timeline.jobs.length,
-                      machines: timeline.machines.length,
-                      operations: timeline.operations.length,
-                  }
+                    jobs: timeline.jobs.length,
+                    machines: timeline.machines.length,
+                    operations: timeline.operations.length,
+                }
                 : null}
         />
     );
@@ -273,52 +277,52 @@ export default function SimulationPage() {
 
     return (
         <ManagerShell actions={<>
-                <div className="flex flex-wrap items-center gap-2.5">
-                    <Button
-                        size="sq-sm"
-                        onPress={() => {
-                            if (atEnd) setSimMins(0);
-                            setPlaying((value) => (atEnd ? true : !value));
-                        }}
-                        aria-label={running ? "Pause simulation" : "Play simulation"}
-                    >
-                        {running ? <PauseIcon /> : <PlayIcon />}
-                    </Button>
-                    <Button
-                        intent="outline"
-                        size="sm"
-                        onPress={() => {
-                            setPlaying(false);
-                            setSimMins(0);
-                        }}
-                    >
-                        Reset
-                    </Button>
+            <div className="flex flex-wrap items-center gap-2.5">
+                <Button
+                    size="sq-sm"
+                    onPress={() => {
+                        if (atEnd) setSimMins(0);
+                        setPlaying((value) => (atEnd ? true : !value));
+                    }}
+                    aria-label={running ? "Pause simulation" : "Play simulation"}
+                >
+                    {running ? <PauseIcon /> : <PlayIcon />}
+                </Button>
+                <Button
+                    intent="outline"
+                    size="sm"
+                    onPress={() => {
+                        setPlaying(false);
+                        setSimMins(0);
+                    }}
+                >
+                    Reset
+                </Button>
 
-                    <ToggleGroup
-                        aria-label="Playback speed"
-                        selectionMode="single"
-                        disallowEmptySelection
-                        selectedKeys={new Set([String(speed)])}
-                        onSelectionChange={(keys) => {
-                            const [first] = Array.from(keys);
-                            if (typeof first === "string") setSpeed(Number(first));
-                        }}
-                    >
-                        {SPEEDS.map((option) => (
-                            <ToggleGroupItem
-                                key={option.value}
-                                id={String(option.value)}
-                                aria-label={`${option.label} speed — ${option.hint}`}
-                            >
-                                {option.label}
-                            </ToggleGroupItem>
-                        ))}
-                    </ToggleGroup>
+                <ToggleGroup
+                    aria-label="Playback speed"
+                    selectionMode="single"
+                    disallowEmptySelection
+                    selectedKeys={new Set([String(speed)])}
+                    onSelectionChange={(keys) => {
+                        const [first] = Array.from(keys);
+                        if (typeof first === "string") setSpeed(Number(first));
+                    }}
+                >
+                    {SPEEDS.map((option) => (
+                        <ToggleGroupItem
+                            key={option.value}
+                            id={String(option.value)}
+                            aria-label={`${option.label} speed — ${option.hint}`}
+                        >
+                            {option.label}
+                        </ToggleGroupItem>
+                    ))}
+                </ToggleGroup>
 
-                    <span className="font-semibold tabular-nums">{formatOffset(simMins)}</span>
-                </div>
-            </>}>
+                <span className="font-semibold tabular-nums">{formatOffset(simMins)}</span>
+            </div>
+        </>}>
 
             {scheduleBar}
 
@@ -418,20 +422,23 @@ export default function SimulationPage() {
                 </Card>
 
                 <Card className="min-w-0">
-                    <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
+                    <CardHeader className="gap-3">
                         <CardTitle>Schedule playback</CardTitle>
-                        <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
-                            <span className={`flex items-center gap-1.5 transition-colors ${atEnd ? "font-semibold text-success" : ""}`}>
-                                <span className={`size-2.5 rounded-xs transition-colors ${atEnd ? "bg-success" : "bg-fg/25"}`} />✓ Completed
-                            </span>
-                            <span className={`flex items-center gap-1.5 transition-colors ${runningOps > 0 ? "font-semibold text-primary" : ""
-                                }`}>
-                                <span className={`size-2.5 rounded-xs transition-colors ${runningOps > 0 ? "bg-primary" : "bg-fg/25"
-                                    }`} />▶ Running
-                            </span>
-                            <span className={`flex items-center gap-1.5 transition-colors ${simMins <= 0 ? "font-semibold text-warning" : ""}`}>
-                                <span className={`size-2.5 rounded-xs transition-colors ${simMins <= 0 ? "bg-warning" : "bg-fg/10"}`} />Upcoming
-                            </span>
+                        <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
+                                <span className={`flex items-center gap-1.5 transition-colors ${atEnd ? "font-semibold text-success" : ""}`}>
+                                    <span className={`size-2.5 rounded-xs transition-colors ${atEnd ? "bg-success" : "bg-fg/25"}`} />✓ Completed
+                                </span>
+                                <span className={`flex items-center gap-1.5 transition-colors ${runningOps > 0 ? "font-semibold text-primary" : ""}`}>
+                                    <span className={`size-2.5 rounded-xs transition-colors ${runningOps > 0 ? "bg-primary" : "bg-fg/25"}`} />▶ Running
+                                </span>
+                                <span className={`flex items-center gap-1.5 transition-colors ${simMins <= 0 ? "font-semibold text-warning" : ""}`}>
+                                    <span className={`size-2.5 rounded-xs transition-colors ${simMins <= 0 ? "bg-warning" : "bg-fg/10"}`} />Upcoming
+                                </span>
+                            </div>
+                            <div className="ml-auto min-w-0 flex-1 max-w-md">
+                                <TimelineNavigator controls={timelineZoom} />
+                            </div>
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -458,6 +465,7 @@ export default function SimulationPage() {
                             nowMins={simMins}
                             selectedJobId={highlightedJobId}
                             highlightedMachineId={hoveredMachineId}
+                            zoom={timelineZoom}
                             onSelectJob={(jobId) =>
                                 setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
                             }
