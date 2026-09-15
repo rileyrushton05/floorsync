@@ -70,21 +70,34 @@ def generate_schedule_exact(starts_at: str) -> dict[str, object]:
 
     Loading and storing each run in their own transaction, same as
     `generate_schedule`, so the database connection isn't held for the
-    duration of `model.optimize()`.
+    duration of `model.optimize()`. A floor with no schedulable operations, or
+    an instance Gurobi can't solve within its time budget, is reported as a
+    rejected generation the same way `generate_schedule` reports a
+    `SchedulingInputInvalid` input, rather than crashing the task.
     """
+    parsed_starts_at = datetime.fromisoformat(starts_at)
 
-    with worker_session_scope() as db:
-        _jobs, _machines, operations, eligible_machines, operation_data, machine_meta = (
-            load_fajsp_from_db(db)
+    try:
+        with worker_session_scope() as db:
+            _jobs, _machines, operations, eligible_machines, operation_data, machine_meta = (
+                load_fajsp_from_db(db)
+            )
+    except ValueError as exc:
+        return {
+            "outcome": "invalid",
+            "issues": [{"code": "no_compatible_machine", "message": str(exc)}],
+        }
+
+    try:
+        plan, runtime_ms = solve_fajsp(
+            operations,
+            eligible_machines,
+            operation_data,
+            machine_meta,
+            parsed_starts_at,
         )
-
-    plan, runtime_ms = solve_fajsp(
-        operations,
-        eligible_machines,
-        operation_data,
-        machine_meta,
-        datetime.fromisoformat(starts_at),
-    )
+    except RuntimeError as exc:
+        return {"outcome": "invalid", "issues": [{"code": "infeasible", "message": str(exc)}]}
 
     with worker_session_scope() as db:
         stored = SchedulingService.store_draft(

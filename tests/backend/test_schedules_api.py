@@ -16,7 +16,10 @@ from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
-from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
+from floorsync_common.scheduling.task_names import (
+    EXACT_SCHEDULE_GENERATION_TASK,
+    SCHEDULE_GENERATION_TASK,
+)
 from floorsync_common.settings import Settings
 
 
@@ -164,6 +167,24 @@ def test_manager_can_queue_schedule_generation(monkeypatch: Any) -> None:
     }
     assert queue.sent == (
         SCHEDULE_GENERATION_TASK,
+        ("2026-09-06T08:00:00+00:00",),
+        "scheduling",
+    )
+
+
+def test_manager_can_request_the_exact_strategy(monkeypatch: Any) -> None:
+    queue = FakeTaskQueue()
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules",
+        json={"starts_at": "2026-09-06T08:00:00Z", "strategy": "exact"},
+    )
+
+    assert response.status_code == 202
+    assert queue.sent == (
+        EXACT_SCHEDULE_GENERATION_TASK,
         ("2026-09-06T08:00:00+00:00",),
         "scheduling",
     )

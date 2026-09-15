@@ -1,17 +1,17 @@
 """Solve a Flexible Job Shop Scheduling Problem instance with Gurobi.
 
-Loads a FAJSP instance from JSON, builds the disjunctive MILP formulation,
-solves for the minimum makespan, and plots the resulting schedule.
+Builds the disjunctive MILP formulation for a floor already loaded from the
+database and solves it for the minimum makespan.
 """
 
+import logging
 import time
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
 import gurobipy as gp
-from sqlalchemy.orm import Session
 
 from floorsync_common.scheduling.contracts import (
     ScheduleDependencySpec,
@@ -19,21 +19,17 @@ from floorsync_common.scheduling.contracts import (
     ScheduleMetrics,
     SchedulePlan,
 )
-from floorsync_common.scheduling.load_data_from_db import (
-    DbOpRecord,
-    OpRecord,
-    load_fajsp,
-    load_fajsp_from_db,
-)
-from floorsync_common.scheduling.service import ScheduleStored, SchedulingService
+from floorsync_common.scheduling.load_data_from_db import DbOpRecord
 
-INSTANCE_PATH = "./data/mk07.json"
-TIME_LIMIT_SECONDS = 60
+logger = logging.getLogger(__name__)
+
+TIME_LIMIT_SECONDS = 1800
+MIP_GAP = 0.02
 STRATEGY = "gurobi_exact_v1"
 
 
 def processing_time(
-    operation_data: Sequence[OpRecord | DbOpRecord], operation: int, machine: int
+    operation_data: Sequence[DbOpRecord], operation: int, machine: int
 ) -> int | None:
     """Processing time of `operation` on `machine`, or None if ineligible."""
     for duration, candidate_machine in operation_data[operation]["options"]:
@@ -43,7 +39,7 @@ def processing_time(
 
 
 def _required_processing_time(
-    operation_data: Sequence[OpRecord | DbOpRecord], operation: int, machine: int
+    operation_data: Sequence[DbOpRecord], operation: int, machine: int
 ) -> int:
     """Like `processing_time`, but for call sites where `machine` is already known eligible."""
     duration = processing_time(operation_data, operation, machine)
@@ -54,13 +50,14 @@ def _required_processing_time(
 def build_model(
     operations: range,
     eligible_machines: dict[int, list[int]],
-    operation_data: Sequence[OpRecord | DbOpRecord],
+    operation_data: Sequence[DbOpRecord],
 ) -> tuple[gp.Model, dict[tuple[int, int], gp.Var], dict[int, gp.Var], gp.Var]:
     """Build the disjunctive MILP. Returns the model and its variables."""
     horizon = sum(max(duration for duration, _ in record["options"]) for record in operation_data)
 
     model = gp.Model("fajsp")
     model.Params.TimeLimit = TIME_LIMIT_SECONDS
+    model.Params.MIPGap = MIP_GAP
 
     # assignment[i, k]: operation i is assigned to machine k
     assignment = {
@@ -69,14 +66,6 @@ def build_model(
         )
         for operation in operations
         for machine in eligible_machines[operation]
-    }
-
-    # sequenced_before[i, ii]: operation i is sequenced before operation ii
-    sequenced_before = {
-        (first, second): model.addVar(vtype=gp.GRB.BINARY, name=f"before[{first},{second}]")
-        for first in operations
-        for second in operations
-        if first != second
     }
 
     # start_time[i]: start time of operation i
@@ -114,37 +103,38 @@ def build_model(
                 name=f"precedence[{predecessor},{operation}]",
             )
 
-    # (4) and (5) two operations sharing a machine cannot overlap
+    # (4) and (5) two operations sharing a machine cannot overlap. One `sequenced_before`
+    # binary per unordered pair sharing a machine: it and the two constraints below jointly
+    # encode "either `first` finishes before `second` starts, or vice versa" for that pair,
+    # so visiting each unordered pair once is sufficient -- visiting both orderings would
+    # duplicate the same disjunction with a second, redundant binary.
     for first in operations:
         for second in operations:
-            if first == second:
+            if second <= first:
                 continue
             shared_machines = set(eligible_machines[first]) & set(eligible_machines[second])
+            if not shared_machines:
+                continue
+            sequenced_before = model.addVar(vtype=gp.GRB.BINARY, name=f"before[{first},{second}]")
             for machine in shared_machines:
-                slack = (
-                    2
-                    - assignment[first, machine]
-                    - assignment[second, machine]
-                    + sequenced_before[first, second]
+                slack_a = (
+                    2 - assignment[first, machine] - assignment[second, machine] + sequenced_before
                 )
                 model.addConstr(
                     start_time[first]
                     >= start_time[second]
                     + _required_processing_time(operation_data, second, machine)
-                    - slack * horizon,
+                    - slack_a * horizon,
                     name=f"no_overlap_a[{first},{second},{machine}]",
+                )
+                slack_b = (
+                    3 - assignment[first, machine] - assignment[second, machine] - sequenced_before
                 )
                 model.addConstr(
                     start_time[second]
                     >= start_time[first]
                     + _required_processing_time(operation_data, first, machine)
-                    - (
-                        3
-                        - assignment[first, machine]
-                        - assignment[second, machine]
-                        - sequenced_before[first, second]
-                    )
-                    * horizon,
+                    - slack_b * horizon,
                     name=f"no_overlap_b[{first},{second},{machine}]",
                 )
 
@@ -159,33 +149,29 @@ def build_model(
 
 
 def report(
-    operation_data: Sequence[OpRecord | DbOpRecord],
+    operation_data: Sequence[DbOpRecord],
     eligible_machines: dict[int, list[int]],
     assignment: dict[tuple[int, int], gp.Var],
     start_time: dict[int, gp.Var],
     makespan: gp.Var,
 ) -> None:
-    """Print the solved schedule to stdout."""
-    print(f"makespan: {makespan.X:.0f}")
+    """Log the solved schedule."""
+    logger.info("solved fajsp instance", extra={"makespan_minutes": int(makespan.X)})
     for operation, record in enumerate(operation_data):
         machine = next(
             candidate
             for candidate in eligible_machines[operation]
             if assignment[operation, candidate].X > 0.5
         )
-        print(
-            f"job {record['job']} op {record['op_id']}: "
-            f"machine {machine}, start {start_time[operation].X:.0f}"
+        logger.info(
+            "scheduled operation",
+            extra={
+                "job": record["job"],
+                "operation_id": str(record["op_id"]),
+                "machine": machine,
+                "start_minutes": int(start_time[operation].X),
+            },
         )
-
-
-def main() -> None:
-    _jobs, _machines, operations, eligible_machines, operation_data = load_fajsp(INSTANCE_PATH)
-    model, assignment, start_time, makespan = build_model(
-        operations, eligible_machines, operation_data
-    )
-    model.optimize()
-    report(operation_data, eligible_machines, assignment, start_time, makespan)
 
 
 def build_schedule_plan(
@@ -295,29 +281,3 @@ def solve_fajsp(
         operation_data, eligible_machines, assignment, start_time, makespan, machine_meta, starts_at
     )
     return plan, runtime_ms
-
-
-def main_from_db(db: Session, starts_at: datetime | None = None) -> ScheduleStored:
-    """Solve using the floor's current jobs, machines, routes and dependencies,
-    then write the result back to the database as a draft schedule.
-    """
-    starts_at = starts_at or datetime.now(UTC)
-    _jobs, _machines, operations, eligible_machines, operation_data, machine_meta = (
-        load_fajsp_from_db(db)
-    )
-    plan, runtime_ms = solve_fajsp(
-        operations, eligible_machines, operation_data, machine_meta, starts_at
-    )
-    stored = SchedulingService.store_draft(
-        db,
-        plan=plan,
-        runtime_ms=runtime_ms,
-        input_operation_count=len(operation_data),
-        strategy=STRATEGY,
-    )
-    db.commit()
-    return stored
-
-
-if __name__ == "__main__":
-    main()

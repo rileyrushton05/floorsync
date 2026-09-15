@@ -20,7 +20,7 @@ Decision records help explain why the team made particular design, technical, sc
 | [0010](0010-event-sourced-simulated-time.md) | Accepted | Simulated time derived by replaying the event log |
 | [0011](0011-store-floorsync-start-times.md) | Accepted | Store the scheduler's own start times on schedule entries |
 | [0012](0012-query-managed-frontend-server-state.md) | Accepted | TanStack Query-managed frontend server state |
-| [0013](0013-fajsp_milp_formulation.md) | Accepted | Describes the model to use for generating the schedule |
+| [0013](0013-fajsp_milp_formulation.md) | Pending | Describes the model to use for generating the schedule |
 
 ## Suggested Decision Record Format
 
