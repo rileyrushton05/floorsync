@@ -22,12 +22,14 @@ import { toast } from "sonner";
 import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
 import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
 import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
-import type { RowDragState } from "@/features/jobs/ui/OperationEditor";
 import { edgesForSavedOperations } from "@/features/jobs/model/dependencies";
+import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
 import {
     DEFAULT_SORT,
     EMPTY_JOB_DRAFT,
     applyDependencies,
+    draftFingerprint,
     draftFromJob,
     filterJobs,
     jobSequenceNumbers,
@@ -76,10 +78,14 @@ function JobsPageInner() {
     const saving = createJob.isPending || updateJob.isPending || deleteJob.isPending;
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<JobDraft>(() => (jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT));
-    const [isCreating, setIsCreating] = useState(false);
-    const [savedOrder, setSavedOrder] = useState<string[]>(() =>
-        jobs.length > 0 ? jobs[0].operations.map((op) => op.id) : []
+    // The draft as last loaded or saved. Anything else on screen is unsaved
+    // work, which is what the leave warnings key off.
+    const [baseline, setBaseline] = useState<string>(() =>
+        draftFingerprint(jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT),
     );
+    const [isCreating, setIsCreating] = useState(false);
+    /** A job switch or a new job, held back until unsaved work is dealt with. */
+    const [pendingOpen, setPendingOpen] = useState<{ kind: "job"; job: JobDef } | { kind: "new" } | null>(null);
     // Operations are only ever created by a click, so a plain counter is a safe
     // key source — no ids are generated during render.
     const opCounter = useRef(0);
@@ -87,14 +93,6 @@ function JobsPageInner() {
     // the dialog mounted while the zoom-out animation plays.
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const [deleteClosing, setDeleteClosing] = useState(false);
-    // Drag-and-drop reordering of operations. `dragArmed` is set by pressing
-    // the drag handle (so typing in the row's inputs never starts a drag);
-    // `dragIndex` is the row being carried; `dropIndex` is where it would land;
-    // `recentlyMoved` flashes the row that just landed.
-    const [dragArmed, setDragArmed] = useState<number | null>(null);
-    const [dragIndex, setDragIndex] = useState<number | null>(null);
-    const [dropIndex, setDropIndex] = useState<number | null>(null);
-    const [recentlyMoved, setRecentlyMoved] = useState<number | null>(null);
     const [filters, setFilters] = useState<JobFilters>(INITIAL_FILTERS);
     // Which step the graph has open. Held here rather than in the graph because
     // the operation cards highlight the same selection and edit the same draft.
@@ -105,8 +103,7 @@ function JobsPageInner() {
     // overwrites a new draft a manager has already started. This guarded render
     // update settles immediately, without a transient blank draft after load.
     if (jobs.length > 0 && !isCreating && draft.id === null && draft.name === "") {
-        setDraft(draftFromJob(jobs[0]));
-        setSavedOrder(jobs[0].operations.map((op) => op.id));
+        openDraft(draftFromJob(jobs[0]));
     }
 
     function dismissDelete() {
@@ -130,8 +127,7 @@ function JobsPageInner() {
         if (match) {
             setLastOpenedJobId(requestedJobId);
             setIsCreating(false);
-            setDraft(draftFromJob(match));
-            setSavedOrder(match.operations.map((op) => op.id));
+            openDraft(draftFromJob(match));
         }
     }
 
@@ -143,9 +139,10 @@ function JobsPageInner() {
     const [graphLoadedFor, setGraphLoadedFor] = useState<string | null>(null);
     const loadedEdges = dependencyQuery.data?.edges;
     if (draft.id !== null && loadedEdges !== undefined && graphLoadedFor !== draft.id) {
-        const openJobId = draft.id;
-        setGraphLoadedFor(openJobId);
-        setDraft((previous) => (previous.id === openJobId ? applyDependencies(previous, loadedEdges) : previous));
+        setGraphLoadedFor(draft.id);
+        // The graph arriving is the job finishing loading, not an edit — so it
+        // moves the baseline with it rather than reading as unsaved work.
+        openDraft(applyDependencies(draft, loadedEdges));
     }
 
     const colors = useMemo(() => buildJobColors(jobs), [jobs]);
@@ -153,18 +150,40 @@ function JobsPageInner() {
     const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
     const visibleJobs = useMemo(() => filterJobs(jobs, filters), [jobs, filters]);
 
-    function startNewJob() {
+    const dirty = draftFingerprint(draft) !== baseline;
+    // Holds in-app links and warns on tab close / reload while work is unsaved.
+    useNavigationGuard(dirty);
+
+    /** Set the draft *and* the baseline: this is the job as the API has it. */
+    function openDraft(next: JobDraft) {
+        setDraft(next);
+        setBaseline(draftFingerprint(next));
+    }
+
+    function openNewJob() {
         setIsCreating(true);
-        setDraft(EMPTY_JOB_DRAFT);
-        setSavedOrder([]);
+        openDraft(EMPTY_JOB_DRAFT);
         setSelectedOperationId(null);
     }
 
-    function editJob(job: JobDef) {
+    function openJob(job: JobDef) {
         setIsCreating(false);
-        setDraft(draftFromJob(job));
-        setSavedOrder(job.operations.map((op) => op.id));
+        openDraft(draftFromJob(job));
         setSelectedOperationId(null);
+    }
+
+    // Switching jobs replaces the draft outright, so it is the same loss as
+    // navigating away and gets the same question first. The backlog's selection
+    // follows `draft.id`, so a held-back switch leaves the list where it was.
+    function startNewJob() {
+        if (dirty) setPendingOpen({ kind: "new" });
+        else openNewJob();
+    }
+
+    function editJob(job: JobDef) {
+        if (job.id === draft.id) return;
+        if (dirty) setPendingOpen({ kind: "job", job });
+        else openJob(job);
     }
 
     function addOperation() {
@@ -189,8 +208,6 @@ function JobsPageInner() {
                 ],
             };
         });
-        // Keep the baseline aligned so only true reorderings flag as moved.
-        setSavedOrder((previous) => [...previous, id]);
         // Open it immediately: a step added from the graph is added in order to
         // be filled in, and it lands unnamed with a default route.
         setSelectedOperationId(id);
@@ -270,12 +287,6 @@ function JobsPageInner() {
                     }),
             };
         });
-        // Close the same gap in the baseline so surviving rows keep their
-        // original relative positions (and don't falsely flag as reordered).
-        setSavedOrder((previous) => {
-            const removed = draft.operations[index]?.id;
-            return removed ? previous.filter((id) => id !== removed) : previous;
-        });
     }
 
     /** Set what one operation waits on. The graph, not list order, decides this. */
@@ -297,79 +308,6 @@ function JobsPageInner() {
         }));
     }
 
-    /** List order is display order; it no longer decides precedence on its own. */
-    function moveOperation(index: number, offset: number) {
-        const target = index + offset;
-        setDraft((previous) => {
-            if (target < 0 || target >= previous.operations.length) return previous;
-            const operations = [...previous.operations];
-            [operations[index], operations[target]] = [operations[target], operations[index]];
-            return { ...previous, operations };
-        });
-        flashMoved(target);
-    }
-
-    function flashMoved(index: number) {
-        setRecentlyMoved(index);
-        setTimeout(() => setRecentlyMoved((current) => (current === index ? null : current)), 900);
-    }
-
-    /** Insert the dragged row at `to`, shifting the others down. */
-    function reorderOperation(from: number, to: number) {
-        setDraft((previous) => {
-            if (from === to || from < 0 || to < 0 || from >= previous.operations.length) return previous;
-            const operations = [...previous.operations];
-            const [moved] = operations.splice(from, 1);
-            operations.splice(to, 0, moved);
-            return { ...previous, operations };
-        });
-        flashMoved(to);
-    }
-
-    function resetDrag() {
-        setDragArmed(null);
-        setDragIndex(null);
-        setDropIndex(null);
-    }
-
-    function dragStateFor(index: number): RowDragState {
-        const total = draft.operations.length;
-        return {
-            isDragging: dragIndex === index,
-            // The dragged row would land here if released now.
-            dropBefore: dragIndex !== null && dropIndex === index && dropIndex !== dragIndex,
-            dropAfter:
-                dragIndex !== null && dropIndex === total && dropIndex !== dragIndex && index === total - 1,
-            landing: recentlyMoved === index,
-            armed: dragArmed === index,
-        };
-    }
-
-    function handleDragStart(index: number, event: React.DragEvent) {
-        setDragIndex(index);
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", String(index));
-    }
-
-    function handleDragOver(index: number, event: React.DragEvent) {
-        if (dragIndex === null) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        // Which half of the row the pointer is over decides whether the drop
-        // lands above or below it.
-        const bounds = event.currentTarget.getBoundingClientRect();
-        const after = event.clientY > bounds.top + bounds.height / 2;
-        setDropIndex(Math.min(index + (after ? 1 : 0), draft.operations.length));
-    }
-
-    function handleDrop(event: React.DragEvent) {
-        event.preventDefault();
-        if (dragIndex !== null && dropIndex !== null) {
-            reorderOperation(dragIndex, dragIndex < dropIndex ? dropIndex - 1 : dropIndex);
-        }
-        resetDrag();
-    }
-
     async function saveDraft() {
         const wasExisting = Boolean(draft.id);
         try {
@@ -380,7 +318,7 @@ function JobsPageInner() {
             // that was just written — translated onto the ids the API assigned.
             // Without this the editor would show a chain until the refetch
             // landed, which reads as the save having discarded the graph.
-            setDraft(
+            openDraft(
                 applyDependencies(
                     draftFromJob(saved),
                     edgesForSavedOperations(draft.operations, saved.operations.map((op) => op.id)),
@@ -399,7 +337,6 @@ function JobsPageInner() {
                 setIsCreating(false);
                 toast.success(`“${saved.name}” created in the backlog.`);
             }
-            setSavedOrder(saved.operations.map((op) => op.id));
         } catch (error) {
             reportMutationError(error);
         }
@@ -411,7 +348,7 @@ function JobsPageInner() {
         try {
             await deleteJob.mutateAsync(draft.id);
             setIsCreating(false);
-            setDraft(EMPTY_JOB_DRAFT);
+            openDraft(EMPTY_JOB_DRAFT);
             setConfirmingDelete(false);
             setDeleteClosing(false);
             toast.success(`“${removedName}” deleted.`);
@@ -471,21 +408,13 @@ function JobsPageInner() {
                     sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
                     machines={machines}
                     activeMachines={activeMachines}
-                    savedOrder={savedOrder}
                     loading={loading}
                     saving={saving}
                     hasLoadError={Boolean(loadError)}
                     notes={notes}
-                    dragStateFor={dragStateFor}
                     onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
                     onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
                     onAddOperation={addOperation}
-                    onArmDrag={setDragArmed}
-                    onResetDrag={resetDrag}
-                    onDragStart={handleDragStart}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                    onMoveOperation={moveOperation}
                     onRemoveOperation={removeOperation}
                     onPatchOperation={patchOperation}
                     onPatchRoute={patchRoute}
@@ -498,6 +427,26 @@ function JobsPageInner() {
                     onRequestDelete={() => setConfirmingDelete(true)}
                 />
             </main>
+
+            {pendingOpen !== null && (
+                <ConfirmDialog
+                    title="Discard unsaved changes?"
+                    description={
+                        pendingOpen.kind === "new"
+                            ? `“${draft.name.trim() || "This job"}” has changes that have not been saved. Starting a new job discards them.`
+                            : `“${draft.name.trim() || "This job"}” has changes that have not been saved. Opening “${pendingOpen.job.name}” discards them.`
+                    }
+                    confirmLabel="Discard changes"
+                    cancelLabel="Keep editing"
+                    danger
+                    onCancel={() => setPendingOpen(null)}
+                    onConfirm={() => {
+                        if (pendingOpen.kind === "new") openNewJob();
+                        else openJob(pendingOpen.job);
+                        setPendingOpen(null);
+                    }}
+                />
+            )}
 
             {confirmingDelete && draft.id && (
                 <DeleteJobDialog

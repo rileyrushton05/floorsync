@@ -9,12 +9,11 @@ import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
 import { formatDuration, primaryRoute, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
-import { Bars2Icon, CheckIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { CheckIcon, CursorArrowRaysIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { graphShape, wouldCreateCycle } from "../model/dependencies";
 import { JOB_PRIORITIES, type JobDraft } from "../model/editor";
 import { JobGraphDiagram } from "./JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
-import { OperationEditor, type RowDragState } from "./OperationEditor";
 
 /** One figure in the draft summary. */
 function Stat({ value, label, hint }: { value: string; label: string; hint?: string }) {
@@ -40,21 +39,13 @@ export function JobEditorPanel({
     sequenceNumber,
     machines,
     activeMachines,
-    savedOrder,
     loading,
     saving,
     hasLoadError,
     notes,
-    dragStateFor,
     onNameChange,
     onPriorityChange,
     onAddOperation,
-    onArmDrag,
-    onResetDrag,
-    onDragStart,
-    onDragOver,
-    onDrop,
-    onMoveOperation,
     onRemoveOperation,
     onPatchOperation,
     onPatchRoute,
@@ -70,21 +61,13 @@ export function JobEditorPanel({
     sequenceNumber: number | undefined;
     machines: Machine[];
     activeMachines: Machine[];
-    savedOrder: string[];
     loading: boolean;
     saving: boolean;
     hasLoadError: boolean;
     notes: React.ReactNode;
-    dragStateFor: (index: number) => RowDragState;
     onNameChange: (name: string) => void;
     onPriorityChange: (priority: JobDraft["priority"]) => void;
     onAddOperation: () => void;
-    onArmDrag: (index: number) => void;
-    onResetDrag: () => void;
-    onDragStart: (index: number, event: React.DragEvent) => void;
-    onDragOver: (index: number, event: React.DragEvent) => void;
-    onDrop: (event: React.DragEvent) => void;
-    onMoveOperation: (index: number, offset: number) => void;
     onRemoveOperation: (index: number) => void;
     onPatchOperation: (index: number, patch: Partial<Pick<OperationDef, "name">>) => void;
     onPatchRoute: (
@@ -104,7 +87,6 @@ export function JobEditorPanel({
     const machineCount = new Set(
         draft.operations.flatMap((operation) => operation.routes.map((route) => route.machineId)),
     ).size;
-    const orderChanged = draft.operations.some((operation, index) => savedOrder[index] !== operation.id);
     const nodes = draft.operations.map((operation) => ({ id: operation.id, dependsOn: operation.dependsOn }));
     const shape = graphShape(nodes);
     const selectedIndex = draft.operations.findIndex((operation) => operation.id === selectedOperationId);
@@ -134,7 +116,6 @@ export function JobEditorPanel({
                         <Badge intent="secondary">#{sequenceNumber}</Badge>
                     )}
                 </span>
-                {orderChanged && <Badge intent="primary">Unsaved order</Badge>}
             </CardHeader>
 
             <CardContent className="space-y-5">
@@ -176,11 +157,15 @@ export function JobEditorPanel({
                         </Button>
                     </div>
                     <p className="mt-1 flex items-center gap-1 text-muted-fg text-xs">
-                        <Bars2Icon className="size-3.5" />
-                        Click a step to edit it — order is for reading, &ldquo;Runs after&rdquo; decides what waits
+                        <CursorArrowRaysIcon className="size-3.5" />
+                        Click a step to edit it: &ldquo;Runs after&rdquo; decides what waits for what
                     </p>
 
-                    {draft.operations.length > 0 && (
+                    {draft.operations.length === 0 ? (
+                        <div className="mt-3 rounded-xl border border-dashed p-6 text-center text-muted-fg text-sm">
+                            No operations yet — a job needs at least one.
+                        </div>
+                    ) : (
                         <div className="mt-3 grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)]">
                             <JobGraphDiagram
                                 operations={graphOperations}
@@ -190,7 +175,6 @@ export function JobEditorPanel({
                             <OperationDetailPanel
                                 operation={selected}
                                 index={selectedIndex}
-                                total={draft.operations.length}
                                 machines={machines}
                                 activeMachines={activeMachines}
                                 saving={saving}
@@ -200,7 +184,6 @@ export function JobEditorPanel({
                                 onPatchRoute={(routeIndex, patch) => onPatchRoute(selectedIndex, routeIndex, patch)}
                                 onAddRoute={() => onAddRoute(selectedIndex)}
                                 onRemoveRoute={(routeIndex) => onRemoveRoute(selectedIndex, routeIndex)}
-                                onMove={(offset) => onMoveOperation(selectedIndex, offset)}
                                 onRemove={() => onRemoveOperation(selectedIndex)}
                             />
                         </div>
@@ -234,40 +217,6 @@ export function JobEditorPanel({
                         </Note>
                     )}
 
-                    <ol className="mt-3 space-y-2">
-                        {draft.operations.map((operation, index) => (
-                            <OperationEditor
-                                key={operation.id}
-                                operation={operation}
-                                index={index}
-                                total={draft.operations.length}
-                                machines={machines}
-                                activeMachines={activeMachines}
-                                saving={saving}
-                                reordered={savedOrder[index] !== operation.id}
-                                drag={dragStateFor(index)}
-                                selected={operation.id === selectedOperationId}
-                                predecessorOptions={predecessorOptionsFor(operation.id)}
-                                onDependenciesChange={(ids) => onDependenciesChange(index, ids)}
-                                onArmDrag={() => onArmDrag(index)}
-                                onResetDrag={onResetDrag}
-                                onDragStart={(event) => onDragStart(index, event)}
-                                onDragOver={(event) => onDragOver(index, event)}
-                                onDrop={onDrop}
-                                onMove={(offset) => onMoveOperation(index, offset)}
-                                onRemove={() => onRemoveOperation(index)}
-                                onPatch={(patch) => onPatchOperation(index, patch)}
-                                onPatchRoute={(routeIndex, patch) => onPatchRoute(index, routeIndex, patch)}
-                                onAddRoute={() => onAddRoute(index)}
-                                onRemoveRoute={(routeIndex) => onRemoveRoute(index, routeIndex)}
-                            />
-                        ))}
-                        {draft.operations.length === 0 && (
-                            <li className="rounded-xl border border-dashed p-5 text-center text-muted-fg text-sm">
-                                No operations yet — a job needs at least one.
-                            </li>
-                        )}
-                    </ol>
                 </div>
 
                 <Separator />

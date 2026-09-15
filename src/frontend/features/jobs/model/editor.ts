@@ -87,6 +87,34 @@ export function applyDependencies(draft: JobDraft, edges: readonly DependencyEdg
 }
 
 /**
+ * A value that changes whenever the draft does, for spotting unsaved work.
+ *
+ * Compared against a snapshot taken whenever the draft is set from an
+ * authoritative source — opening a job, its graph arriving, a successful save.
+ * Everything a save actually sends is included and nothing else, so a draft
+ * that round-trips unchanged never reads as dirty.
+ *
+ * Predecessors are sorted because the order they were clicked in is not part of
+ * the job: picking A then B and picking B then A submit the same graph.
+ */
+export function draftFingerprint(draft: JobDraft): string {
+    return JSON.stringify({
+        name: draft.name,
+        priority: draft.priority,
+        operations: draft.operations.map((operation) => ({
+            id: operation.id,
+            name: operation.name,
+            dependsOn: [...operation.dependsOn].sort(),
+            routes: operation.routes.map((route) => ({
+                machineId: route.machineId,
+                durationMins: route.durationMins,
+                energy: route.energy,
+            })),
+        })),
+    });
+}
+
+/**
  * The number each job is known by in the UI, replacing its UUID.
  *
  * Job names are not unique — the backend says so explicitly, because two real

@@ -3,7 +3,7 @@ import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { TextField } from "@/components/ui/text-field";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
-import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { TrashIcon } from "@heroicons/react/24/outline";
 import type { DraftOperation } from "../model/editor";
 import { OperationRoutes } from "./OperationRoutes";
 import { PredecessorPicker, type PredecessorOption } from "./PredecessorPicker";
@@ -16,13 +16,18 @@ import { PredecessorPicker, type PredecessorOption } from "./PredecessorPicker";
  * about — rename a step or change what it waits on and the shape beside you
  * redraws as you type, which a dialog would hide behind itself.
  *
- * It holds no state. Every control writes to the same draft the operation cards
- * below write to, so the two surfaces cannot disagree.
+ * It holds no state — every control writes straight to the job draft, which is
+ * what the graph renders from, so the picture and the fields cannot disagree.
+ *
+ * There is no move control. Order no longer decides what waits for what, and
+ * once the step list was replaced by the graph the only thing it still affected
+ * was left-to-right placement among steps sharing a row — so the buttons did
+ * nothing visible whenever the neighbouring step sat at a different depth.
+ * Steps keep a stored position; new ones simply go on the end.
  */
 export function OperationDetailPanel({
     operation,
     index,
-    total,
     machines,
     activeMachines,
     saving,
@@ -32,12 +37,11 @@ export function OperationDetailPanel({
     onPatchRoute,
     onAddRoute,
     onRemoveRoute,
-    onMove,
     onRemove,
 }: {
     operation: DraftOperation | null;
+    /** Only used to name an unnamed step for screen readers. */
     index: number;
-    total: number;
     machines: Machine[];
     activeMachines: Machine[];
     saving: boolean;
@@ -47,7 +51,6 @@ export function OperationDetailPanel({
     onPatchRoute: (routeIndex: number, patch: Partial<OperationDef["routes"][number]>) => void;
     onAddRoute: () => void;
     onRemoveRoute: (routeIndex: number) => void;
-    onMove: (offset: number) => void;
     onRemove: () => void;
 }) {
     if (operation === null) {
@@ -66,29 +69,9 @@ export function OperationDetailPanel({
                 <span className="truncate font-semibold text-sm">
                     {operation.name.trim() || <span className="text-muted-fg italic">Untitled step</span>}
                 </span>
-                <span className="flex shrink-0 items-center gap-1">
-                    <Button
-                        intent="plain"
-                        size="sq-xs"
-                        onPress={() => onMove(-1)}
-                        isDisabled={index <= 0}
-                        aria-label={`Move ${label} earlier`}
-                    >
-                        <ArrowUpIcon />
-                    </Button>
-                    <Button
-                        intent="plain"
-                        size="sq-xs"
-                        onPress={() => onMove(1)}
-                        isDisabled={index >= total - 1}
-                        aria-label={`Move ${label} later`}
-                    >
-                        <ArrowDownIcon />
-                    </Button>
-                    <Button intent="plain" size="sq-xs" onPress={onRemove} aria-label={`Remove ${label}`}>
-                        <TrashIcon />
-                    </Button>
-                </span>
+                <Button intent="plain" size="sq-xs" onPress={onRemove} aria-label={`Remove ${label}`}>
+                    <TrashIcon />
+                </Button>
             </div>
 
             <TextField value={operation.name} onChange={(name) => onPatch({ name })} autoFocus>
