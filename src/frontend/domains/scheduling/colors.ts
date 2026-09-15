@@ -10,6 +10,14 @@
  *
  * `ink` is whichever of near-black / white has the better contrast on that
  * fill; the worst pairing is 3.98:1.
+ *
+ * Re-validated against the app's own light surface (`--muted`, #f8fafc) rather
+ * than a generic one: lightness band, chroma floor, adjacent-pair CVD
+ * separation (worst ΔE 9.1) and the normal-vision floor (worst ΔE 19.6) all
+ * pass, with the three known sub-3:1 slots carrying the relief rule above. It
+ * stays a single light column on purpose — `components/theme-provider.tsx`
+ * pins the theme to "light" and the navy palette is scoped to the landing
+ * page, so a second column would be unreachable code rather than dark support.
  */
 export interface JobColor {
     fill: string;
@@ -30,17 +38,49 @@ const PALETTE: JobColor[] = [
 /** Past the eight slots, colour stops carrying identity and the label alone does. */
 const OVERFLOW: JobColor = { fill: "#64748b", ink: "#ffffff" };
 
+/** What `stableJobOrder` and `buildJobColors` need off a job: an id, ideally a creation time. */
+export interface ColourableJob {
+    id: string;
+    createdAt?: string;
+    created_at?: string;
+}
+
+function createdAtOf(job: ColourableJob): string {
+    return job.createdAt ?? job.created_at ?? "";
+}
+
 /**
- * Colour is keyed to the job's position in the backlog, not to its position in
- * the current selection — so filtering the schedule down to fewer jobs never
- * repaints the ones that remain.
+ * Jobs in the order colour slots and backlog sequence numbers are handed out.
+ *
+ * Colour has to follow the *job*, never its rank in the current list. The API
+ * returns jobs ordered by `(name, id)`, so using array position would repaint
+ * the entire backlog the moment one job is renamed — a rename is not a change
+ * of identity, and the schedule someone is reading should not change colour
+ * underneath them. Creation time is the ordering the job actually owns, with
+ * the id as tie-breaker so the result is a total order.
+ *
+ * Sources without a creation time (the schedule timeline contract) keep the
+ * order they arrived in, which for a timeline is the backend's own lane order.
+ */
+export function stableJobOrder<T extends ColourableJob>(jobs: readonly T[]): T[] {
+    if (!jobs.some((job) => createdAtOf(job) !== "")) return [...jobs];
+    return [...jobs].sort((left, right) => {
+        const byCreation = createdAtOf(left).localeCompare(createdAtOf(right));
+        return byCreation !== 0 ? byCreation : left.id.localeCompare(right.id);
+    });
+}
+
+/**
+ * Assign each job its colour slot, keyed off `stableJobOrder` rather than the
+ * order the caller happens to hold — so filtering the schedule down to fewer
+ * jobs, re-sorting the backlog, or renaming a job never repaints the rest.
  *
  * Only an id is needed, so this accepts the API's `Job` as readily as the local
  * `JobDef`. That is what lets the scheduler colour its backlog list and the
  * chart it draws from a single map, keyed off the backlog either way.
  */
-export function buildJobColors(jobs: readonly { id: string }[]): Map<string, JobColor> {
-    return new Map(jobs.map((job, index) => [job.id, PALETTE[index] ?? OVERFLOW]));
+export function buildJobColors(jobs: readonly ColourableJob[]): Map<string, JobColor> {
+    return new Map(stableJobOrder(jobs).map((job, index) => [job.id, PALETTE[index] ?? OVERFLOW]));
 }
 
 export function jobColor(colors: Map<string, JobColor>, jobId: string): JobColor {

@@ -136,8 +136,8 @@ export function GanttChart({
                                         const state = operationState(op.startMins, op.endMins, now);
                                         const durationMins = op.endMins - op.startMins;
                                         const dimmed = selectedJobId !== null && selectedJobId !== op.jobId;
-                                        // A short block cannot fit both tokens; the job id is the
-                                        // one that has to survive, since it carries identity.
+                                        // A short block cannot fit both tokens; the job name is
+                                        // the one that has to survive, since it carries identity.
                                         const compact = durationMins < 45;
                                         const progressPct =
                                             state === "running" && now !== null
@@ -168,7 +168,7 @@ export function GanttChart({
                                                 onHoverStart={() => setHoveredOpId(op.opId)}
                                                 onHoverEnd={() => setHoveredOpId(null)}
                                                 onPress={() => onSelectJob?.(op.jobId)}
-                                                aria-label={`${op.jobId} ${jobName(op.jobId)}, operation ${op.opIndex} of ${op.opTotal}, ${op.opName}, on ${machine.name}, starts ${formatOffset(op.startMins)}, runs ${formatDuration(durationMins)}${state === "plan" ? "" : `, ${state}`}`}
+                                                aria-label={`${jobName(op.jobId)}, operation ${op.opIndex} of ${op.opTotal}, ${op.opName}, on ${machine.name}, starts ${formatOffset(op.startMins)}, runs ${formatDuration(durationMins)}${state === "plan" ? "" : `, ${state}`}`}
                                             >
                                                 <span className="block truncate leading-tight">
                                                     {STATE_MARK[state]}
@@ -213,11 +213,10 @@ export function GanttChart({
                                     }`}
                             >
                                 <span
-                                    className="size-2.5 shrink-0 rounded-xs"
+                                    className="size-2.5 shrink-0 rounded-xs ring-1 ring-fg/20 ring-inset"
                                     style={{ background: color.fill }}
                                 />
-                                <span className="font-bold text-fg">{jobId}</span>
-                                <span className="text-muted-fg">{jobName(jobId)}</span>
+                                <span className="font-bold text-fg">{jobName(jobId)}</span>
                             </ToggleButton>
                         </li>
                     );

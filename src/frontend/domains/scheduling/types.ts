@@ -36,6 +36,16 @@ export interface JobDef {
     id: string;
     name: string;
     priority: Priority;
+    /**
+     * When the API created the job, if the source carries it.
+     *
+     * The backend lists jobs by `(name, id)`, so array position is a *name* rank
+     * and changes whenever any job is renamed. Creation time is the one ordering
+     * that belongs to the job itself, which is why colour identity and the
+     * backlog's sequence numbers are both keyed off it — see `stableJobOrder`.
+     * Optional because the schedule timeline contract does not carry it.
+     */
+    createdAt?: string;
     /** Ordered chain — operation n+1 cannot start until operation n finishes. */
     operations: OperationDef[];
 }

@@ -51,7 +51,7 @@ export function MachineEditor({
                     <div><p className="font-medium text-sm">Available to the scheduler</p><p className="text-muted-fg text-xs">Inactive machines are kept as history but excluded from scheduling.</p></div>
                     <Button intent={draft.active ? "success" : "outline"} size="sm" onPress={() => onDraftChange((value) => ({ ...value, active: !value.active }))}>{draft.active ? "Active" : "Inactive"}</Button>
                 </div>
-                {draft.id && <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t pt-4 text-sm"><dt className="text-muted-fg">ID</dt><dd className="break-all">{draft.id}</dd><dt className="text-muted-fg">Created</dt><dd>{new Date(selected?.created_at ?? "").toLocaleString()}</dd><dt className="text-muted-fg">Category</dt><dd>{draft.categoryId ? categoryNames.get(draft.categoryId) ?? draft.categoryId : "None"}</dd></dl>}
+                {draft.id && <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t pt-4 text-sm"><dt className="text-muted-fg">Created</dt><dd>{new Date(selected?.created_at ?? "").toLocaleString()}</dd><dt className="text-muted-fg">Category</dt><dd>{draft.categoryId ? categoryNames.get(draft.categoryId) ?? draft.categoryId : "None"}</dd></dl>}
                 <div className="flex flex-wrap justify-between gap-3 border-t pt-5">
                     {selected?.active && draft.id === selected.id ? <Button intent="danger" onPress={onDeactivate} isDisabled={saving}>Deactivate</Button> : <span />}
                     <Button onPress={onSave} isPending={saving}><CheckIcon /> {draft.id ? "Save changes" : "Add machine"}</Button>
