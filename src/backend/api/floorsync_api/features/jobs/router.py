@@ -18,7 +18,6 @@ from floorsync_api.features.jobs.schemas import (
 from floorsync_api.problems import ProblemDetail, problem_response
 from floorsync_api.schemas import CursorPage
 from floorsync_common.database.models.user import User
-from floorsync_common.jobs.dependency_graph import job_dependency_edges_statement
 from floorsync_common.jobs.results import (
     JobDeleted,
     JobFound,
@@ -95,12 +94,12 @@ async def get_job_dependency_graph(db: DbSession, _: Manager) -> JobDependencyGr
     """
 
     async with db.begin():
-        edges = (await db.execute(job_dependency_edges_statement())).tuples().all()
+        graph = await JobService.list_dependency_graph(db)
 
     return JobDependencyGraphResponse(
         edges=[
             JobDependencyEdgeResponse(before_job_id=before, after_job_id=after)
-            for before, after in edges
+            for before, after in graph.edges
         ]
     )
 
