@@ -31,13 +31,19 @@ class ScheduleGenerationAcceptedResponse(ResponseSchema):
 
 
 class ScheduleGenerationStatusResponse(ResponseSchema):
-    """The externally visible state of one queued schedule-generation command."""
+    """The externally visible state of one queued schedule-generation command.
+
+    Terminal operational failures include a safe, API-authored detail. It is
+    intentionally not a worker exception: clients can show it directly while
+    operational diagnostics remain in worker logs.
+    """
 
     id: UUID
     status: Literal["pending", "running", "completed", "rejected", "unavailable", "failed"]
     schedule_id: UUID | None = None
     schedule_url: str | None = None
     issues: list[SchedulingIssueResponse] | None = None
+    detail: str | None = None
 
 
 class ScheduleEntryResponse(ResponseSchema):

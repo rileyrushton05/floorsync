@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import type { ScheduleOption } from "../model";
+import type { ScheduleOption } from "../model/schedule";
 
 const STATUS_INTENT = {
     confirmed: "success",

@@ -1,1 +1,1 @@
-export { default } from "@/features/schedules/SimulationPage";
+export { default } from "@/features/schedules/screens/SimulationScreen";

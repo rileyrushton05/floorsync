@@ -5,8 +5,8 @@ import { TransitionProgress } from "@/components/transition-progress";
 import { Toast } from "@/components/ui/toast";
 import { useRouter } from "next/navigation";
 import { RouterProvider } from "react-aria-components";
-import { AuthProvider } from "./_components/AuthProvider";
-import { ClearQueryCacheOnAuthChange, QueryProvider } from "./_components/QueryProvider";
+import { AuthProvider } from "@/core/auth/AuthProvider";
+import { ClearQueryCacheOnAuthChange, QueryProvider } from "@/core/query/QueryProvider";
 
 /**
  * App-wide client providers.
