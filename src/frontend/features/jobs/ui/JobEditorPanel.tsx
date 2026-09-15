@@ -4,12 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Note } from "@/components/ui/note";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
-import { formatDuration, totalWorkMins } from "@/domains/scheduling/format";
+import { formatDuration, primaryRoute, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
 import { Bars2Icon, CheckIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { graphShape, wouldCreateCycle } from "../model/dependencies";
 import { JOB_PRIORITIES, type JobDraft } from "../model/editor";
+import { JobGraphDiagram } from "./JobGraphDiagram";
+import { OperationDetailPanel } from "./OperationDetailPanel";
 import { OperationEditor, type RowDragState } from "./OperationEditor";
 
 /** One figure in the draft summary. */
@@ -56,6 +60,9 @@ export function JobEditorPanel({
     onPatchRoute,
     onAddRoute,
     onRemoveRoute,
+    onDependenciesChange,
+    selectedOperationId,
+    onSelectOperation,
     onSave,
     onRequestDelete,
 }: {
@@ -87,6 +94,9 @@ export function JobEditorPanel({
     ) => void;
     onAddRoute: (operationIndex: number) => void;
     onRemoveRoute: (operationIndex: number, routeIndex: number) => void;
+    onDependenciesChange: (operationIndex: number, predecessorIds: string[]) => void;
+    selectedOperationId: string | null;
+    onSelectOperation: (operationId: string | null) => void;
     onSave: () => void;
     onRequestDelete: () => void;
 }) {
@@ -95,6 +105,25 @@ export function JobEditorPanel({
         draft.operations.flatMap((operation) => operation.routes.map((route) => route.machineId)),
     ).size;
     const orderChanged = draft.operations.some((operation, index) => savedOrder[index] !== operation.id);
+    const nodes = draft.operations.map((operation) => ({ id: operation.id, dependsOn: operation.dependsOn }));
+    const shape = graphShape(nodes);
+    const selectedIndex = draft.operations.findIndex((operation) => operation.id === selectedOperationId);
+    const selected = selectedIndex >= 0 ? draft.operations[selectedIndex] : null;
+    const predecessorOptionsFor = (operationId: string) =>
+        draft.operations
+            .filter((candidate) => candidate.id !== operationId)
+            .map((candidate) => ({
+                id: candidate.id,
+                name: candidate.name,
+                disabled: wouldCreateCycle(nodes, operationId, candidate.id),
+            }));
+    const graphOperations = draft.operations.map((operation) => ({
+        id: operation.id,
+        dependsOn: operation.dependsOn,
+        name: operation.name,
+        durationMins: primaryRoute(operation)?.durationMins ?? null,
+        machineCount: operation.routes.length,
+    }));
 
     return (
         <Card>
@@ -135,13 +164,75 @@ export function JobEditorPanel({
                 </div>
 
                 <div>
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="font-semibold text-sm">Operations</h3>
-                        <span className="flex items-center gap-1 text-muted-fg text-xs">
-                            <Bars2Icon className="size-3.5" />
-                            Run top to bottom — drag the handle to reorder
-                        </span>
+                        <Button
+                            intent="primary"
+                            size="sm"
+                            onPress={onAddOperation}
+                            isDisabled={saving || loading || hasLoadError || activeMachines.length === 0}
+                        >
+                            <PlusIcon /> Add operation
+                        </Button>
                     </div>
+                    <p className="mt-1 flex items-center gap-1 text-muted-fg text-xs">
+                        <Bars2Icon className="size-3.5" />
+                        Click a step to edit it — order is for reading, &ldquo;Runs after&rdquo; decides what waits
+                    </p>
+
+                    {draft.operations.length > 0 && (
+                        <div className="mt-3 grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)]">
+                            <JobGraphDiagram
+                                operations={graphOperations}
+                                selectedId={selectedOperationId}
+                                onSelect={onSelectOperation}
+                            />
+                            <OperationDetailPanel
+                                operation={selected}
+                                index={selectedIndex}
+                                total={draft.operations.length}
+                                machines={machines}
+                                activeMachines={activeMachines}
+                                saving={saving}
+                                predecessorOptions={selected ? predecessorOptionsFor(selected.id) : []}
+                                onPatch={(patch) => onPatchOperation(selectedIndex, patch)}
+                                onDependenciesChange={(ids) => onDependenciesChange(selectedIndex, ids)}
+                                onPatchRoute={(routeIndex, patch) => onPatchRoute(selectedIndex, routeIndex, patch)}
+                                onAddRoute={() => onAddRoute(selectedIndex)}
+                                onRemoveRoute={(routeIndex) => onRemoveRoute(selectedIndex, routeIndex)}
+                                onMove={(offset) => onMoveOperation(selectedIndex, offset)}
+                                onRemove={() => onRemoveOperation(selectedIndex)}
+                            />
+                        </div>
+                    )}
+
+                    {!shape.isLinear && (
+                        <Note intent="warning" className="mt-3" role="status">
+                            <strong>This blocks schedule generation.</strong>
+                            <p className="mt-1">
+                                The graph saves fine, but a run plans every job at once and will be
+                                refused while this one branches — so no schedule can be generated
+                                for the whole floor until it is a straight chain again. The engine
+                                accepts at most one predecessor and one successor per operation,
+                                and{" "}
+                                {shape.fanOut.length > 0 && (
+                                    <>
+                                        {shape.fanOut.length} {shape.fanOut.length === 1 ? "step has" : "steps have"}{" "}
+                                        more than one step waiting on{" "}
+                                        {shape.fanOut.length === 1 ? "it" : "them"}
+                                    </>
+                                )}
+                                {shape.fanOut.length > 0 && shape.fanIn.length > 0 && ", and "}
+                                {shape.fanIn.length > 0 && (
+                                    <>
+                                        {shape.fanIn.length} {shape.fanIn.length === 1 ? "step waits" : "steps wait"} on
+                                        more than one other step
+                                    </>
+                                )}
+                                .
+                            </p>
+                        </Note>
+                    )}
 
                     <ol className="mt-3 space-y-2">
                         {draft.operations.map((operation, index) => (
@@ -155,6 +246,9 @@ export function JobEditorPanel({
                                 saving={saving}
                                 reordered={savedOrder[index] !== operation.id}
                                 drag={dragStateFor(index)}
+                                selected={operation.id === selectedOperationId}
+                                predecessorOptions={predecessorOptionsFor(operation.id)}
+                                onDependenciesChange={(ids) => onDependenciesChange(index, ids)}
                                 onArmDrag={() => onArmDrag(index)}
                                 onResetDrag={onResetDrag}
                                 onDragStart={(event) => onDragStart(index, event)}
@@ -174,16 +268,6 @@ export function JobEditorPanel({
                             </li>
                         )}
                     </ol>
-
-                    <Button
-                        intent="outline"
-                        size="sm"
-                        className="mt-3"
-                        onPress={onAddOperation}
-                        isDisabled={saving || loading || hasLoadError || activeMachines.length === 0}
-                    >
-                        <PlusIcon /> Add operation
-                    </Button>
                 </div>
 
                 <Separator />

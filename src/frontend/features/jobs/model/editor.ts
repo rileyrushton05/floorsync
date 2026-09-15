@@ -1,12 +1,27 @@
 import { stableJobOrder } from "@/domains/scheduling/colors";
+import type { DependencyEdge } from "../data/api";
+import { chainDependsOn, dependsOnFromEdges } from "./dependencies";
 import { totalWorkMins } from "@/domains/scheduling/format";
 import type { JobDef, OperationDef, Priority } from "@/domains/scheduling/types";
+
+/**
+ * An operation as the builder edits it: the shared domain shape plus the
+ * precedence the editor owns.
+ *
+ * `dependsOn` lives here rather than on `OperationDef` because it is a builder
+ * concern — the schedule timeline carries resolved start times, not the graph
+ * they came from.
+ */
+export interface DraftOperation extends OperationDef {
+    /** Ids of operations in this job that must finish before this one starts. */
+    dependsOn: string[];
+}
 
 export interface JobDraft {
     id: string | null;
     name: string;
     priority: Priority;
-    operations: OperationDef[];
+    operations: DraftOperation[];
 }
 
 export const EMPTY_JOB_DRAFT: JobDraft = { id: null, name: "", priority: "Med", operations: [] };
@@ -39,8 +54,36 @@ export const DEFAULT_SORT: (typeof SORT_OPTIONS)[number]["id"] = "Priority";
 
 const PRIORITY_RANK: Record<Priority, number> = { High: 0, Med: 1, Low: 2 };
 
+/**
+ * Open a saved job in the editor.
+ *
+ * Precedence starts as the straight chain the operation order implies, which is
+ * what the definition endpoint stores for any job this builder has saved. The
+ * job's real graph arrives from its own endpoint and is applied over this once
+ * it loads — see `applyDependencies`.
+ */
 export function draftFromJob(job: JobDef): JobDraft {
-    return { ...job, operations: job.operations.map((operation) => ({ ...operation, routes: operation.routes.map((route) => ({ ...route })) })) };
+    const chain = chainDependsOn(job.operations.map((operation) => operation.id));
+    return {
+        ...job,
+        operations: job.operations.map((operation) => ({
+            ...operation,
+            routes: operation.routes.map((route) => ({ ...route })),
+            dependsOn: chain.get(operation.id) ?? [],
+        })),
+    };
+}
+
+/** Replace the draft's precedence with the graph the API actually holds. */
+export function applyDependencies(draft: JobDraft, edges: readonly DependencyEdge[]): JobDraft {
+    const dependsOn = dependsOnFromEdges(draft.operations.map((operation) => operation.id), edges);
+    return {
+        ...draft,
+        operations: draft.operations.map((operation) => ({
+            ...operation,
+            dependsOn: dependsOn.get(operation.id) ?? [],
+        })),
+    };
 }
 
 /**

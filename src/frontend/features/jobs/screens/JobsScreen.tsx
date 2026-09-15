@@ -11,6 +11,7 @@ import {
     useCreateJobDefinition,
     useDeleteJobDefinition,
     useJobDefinitions,
+    useJobDependencies,
     useUpdateJobDefinition,
 } from "@/features/jobs/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
@@ -22,9 +23,11 @@ import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
 import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
 import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
 import type { RowDragState } from "@/features/jobs/ui/OperationEditor";
+import { edgesForSavedOperations } from "@/features/jobs/model/dependencies";
 import {
     DEFAULT_SORT,
     EMPTY_JOB_DRAFT,
+    applyDependencies,
     draftFromJob,
     filterJobs,
     jobSequenceNumbers,
@@ -93,6 +96,9 @@ function JobsPageInner() {
     const [dropIndex, setDropIndex] = useState<number | null>(null);
     const [recentlyMoved, setRecentlyMoved] = useState<number | null>(null);
     const [filters, setFilters] = useState<JobFilters>(INITIAL_FILTERS);
+    // Which step the graph has open. Held here rather than in the graph because
+    // the operation cards highlight the same selection and edit the same draft.
+    const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
 
     // The floor definition arrives after authentication. Select its first job
     // only while the editor is pristine, so a delayed API response never
@@ -129,6 +135,19 @@ function JobsPageInner() {
         }
     }
 
+    // A job opens showing the straight chain its operation order implies, then
+    // its real graph arrives from its own endpoint and replaces that. Guarded by
+    // `graphLoadedFor` so a later refetch never discards an edit in progress —
+    // the same render-time settle the job selection above uses.
+    const dependencyQuery = useJobDependencies(draft.id);
+    const [graphLoadedFor, setGraphLoadedFor] = useState<string | null>(null);
+    const loadedEdges = dependencyQuery.data?.edges;
+    if (draft.id !== null && loadedEdges !== undefined && graphLoadedFor !== draft.id) {
+        const openJobId = draft.id;
+        setGraphLoadedFor(openJobId);
+        setDraft((previous) => (previous.id === openJobId ? applyDependencies(previous, loadedEdges) : previous));
+    }
+
     const colors = useMemo(() => buildJobColors(jobs), [jobs]);
     const sequenceNumbers = useMemo(() => jobSequenceNumbers(jobs), [jobs]);
     const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
@@ -138,32 +157,43 @@ function JobsPageInner() {
         setIsCreating(true);
         setDraft(EMPTY_JOB_DRAFT);
         setSavedOrder([]);
+        setSelectedOperationId(null);
     }
 
     function editJob(job: JobDef) {
         setIsCreating(false);
         setDraft(draftFromJob(job));
         setSavedOrder(job.operations.map((op) => op.id));
+        setSelectedOperationId(null);
     }
 
     function addOperation() {
         opCounter.current += 1;
         const id = `new-op-${opCounter.current}`;
-        setDraft((previous) => ({
-            ...previous,
-            operations: [
-                ...previous.operations,
-                {
-                    id,
-                    name: "",
-                    routes: activeMachines[0]
-                        ? [{ machineId: activeMachines[0].id, durationMins: 30, energy: null }]
-                        : [],
-                },
-            ],
-        }));
+        setDraft((previous) => {
+            // A new step joins the end of the chain by default, which is what
+            // adding one used to mean. Anything else is an explicit edit.
+            const last = previous.operations.at(-1);
+            return {
+                ...previous,
+                operations: [
+                    ...previous.operations,
+                    {
+                        id,
+                        name: "",
+                        dependsOn: last ? [last.id] : [],
+                        routes: activeMachines[0]
+                            ? [{ machineId: activeMachines[0].id, durationMins: 30, energy: null }]
+                            : [],
+                    },
+                ],
+            };
+        });
         // Keep the baseline aligned so only true reorderings flag as moved.
         setSavedOrder((previous) => [...previous, id]);
+        // Open it immediately: a step added from the graph is added in order to
+        // be filled in, and it lands unnamed with a default route.
+        setSelectedOperationId(id);
     }
 
     function patchOperation(index: number, patch: Partial<Pick<OperationDef, "name">>) {
@@ -219,10 +249,27 @@ function JobsPageInner() {
     }
 
     function removeOperation(index: number) {
-        setDraft((previous) => ({
-            ...previous,
-            operations: previous.operations.filter((_, i) => i !== index),
-        }));
+        if (draft.operations[index]?.id === selectedOperationId) setSelectedOperationId(null);
+        setDraft((previous) => {
+            const removed = previous.operations[index];
+            if (removed === undefined) return previous;
+            return {
+                ...previous,
+                operations: previous.operations
+                    .filter((_, i) => i !== index)
+                    .map((operation) => {
+                        if (!operation.dependsOn.includes(removed.id)) return operation;
+                        // Whatever waited on the removed step now waits on what
+                        // *it* waited on. Dropping the edge outright would let a
+                        // later step start first, which is never what deleting a
+                        // step in the middle is meant to say.
+                        const inherited = operation.dependsOn
+                            .filter((id) => id !== removed.id)
+                            .concat(removed.dependsOn);
+                        return { ...operation, dependsOn: [...new Set(inherited)] };
+                    }),
+            };
+        });
         // Close the same gap in the baseline so surviving rows keep their
         // original relative positions (and don't falsely flag as reordered).
         setSavedOrder((previous) => {
@@ -231,7 +278,26 @@ function JobsPageInner() {
         });
     }
 
-    /** Reordering matters: operations run in array order, so this edits precedence. */
+    /** Set what one operation waits on. The graph, not list order, decides this. */
+    function setDependencies(operationIndex: number, predecessorIds: string[]) {
+        setDraft((previous) => ({
+            ...previous,
+            // Hold predecessors in the job's own operation order so the chips
+            // read the same way however they were clicked.
+            operations: previous.operations.map((operation, index) =>
+                index === operationIndex
+                    ? {
+                        ...operation,
+                        dependsOn: previous.operations
+                            .map((candidate) => candidate.id)
+                            .filter((id) => predecessorIds.includes(id)),
+                    }
+                    : operation,
+            ),
+        }));
+    }
+
+    /** List order is display order; it no longer decides precedence on its own. */
     function moveOperation(index: number, offset: number) {
         const target = index + offset;
         setDraft((previous) => {
@@ -310,7 +376,23 @@ function JobsPageInner() {
             const saved = draft.id
                 ? await updateJob.mutateAsync({ id: draft.id, job: draft })
                 : await createJob.mutateAsync(draft);
-            setDraft(draftFromJob(saved));
+            // `draftFromJob` reopens on the chain default, so re-apply the graph
+            // that was just written — translated onto the ids the API assigned.
+            // Without this the editor would show a chain until the refetch
+            // landed, which reads as the save having discarded the graph.
+            setDraft(
+                applyDependencies(
+                    draftFromJob(saved),
+                    edgesForSavedOperations(draft.operations, saved.operations.map((op) => op.id)),
+                ),
+            );
+            setGraphLoadedFor(saved.id);
+            // A step created in this draft had a placeholder id the server has
+            // now replaced, so keep the panel on the same step by position.
+            setSelectedOperationId((previous) => {
+                const openAt = draft.operations.findIndex((op) => op.id === previous);
+                return openAt >= 0 ? saved.operations[openAt]?.id ?? null : null;
+            });
             if (wasExisting) {
                 toast.success(`“${saved.name}” saved.`);
             } else {
@@ -409,6 +491,9 @@ function JobsPageInner() {
                     onPatchRoute={patchRoute}
                     onAddRoute={addRoute}
                     onRemoveRoute={removeRoute}
+                    onDependenciesChange={setDependencies}
+                    selectedOperationId={selectedOperationId}
+                    onSelectOperation={setSelectedOperationId}
                     onSave={saveDraft}
                     onRequestDelete={() => setConfirmingDelete(true)}
                 />

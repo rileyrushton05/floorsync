@@ -193,6 +193,20 @@ function GenerationState({ generation }: { generation: Generation }) {
                     ) : (
                         <p className="mt-2">The engine reported no specific reason.</p>
                     )}
+                    {/* This issue names no operation, and a run covers the whole
+                        database, so without this the manager is told the floor
+                        failed with no way to find the job responsible. */}
+                    {generation.issues.some((issue) => issue.code === "unsupported_dependency_shape") && (
+                        <p className="mt-2">
+                            A run covers every job at once, so a single job whose steps branch —
+                            two steps waiting on the same earlier one, or one step waiting on
+                            several — stops the whole floor being planned.{" "}
+                            <Link href="/manager/jobs" className="underline">
+                                Open the job backlog
+                            </Link>{" "}
+                            to find it: any job with a branching graph is flagged in its editor.
+                        </p>
+                    )}
                 </Note>
             );
 

@@ -1,19 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { NumberField, NumberInput } from "@/components/ui/number-field";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { TextField } from "@/components/ui/text-field";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
-import {
-    ArrowDownIcon,
-    ArrowUpIcon,
-    Bars2Icon,
-    PlusIcon,
-    TrashIcon,
-    XMarkIcon,
-} from "@heroicons/react/24/outline";
+import type { DraftOperation } from "../model/editor";
+import { ArrowDownIcon, ArrowUpIcon, Bars2Icon, TrashIcon } from "@heroicons/react/24/outline";
+import { OperationRoutes } from "./OperationRoutes";
+import { PredecessorPicker, type PredecessorOption } from "./PredecessorPicker";
+
+export type { PredecessorOption } from "./PredecessorPicker";
 
 /** Drag state for one row, owned by the screen and handed down. */
 export interface RowDragState {
@@ -25,16 +20,15 @@ export interface RowDragState {
 }
 
 /**
- * One operation: its name, its position in the chain, and the machine routes
- * that can run it.
+ * One operation in the list: its name, its place in the order, what it waits
+ * on, and the machines that can run it.
  *
- * The step marker is deliberately uniform rather than a green/amber/red run.
- * Position in a chain is not a health signal — a red badge on the final step
- * read as "this one has a problem" when it only ever meant "this one is last",
- * and on a two-step job every operation was simultaneously first-and-green and
- * last-and-red. Order is already carried by the number and by top-to-bottom
- * placement, so the marker stays neutral and the colour budget goes to the one
- * thing here that is genuinely a state: an unsaved reorder.
+ * The same step is also reachable from the graph above, whose side panel edits
+ * it through the very same callbacks — both surfaces read one draft, so an edit
+ * in either appears in the other and in the graph immediately. `selected` only
+ * mirrors what the graph has open: selecting from here as well would mount the
+ * side panel mid-click and its autofocus would pull focus out of the field just
+ * clicked, so the graph stays the one place a step is chosen.
  */
 export function OperationEditor({
     operation,
@@ -44,7 +38,10 @@ export function OperationEditor({
     activeMachines,
     saving,
     reordered,
+    selected,
     drag,
+    predecessorOptions,
+    onDependenciesChange,
     onArmDrag,
     onResetDrag,
     onDragStart,
@@ -57,14 +54,17 @@ export function OperationEditor({
     onAddRoute,
     onRemoveRoute,
 }: {
-    operation: OperationDef;
+    operation: DraftOperation;
     index: number;
     total: number;
     machines: Machine[];
     activeMachines: Machine[];
     saving: boolean;
     reordered: boolean;
+    selected: boolean;
     drag: RowDragState;
+    predecessorOptions: PredecessorOption[];
+    onDependenciesChange: (predecessorIds: string[]) => void;
     onArmDrag: () => void;
     onResetDrag: () => void;
     onDragStart: (event: React.DragEvent) => void;
@@ -77,10 +77,10 @@ export function OperationEditor({
     onAddRoute: () => void;
     onRemoveRoute: (routeIndex: number) => void;
 }) {
-    const routes = operation.routes;
-    const canAddRoute = activeMachines.some(
-        (machine) => !routes.some((route) => route.machineId === machine.id),
-    );
+    // Nothing is numbered on screen any more, but two rows must still be
+    // distinguishable to a screen reader — so the position is kept as the
+    // fallback name for a step that has not been given one yet.
+    const label = operation.name.trim() || `untitled step ${index + 1}`;
 
     return (
         <li
@@ -90,9 +90,9 @@ export function OperationEditor({
             onDrop={onDrop}
             onDragEnd={onResetDrag}
             className={`rounded-xl border bg-overlay p-3 transition-colors ${reordered ? "border-primary/40 bg-primary-subtle/30" : "border-border"
-                } ${drag.isDragging ? "opacity-40" : ""} ${drag.landing ? "ring-2 ring-primary" : ""
-                } ${drag.dropBefore ? "border-t-2 border-t-primary" : ""} ${drag.dropAfter ? "border-b-2 border-b-primary" : ""
-                }`}
+                } ${selected ? "ring-2 ring-primary/60" : ""} ${drag.isDragging ? "opacity-40" : ""
+                } ${drag.landing ? "ring-2 ring-primary" : ""} ${drag.dropBefore ? "border-t-2 border-t-primary" : ""
+                } ${drag.dropAfter ? "border-b-2 border-b-primary" : ""}`}
         >
             <div className="flex items-center gap-2">
                 <Button
@@ -101,19 +101,13 @@ export function OperationEditor({
                     className="cursor-grab active:cursor-grabbing"
                     onPointerDown={onArmDrag}
                     onPointerUp={onResetDrag}
-                    aria-label={`Reorder operation ${index + 1}`}
+                    aria-label={`Reorder ${label}`}
                 >
                     <Bars2Icon />
                 </Button>
-                <span
-                    aria-hidden
-                    className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-secondary font-semibold text-secondary-fg text-xs tabular-nums"
-                >
-                    {index + 1}
-                </span>
 
                 <TextField
-                    aria-label={`Operation ${index + 1} name`}
+                    aria-label={`Name of ${label}`}
                     className="min-w-0 flex-1"
                     value={operation.name}
                     onChange={(name) => onPatch({ name })}
@@ -131,7 +125,7 @@ export function OperationEditor({
                     size="sq-xs"
                     onPress={() => onMove(-1)}
                     isDisabled={index === 0}
-                    aria-label={`Move operation ${index + 1} earlier`}
+                    aria-label={`Move ${label} earlier`}
                 >
                     <ArrowUpIcon />
                 </Button>
@@ -140,126 +134,32 @@ export function OperationEditor({
                     size="sq-xs"
                     onPress={() => onMove(1)}
                     isDisabled={index === total - 1}
-                    aria-label={`Move operation ${index + 1} later`}
+                    aria-label={`Move ${label} later`}
                 >
                     <ArrowDownIcon />
                 </Button>
-                <Button
-                    intent="plain"
-                    size="sq-xs"
-                    onPress={onRemove}
-                    aria-label={`Remove operation ${index + 1}`}
-                >
+                <Button intent="plain" size="sq-xs" onPress={onRemove} aria-label={`Remove ${label}`}>
                     <TrashIcon />
                 </Button>
             </div>
 
-            <div className="mt-3 rounded-lg border bg-muted p-3">
-                <div className="mb-2.5 flex items-center justify-between gap-2">
-                    <span className="font-semibold text-muted-fg text-xs uppercase tracking-[0.05em]">
-                        Machines that can run this
-                    </span>
-                    <Button intent="outline" size="sm" onPress={onAddRoute} isDisabled={saving || !canAddRoute}>
-                        <PlusIcon /> Add machine
-                    </Button>
-                </div>
-
-                <ul className="space-y-2.5">
-                    {routes.map((route, routeIndex) => {
-                        const currentMachine = machines.find((machine) => machine.id === route.machineId);
-                        return (
-                            <li
-                                key={`${route.machineId}-${routeIndex}`}
-                                className="grid items-end gap-2.5 rounded-lg sm:grid-cols-[minmax(10rem,1fr)_8.5rem_8.5rem_auto]"
-                            >
-                                <Select
-                                    className="min-w-0"
-                                    value={route.machineId}
-                                    onChange={(machineId) =>
-                                        onPatchRoute(routeIndex, { machineId: String(machineId) })
-                                    }
-                                >
-                                    <Label className="text-muted-fg text-xs">Machine</Label>
-                                    <SelectTrigger />
-                                    <SelectContent>
-                                        {activeMachines.map((machine) => (
-                                            <SelectItem
-                                                key={machine.id}
-                                                id={machine.id}
-                                                textValue={machine.name}
-                                                isDisabled={routes.some(
-                                                    (existing, existingIndex) =>
-                                                        existingIndex !== routeIndex &&
-                                                        existing.machineId === machine.id,
-                                                )}
-                                            >
-                                                {machine.name}
-                                            </SelectItem>
-                                        ))}
-                                        {currentMachine && !currentMachine.active && (
-                                            <SelectItem
-                                                id={currentMachine.id}
-                                                textValue={`${currentMachine.name} (inactive)`}
-                                                isDisabled
-                                            >
-                                                {currentMachine.name} (inactive)
-                                            </SelectItem>
-                                        )}
-                                    </SelectContent>
-                                </Select>
-
-                                <NumberField
-                                    minValue={1}
-                                    step={1}
-                                    formatOptions={{ maximumFractionDigits: 0 }}
-                                    value={route.durationMins}
-                                    onChange={(durationMins) =>
-                                        onPatchRoute(routeIndex, { durationMins: Math.round(durationMins) })
-                                    }
-                                >
-                                    <Label className="text-muted-fg text-xs">Duration</Label>
-                                    {/* Clearing the field leaves NaN, which React Aria renders as
-                                        empty — so the placeholder is what a manager reads back.
-                                        "30" looked like a value that was already there; the field
-                                        pairs with Energy's "Optional" to say which of the two the
-                                        API will refuse without. */}
-                                    <NumberInput steppers={false} suffix="min" placeholder="Required" />
-                                </NumberField>
-
-                                {/* NaN is React Aria's empty value for a NumberField, and the
-                                    only one that keeps the field controlled — `undefined`
-                                    silently makes it uncontrolled, so a blank energy would
-                                    keep whatever was typed for the previously opened job.
-                                    Clearing it stores null, which the database defines as
-                                    "not recorded" rather than zero. */}
-                                <NumberField
-                                    minValue={0}
-                                    step={0.1}
-                                    value={route.energy === null ? Number.NaN : Number(route.energy)}
-                                    onChange={(energy) =>
-                                        onPatchRoute(routeIndex, {
-                                            energy: Number.isNaN(energy) ? null : String(energy),
-                                        })
-                                    }
-                                >
-                                    <Label className="text-muted-fg text-xs">Energy</Label>
-                                    <NumberInput steppers={false} suffix="kWh" placeholder="Optional" />
-                                </NumberField>
-
-                                <Button
-                                    intent="plain"
-                                    size="sq-xs"
-                                    className="mb-1"
-                                    onPress={() => onRemoveRoute(routeIndex)}
-                                    isDisabled={saving || routes.length === 1}
-                                    aria-label={`Remove ${currentMachine?.name ?? "machine"} from operation ${index + 1}`}
-                                >
-                                    <XMarkIcon />
-                                </Button>
-                            </li>
-                        );
-                    })}
-                </ul>
+            <div className="mt-3 space-y-3">
+                <PredecessorPicker
+                    label={label}
+                    options={predecessorOptions}
+                    selected={operation.dependsOn}
+                    onChange={onDependenciesChange}
+                />
+                <OperationRoutes
+                    routes={operation.routes}
+                    machines={machines}
+                    activeMachines={activeMachines}
+                    saving={saving}
+                    label={label}
+                    onPatchRoute={onPatchRoute}
+                    onAddRoute={onAddRoute}
+                    onRemoveRoute={onRemoveRoute}
+                />
             </div>
         </li>
     );
