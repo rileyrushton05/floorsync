@@ -16,7 +16,7 @@ from decimal import Decimal
 from itertools import pairwise
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, delete, exists, or_, select, tuple_
+from sqlalchemy import Select, delete, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.compatibility import Compatibility
@@ -24,7 +24,6 @@ from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.job import Job, JobPriority
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.jobs.definition_results import (
     CreateDefinitionResult,
     DefinitionCreated,
@@ -45,6 +44,7 @@ from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.operations.service import find_dependency_cycle
 from floorsync_common.pagination import decode_cursor, encode_cursor
+from floorsync_common.scheduling.references import find_schedule_references
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,17 +185,18 @@ class JobDefinitionService:
         """Replace a job's name, priority, operations and routes wholesale, atomically.
 
         Every check below runs, and can fail, before anything is written -- a failed save must
-        leave every table exactly as it was. Refuses the whole save when: any of the job's current
-        operations already appears in a schedule; a supplied operation id belongs to another job;
-        a route names an unknown or inactive machine; removing an omitted operation would
-        cascade-delete an edge another job's own operation still depends on (`before_operation_id`
-        may cross jobs by design, and `ON DELETE CASCADE` does not know that edge belongs to
-        someone else); or the new ordering, together with every edge this save does not touch,
-        would form a cycle.
+        leave every table exactly as it was. Refuses the whole save when: a supplied operation id
+        belongs to another job; a route names an unknown or inactive machine; the save would
+        remove an operation a generated schedule already recorded (every other edit is covered by
+        the schedule's own snapshot, so a job that has been scheduled stays editable; see
+        `JobDefinitionIsScheduled`); removing an omitted operation would cascade-delete an edge
+        another job's own operation still depends on (`before_operation_id` may cross jobs by
+        design, and `ON DELETE CASCADE` does not know that edge belongs to someone else); or the
+        new ordering, together with every edge this save does not touch, would form a cycle.
 
         Once past those checks, this reconciles operations by id (update retained, add new, delete
         omitted -- deletion safely cascades that operation's own routes and ordering edges, since
-        the job is unscheduled and no *other* job depends on it), replaces every retained/new
+        no schedule recorded it and no *other* job depends on it), replaces every retained/new
         operation's routes outright, and rebuilds only this job's `builder_sequence` ordering edges
         from the new order -- skipping a pair a retained edge of any origin already covers, since
         `(before_operation_id, after_operation_id)` is unique regardless of origin. Edges with any
@@ -210,11 +211,6 @@ class JobDefinitionService:
             await db.scalars(select(Operation).where(Operation.job_id == job_id))
         ).all()
         existing_by_id = {operation.id: operation for operation in existing_operations}
-
-        if existing_by_id and await db.scalar(
-            select(exists().where(ScheduleEntry.operation_id.in_(existing_by_id.keys())))
-        ):
-            return JobDefinitionIsScheduled(job_id=job_id)
 
         for operation_command in command.operations:
             if operation_command.id is not None and operation_command.id not in existing_by_id:
@@ -235,6 +231,11 @@ class JobDefinitionService:
         removed_ids = existing_by_id.keys() - retained_ids
 
         if removed_ids:
+            # Scoped to the operations being removed, not to every operation the job has: a save
+            # that keeps them all cannot touch anything a schedule recorded (#258).
+            references = await find_schedule_references(db, operation_ids=removed_ids)
+            if references:
+                return JobDefinitionIsScheduled(job_id=job_id, references=references)
             blocked = await JobDefinitionService._find_external_dependent(db, job_id, removed_ids)
             if blocked is not None:
                 return blocked

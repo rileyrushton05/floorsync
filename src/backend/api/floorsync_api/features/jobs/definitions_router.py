@@ -22,7 +22,12 @@ from floorsync_api.features.jobs.definitions_schemas import (
     JobDefinitionReplaceRequest,
     JobDefinitionResponse,
 )
-from floorsync_api.problems import ProblemDetail, problem_response
+from floorsync_api.problems import (
+    ProblemDetail,
+    problem_response,
+    schedule_references_hint,
+    schedule_references_members,
+)
 from floorsync_api.schemas import CursorPage
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.user import User
@@ -48,6 +53,7 @@ from floorsync_common.jobs.definitions import (
 )
 from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.operations.results import DependencyCycle
+from floorsync_common.scheduling.references import ScheduleReferences
 
 job_definitions_router = APIRouter(prefix="/job-definitions", tags=["jobs"])
 job_definition_router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -142,7 +148,12 @@ async def get_definition(
     summary="Atomically replace one editable definition",
     responses={
         404: {"description": "The job does not exist"},
-        409: {"description": "An operation in this job already appears in a schedule"},
+        409: {
+            "description": (
+                "The save would remove an operation that appears in a schedule; the body names "
+                "the draft and confirmed schedules involved"
+            )
+        },
         422: {
             "description": (
                 "A route names an unknown or inactive machine, an operation id does not belong "
@@ -179,8 +190,8 @@ async def replace_definition(
                 return _definition_response(definition)
             case JobNotFound():
                 return _job_not_found(request, job_id)
-            case JobDefinitionIsScheduled():
-                return _job_definition_is_scheduled(request, job_id)
+            case JobDefinitionIsScheduled(references=references):
+                return _job_definition_is_scheduled(request, job_id, references)
             case OperationDoesNotBelongToJob(operation_id=operation_id, job_id=owning_job_id):
                 return _operation_does_not_belong_to_job(request, operation_id, owning_job_id)
             case OperationHasExternalDependents(operation_id=operation_id, job_id=owning_job_id):
@@ -279,18 +290,25 @@ def _job_not_found(request: Request, job_id: UUID) -> JSONResponse:
     )
 
 
-def _job_definition_is_scheduled(request: Request, job_id: UUID) -> JSONResponse:
+def _job_definition_is_scheduled(
+    request: Request, job_id: UUID, references: ScheduleReferences
+) -> JSONResponse:
+    """Only a removal is refused: every other edit is covered by the schedule's own snapshot."""
+
     return problem_response(
         ProblemDetail(
             type="urn:floorsync:problem:job_definition_is_scheduled",
-            title="Job definition already appears in a schedule",
+            title="Operation appears in a generated schedule",
             status=status.HTTP_409_CONFLICT,
             detail=(
-                f"An operation in job {job_id} already appears in a generated schedule, so "
-                "saving this definition would rewrite inputs that schedule already recorded."
+                f"This save removes an operation from job {job_id} that a generated schedule "
+                "already recorded, which would leave that schedule referring to a step that no "
+                "longer exists. Keep the operation, or clear the schedules in the way. "
+                + schedule_references_hint(references)
             ),
             instance=request.url.path,
-        )
+        ),
+        extensions=schedule_references_members(references),
     )
 
 

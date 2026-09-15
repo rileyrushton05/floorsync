@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, assert_never
 from uuid import UUID
 
 from celery.exceptions import OperationalError
@@ -24,6 +24,12 @@ from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
+from floorsync_common.scheduling.lifecycle import (
+    ScheduleDeleted,
+    ScheduleLifecycleService,
+    ScheduleNotDraft,
+    ScheduleNotFound,
+)
 from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
 from floorsync_common.task_queue import create_task_queue
 
@@ -160,6 +166,59 @@ async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> Schedule
             ).all()
         )
         return schedule_response(schedule, entries, dependencies)
+
+
+@router.delete(
+    "/{schedule_id}",
+    # 204 on success and 409 when the schedule is no longer a draft, so the route returns a
+    # Response itself rather than letting FastAPI infer one body shape for both.
+    response_model=None,
+    summary="Delete a draft schedule",
+    responses={
+        204: {"description": "The draft and everything recorded under it were removed"},
+        409: {"description": "The schedule is confirmed or discarded, so it is history"},
+    },
+)
+async def delete_schedule(
+    schedule_id: UUID,
+    request: Request,
+    db: DbSession,
+    _: Manager,
+) -> Response | JSONResponse:
+    """Throw away a draft nobody confirmed.
+
+    A draft blocks removal of the jobs and operations it planned until it is gone, which is the
+    usual reason to delete one: the manager generated it to look, then wants to change the job.
+    Only drafts can be deleted; a confirmed schedule is what the floor was told to do and stays,
+    together with any simulation of it (decision 0015).
+    """
+
+    async with db.begin():
+        result = await ScheduleLifecycleService.delete_draft(db, schedule_id)
+
+        match result:
+            case ScheduleDeleted():
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            case ScheduleNotFound():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found."
+                )
+            case ScheduleNotDraft(status=schedule_status):
+                return problem_response(
+                    ProblemDetail(
+                        type="urn:floorsync:problem:schedule-is-not-draft",
+                        title="Schedule is no longer a draft",
+                        status=status.HTTP_409_CONFLICT,
+                        detail=(
+                            f"This schedule is {schedule_status}, so it records what the floor "
+                            "was told to do and cannot be deleted. Only drafts can be."
+                        ),
+                        instance=request.url.path,
+                    ),
+                    extensions={"schedule_status": schedule_status},
+                )
+            case _:
+                assert_never(result)
 
 
 def schedule_response(

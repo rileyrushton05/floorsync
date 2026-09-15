@@ -23,14 +23,21 @@ class JobCreateRequest(RequestSchema):
 
 
 class JobUpdateRequest(RequestSchema):
-    """A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored."""
+    """A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.
+
+    `archived` retires the job from the backlog (`true`) or brings it back (`false`). It is a
+    boolean here rather than the timestamp the row stores, because the caller decides *whether* the
+    job is archived and the server records *when*.
+    """
 
     name: JobName | None = None
+    archived: bool | None = None
 
     @model_validator(mode="after")
-    def reject_null_name(self) -> "JobUpdateRequest":
-        if "name" in self.model_fields_set and self.name is None:
-            raise ValueError("name cannot be null")
+    def reject_explicit_nulls(self) -> "JobUpdateRequest":
+        for field in ("name", "archived"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
         return self
 
 
@@ -46,6 +53,7 @@ class JobResponse(ResponseSchema):
     id: UUID
     name: str
     priority: JobPriority
+    archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
 

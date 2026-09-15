@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.database.models.simulation_event import SimulationEvent
+from floorsync_common.jobs.service import JobService
 from floorsync_common.simulation import queries
 from floorsync_common.simulation.events import (
     SimulatedTimePoint,
@@ -212,6 +213,13 @@ class SimulationService:
         SimulationService._project_onto_simulation(
             simulation, event_type=event_type, speed=speed, occurred_at=occurred_at
         )
+        if event_type is SimulationEventType.COMPLETED:
+            # The floor has done this schedule's work, so its jobs leave the backlog. Same
+            # transaction as the event, so the two cannot disagree. A later RESET replays the
+            # simulation without bringing the jobs back (decision 0015).
+            await JobService.archive_scheduled_jobs(
+                db, schedule_id=simulation.schedule_id, archived_at=occurred_at
+            )
         await db.flush()
 
         position = await SimulationService._derive_position(

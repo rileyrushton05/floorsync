@@ -22,6 +22,7 @@ from floorsync_common.jobs.results import (
     JobUpdated,
 )
 from floorsync_common.jobs.service import JobDependencyGraph, JobPage
+from floorsync_common.scheduling.references import ScheduleReferences
 from floorsync_common.settings import Settings
 
 CREATED_AT = datetime(2026, 9, 9, 8, tzinfo=UTC)
@@ -251,6 +252,51 @@ def test_update_job_rejects_an_explicit_null_name() -> None:
     assert response.status_code == 422
 
 
+def test_update_job_passes_archived_through_and_reports_archived_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`archived` is a boolean on the wire; the row records when, and the response reports that."""
+
+    job = make_job()
+    job.archived_at = CREATED_AT
+    received: dict[str, object] = {}
+
+    async def fake(_: object, job_id: UUID, **kwargs: object) -> JobUpdated:
+        received.update(kwargs)
+        return JobUpdated(job=job)
+
+    monkeypatch.setattr(job_service.JobService, "update_job", staticmethod(fake))
+
+    response = job_client().patch(f"/api/v1/jobs/{job.id}", json={"archived": True})
+
+    assert response.status_code == 200
+    assert received["archived"] is True
+    assert datetime.fromisoformat(response.json()["archived_at"]) == CREATED_AT
+
+
+def test_update_job_rejects_an_explicit_null_archived() -> None:
+    response = job_client().patch(f"/api/v1/jobs/{uuid4()}", json={"archived": None})
+
+    assert response.status_code == 422
+
+
+def test_list_jobs_hides_archived_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The list is the backlog, so archived jobs are opt-in."""
+
+    received: list[bool] = []
+
+    async def fake(_: object, **kwargs: object) -> JobPage:
+        received.append(bool(kwargs["include_archived"]))
+        return JobPage(jobs=(), next_cursor=None)
+
+    monkeypatch.setattr(job_service.JobService, "list_jobs", staticmethod(fake))
+
+    job_client().get("/api/v1/jobs")
+    job_client().get("/api/v1/jobs", params={"include_archived": "true"})
+
+    assert received == [False, True]
+
+
 def test_delete_job_returns_204(monkeypatch: pytest.MonkeyPatch) -> None:
     job_id = uuid4()
     stub(monkeypatch, "delete_job", JobDeleted(job_id=job_id))
@@ -271,15 +317,56 @@ def test_delete_job_returns_404_when_absent(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_delete_job_refuses_when_its_work_is_scheduled(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A schedule records what was planned; deleting the job would destroy that history."""
+    """A schedule records what was planned; deleting the job would destroy that history.
 
-    job_id = uuid4()
-    stub(monkeypatch, "delete_job", JobIsScheduled(job_id=job_id))
+    The body names the schedules split by what the caller can do about them: drafts can be deleted
+    first, a confirmed schedule cannot, and the detail says which situation this is.
+    """
+
+    job_id, draft_id, confirmed_id = uuid4(), uuid4(), uuid4()
+    stub(
+        monkeypatch,
+        "delete_job",
+        JobIsScheduled(
+            job_id=job_id,
+            references=ScheduleReferences(
+                draft_schedule_ids=(draft_id,), confirmed_schedule_ids=(confirmed_id,)
+            ),
+        ),
+    )
 
     response = job_client().delete(f"/api/v1/jobs/{job_id}")
 
     assert response.status_code == 409
-    assert response.json()["type"] == "urn:floorsync:problem:job-is-scheduled"
+    body = response.json()
+    assert body["type"] == "urn:floorsync:problem:job-is-scheduled"
+    assert body["draft_schedule_ids"] == [str(draft_id)]
+    assert body["confirmed_schedule_ids"] == [str(confirmed_id)]
+    assert "archive the job" in body["detail"]
+
+
+def test_delete_job_refusal_points_at_draft_deletion_when_only_drafts_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id, draft_id = uuid4(), uuid4()
+    stub(
+        monkeypatch,
+        "delete_job",
+        JobIsScheduled(
+            job_id=job_id,
+            references=ScheduleReferences(
+                draft_schedule_ids=(draft_id,), confirmed_schedule_ids=()
+            ),
+        ),
+    )
+
+    response = job_client().delete(f"/api/v1/jobs/{job_id}")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["draft_schedule_ids"] == [str(draft_id)]
+    assert body["confirmed_schedule_ids"] == []
+    assert "DELETE /api/v1/schedules/{schedule_id}" in body["detail"]
 
 
 def test_jobs_are_manager_only() -> None:

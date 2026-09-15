@@ -459,3 +459,70 @@ def test_operator_cannot_list_schedules() -> None:
     ).get("/api/v1/schedules")
 
     assert response.status_code == 403
+
+
+def _stub_delete_draft(monkeypatch: Any, outcome: object) -> None:
+    from floorsync_common.scheduling import lifecycle
+
+    async def fake(_: object, __: UUID) -> object:
+        return outcome
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "delete_draft", staticmethod(fake))
+
+
+def test_manager_can_delete_a_draft(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling.lifecycle import ScheduleDeleted
+
+    schedule_id = uuid4()
+    _stub_delete_draft(monkeypatch, ScheduleDeleted(schedule_id=schedule_id))
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{schedule_id}"
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_deleting_a_missing_schedule_returns_not_found(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling.lifecycle import ScheduleNotFound
+
+    schedule_id = uuid4()
+    _stub_delete_draft(monkeypatch, ScheduleNotFound(schedule_id=schedule_id))
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{schedule_id}"
+    )
+
+    assert response.status_code == 404
+
+
+def test_deleting_a_confirmed_schedule_is_refused(monkeypatch: Any) -> None:
+    """A confirmed schedule is the record of what the floor was told to do (decision 0015)."""
+
+    from floorsync_common.scheduling.lifecycle import ScheduleNotDraft
+
+    schedule_id = uuid4()
+    _stub_delete_draft(monkeypatch, ScheduleNotDraft(schedule_id=schedule_id, status="confirmed"))
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{schedule_id}"
+    )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["type"] == "urn:floorsync:problem:schedule-is-not-draft"
+    assert body["schedule_status"] == "confirmed"
+
+
+def test_operator_cannot_delete_a_schedule() -> None:
+    operator = User(id=uuid4(), name="Operator", role="operator")
+
+    response = TestClient(schedule_application(operator, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{uuid4()}"
+    )
+
+    assert response.status_code == 403

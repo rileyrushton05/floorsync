@@ -725,6 +725,18 @@
       "JobDetailResponse": {
         "description": "A single job with the operations it contains, in position order.",
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -759,6 +771,7 @@
           "id",
           "name",
           "priority",
+          "archived_at",
           "created_at",
           "updated_at",
           "operations"
@@ -806,6 +819,18 @@
       },
       "JobResponse": {
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -833,6 +858,7 @@
           "id",
           "name",
           "priority",
+          "archived_at",
           "created_at",
           "updated_at"
         ],
@@ -841,8 +867,19 @@
       },
       "JobUpdateRequest": {
         "additionalProperties": false,
-        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.",
+        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.\n\n`archived` retires the job from the backlog (`true`) or brings it back (`false`). It is a\nboolean here rather than the timestamp the row stores, because the caller decides *whether* the\njob is archived and the server records *when*.",
         "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
           "name": {
             "anyOf": [
               {
@@ -2310,7 +2347,7 @@
     },
     "/api/v1/jobs": {
       "get": {
-        "description": "List jobs by name, a page at a time.",
+        "description": "List the backlog by name, a page at a time.\n\nArchived jobs are left out unless `include_archived` is set: they have finished or been\ncancelled and are no longer offered for scheduling, but they still exist because the schedules\nthat planned them do.",
         "operationId": "list_jobs_api_v1_jobs_get",
         "parameters": [
           {
@@ -2339,6 +2376,16 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
             }
           }
         ],
@@ -2449,7 +2496,7 @@
     },
     "/api/v1/jobs/{job_id}": {
       "delete": {
-        "description": "Remove a job entered by mistake, together with its operations.\n\nA job whose operations already appear in a schedule cannot be removed: the schedule records what\nwas planned, and deleting the job would destroy that history. See the deletion policy in\ndocs/database-schema.md.",
+        "description": "Remove a job entered by mistake, together with its operations.\n\nA job whose operations appear in a schedule cannot be removed: the schedule records what was\nplanned, and deleting the job would destroy that history. The 409 names the schedules in the\nway. Drafts among them can be deleted first; a confirmed schedule cannot, and the job is\narchived instead (`PATCH` with `archived: true`). See decision 0015.",
         "operationId": "delete_job_api_v1_jobs__job_id__delete",
         "parameters": [
           {
@@ -2476,7 +2523,7 @@
             "description": "The job and its operations were removed"
           },
           "409": {
-            "description": "The job's work already appears in a schedule"
+            "description": "The job's work appears in a schedule; the body names the draft and confirmed schedules involved"
           },
           "422": {
             "content": {
@@ -2547,7 +2594,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected job.",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires the job from the backlog by hand, for a job that finished without a\nsimulation running or one that was cancelled; `archived: false` brings it back. Neither touches\nany schedule, and neither makes the job deletable.",
         "operationId": "update_job_api_v1_jobs__job_id__patch",
         "parameters": [
           {
@@ -2692,7 +2739,7 @@
             "description": "The job does not exist"
           },
           "409": {
-            "description": "An operation in this job already appears in a schedule"
+            "description": "The save would remove an operation that appears in a schedule; the body names the draft and confirmed schedules involved"
           },
           "422": {
             "description": "A route names an unknown or inactive machine, an operation id does not belong to this job, removing an operation would delete another job's edge to it, or the new ordering would form a cycle"
@@ -3535,6 +3582,57 @@
       }
     },
     "/api/v1/schedules/{schedule_id}": {
+      "delete": {
+        "description": "Throw away a draft nobody confirmed.\n\nA draft blocks removal of the jobs and operations it planned until it is gone, which is the\nusual reason to delete one: the manager generated it to look, then wants to change the job.\nOnly drafts can be deleted; a confirmed schedule is what the floor was told to do and stays,\ntogether with any simulation of it (decision 0015).",
+        "operationId": "delete_schedule_api_v1_schedules__schedule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The draft and everything recorded under it were removed"
+          },
+          "409": {
+            "description": "The schedule is confirmed or discarded, so it is history"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete a draft schedule",
+        "tags": [
+          "schedules"
+        ]
+      },
       "get": {
         "description": "Fetch one immutable schedule version with its entries and dependency graph.",
         "operationId": "get_schedule_api_v1_schedules__schedule_id__get",
