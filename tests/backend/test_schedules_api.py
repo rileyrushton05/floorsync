@@ -164,9 +164,67 @@ def test_manager_can_queue_schedule_generation(monkeypatch: Any) -> None:
     }
     assert queue.sent == (
         SCHEDULE_GENERATION_TASK,
-        ("2026-09-06T08:00:00+00:00",),
+        ("2026-09-06T08:00:00+00:00", None),
         "scheduling",
     )
+
+
+def test_omitting_job_ids_still_queues_a_whole_floor_run(monkeypatch: Any) -> None:
+    """The selection is optional, so #231 changes no existing caller's behaviour."""
+
+    queue = FakeTaskQueue()
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
+    )
+
+    assert response.status_code == 202
+    assert queue.sent is not None
+    assert queue.sent[1][1] is None
+
+
+def test_queued_generation_carries_the_selected_jobs(monkeypatch: Any) -> None:
+    """The selection reaches the worker as strings: a Celery argument has to survive JSON."""
+
+    queue = FakeTaskQueue()
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+    first, second = uuid4(), uuid4()
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules",
+        json={"starts_at": "2026-09-06T08:00:00Z", "job_ids": [str(first), str(second)]},
+    )
+
+    assert response.status_code == 202
+    assert queue.sent == (
+        SCHEDULE_GENERATION_TASK,
+        ("2026-09-06T08:00:00+00:00", [str(first), str(second)]),
+        "scheduling",
+    )
+
+
+def test_an_empty_selection_is_queued_rather_than_refused_at_the_edge(monkeypatch: Any) -> None:
+    """This endpoint reads no database, so every selection refusal belongs to the worker.
+
+    An empty list is a selection that selects nothing, not an omitted selection, and the difference
+    has to survive the queue: the worker reports it as `empty_selection` rather than planning the
+    whole floor.
+    """
+
+    queue = FakeTaskQueue()
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z", "job_ids": []}
+    )
+
+    assert response.status_code == 202
+    assert queue.sent is not None
+    assert queue.sent[1][1] == []
 
 
 def test_operator_cannot_queue_schedule_generation(monkeypatch: Any) -> None:
@@ -241,6 +299,38 @@ def test_rejected_generation_exposes_its_input_issues(monkeypatch: Any) -> None:
     assert response.json()["issues"] == [
         {"code": "unsupported_unavailability", "message": "ReSched does not model downtime."}
     ]
+
+
+def test_a_refused_selection_names_the_job_it_is_about(monkeypatch: Any) -> None:
+    """A selection refusal has to be actionable: the backlog marks a row, it does not read prose."""
+
+    job_id = uuid4()
+    queue = FakeTaskQueue(
+        FakeTaskResult(
+            "SUCCESS",
+            {
+                "outcome": "invalid",
+                "issues": [
+                    {
+                        "code": "unscheduled_prerequisite_job",
+                        "message": "A selected job waits on this one.",
+                        "job_id": str(job_id),
+                    }
+                ],
+            },
+        )
+    )
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/generations/{queue.task_id}"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+    assert response.json()["issues"][0]["code"] == "unscheduled_prerequisite_job"
+    assert response.json()["issues"][0]["job_id"] == str(job_id)
 
 
 def test_failed_generation_exposes_a_safe_api_detail(monkeypatch: Any) -> None:

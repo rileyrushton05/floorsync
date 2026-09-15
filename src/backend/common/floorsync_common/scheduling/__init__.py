@@ -16,9 +16,18 @@ from floorsync_common.scheduling.contracts import (
     UnavailabilitySpec,
 )
 from floorsync_common.scheduling.resched import ReSchedEngine, ReSchedRuntimeUnavailable
+from floorsync_common.scheduling.selection import (
+    EMPTY_SELECTION,
+    UNKNOWN_JOB,
+    UNSCHEDULED_PREREQUISITE_JOB,
+    selection_issues,
+)
 from floorsync_common.scheduling.service import ScheduleStored, SchedulingService
 
 __all__ = [
+    "EMPTY_SELECTION",
+    "UNKNOWN_JOB",
+    "UNSCHEDULED_PREREQUISITE_JOB",
     "DependencySpec",
     "MachineSpec",
     "OperationSpec",
@@ -36,4 +45,5 @@ __all__ = [
     "SchedulingIssue",
     "SchedulingService",
     "UnavailabilitySpec",
+    "selection_issues",
 ]

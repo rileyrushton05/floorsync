@@ -59,7 +59,14 @@ async def create_schedule(
     try:
         task = task_queue.send_task(
             SCHEDULE_GENERATION_TASK,
-            args=(command.starts_at.isoformat(),),
+            # The selection travels as strings because a Celery argument has to survive JSON, and
+            # is sent unvalidated: checking it needs the dependency graph, and this endpoint reads
+            # no database at all. The worker refuses a bad selection and the status resource
+            # reports it, the same way every other unschedulable input is reported.
+            args=(
+                command.starts_at.isoformat(),
+                None if command.job_ids is None else [str(job_id) for job_id in command.job_ids],
+            ),
             queue="scheduling",
         )
     except OperationalError:

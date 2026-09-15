@@ -57,7 +57,8 @@ Every product endpoint requires a bearer token. Manager-only access applies to g
 
 | Endpoint | Role | Current response |
 | --- | --- | --- |
-| `POST /api/v1/schedules` | manager | Queues `{starts_at}` and returns `202`, a generation ID, and `Location`/`status_url`. |
+| `POST /api/v1/schedules` | manager | Queues `{starts_at, job_ids?}` and returns `202`, a generation ID, and `Location`/`status_url`. Omitting `job_ids` plans the whole floor; supplying it scopes the run, and the selection is validated in the worker rather than here (decision 0013). |
+| `GET /api/v1/jobs/dependency-graph` | manager | Every cross-job precedence edge, so a caller can work out what selecting a job implies before scoping a run. |
 | `GET /api/v1/schedules/generations/{id}` | manager | `pending`, `running`, `completed`, `rejected`, `unavailable`, or `failed`. Completion supplies a schedule link; rejection supplies issues. |
 | `GET /api/v1/schedules` | manager | Every schedule summary, newest first; currently unpaginated. |
 | `GET /api/v1/schedules/{id}` | manager | Metadata plus all entries and dependencies. |
@@ -107,10 +108,10 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant Engine as ReSched adapter
 
-    Manager->>UI: Generate at starts_at
+    Manager->>UI: Generate at starts_at, optionally for chosen jobs
     UI->>API: POST /api/v1/schedules
     API->>API: Validate body and require manager
-    API->>Redis: enqueue floorsync.schedules.generate(starts_at)
+    API->>Redis: enqueue floorsync.schedules.generate(starts_at, job_ids)
     API-->>UI: 202 generation ID + status URL
     loop Until terminal
         UI->>API: GET /schedules/generations/{id}

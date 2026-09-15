@@ -59,10 +59,17 @@ class SchedulingInput:
 
 @dataclass(frozen=True, slots=True)
 class SchedulingIssue:
+    """One reason an input was refused, naming whichever of the three it is about.
+
+    `job_id` is last so the positional construction the adapter uses throughout
+    (`SchedulingIssue(code, message, operation_id, machine_id)`) keeps working unchanged.
+    """
+
     code: str
     message: str
     operation_id: UUID | None = None
     machine_id: UUID | None = None
+    job_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
