@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import CheckConstraint, Text
+from sqlalchemy import CheckConstraint, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from floorsync_common.database.base import Base
@@ -24,3 +25,11 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # server default is what lets a row that predates the column, or one inserted by the seed
     # loader, exist without stating one.
     priority: Mapped[JobPriority] = mapped_column(Text, nullable=False, server_default="med")
+    # When the job left the backlog, or NULL while it is still open. Archiving is how a finished or
+    # cancelled job stops being offered for scheduling without being deleted: a job a confirmed
+    # schedule planned cannot be deleted, because the schedule is the record of what was decided
+    # (see decision 0015). Set by hand through the jobs API, or automatically for every job in a
+    # schedule whose simulation completes.
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
