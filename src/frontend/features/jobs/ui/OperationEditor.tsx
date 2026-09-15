@@ -218,7 +218,12 @@ export function OperationEditor({
                                     }
                                 >
                                     <Label className="text-muted-fg text-xs">Duration</Label>
-                                    <NumberInput steppers={false} suffix="min" placeholder="30" />
+                                    {/* Clearing the field leaves NaN, which React Aria renders as
+                                        empty — so the placeholder is what a manager reads back.
+                                        "30" looked like a value that was already there; the field
+                                        pairs with Energy's "Optional" to say which of the two the
+                                        API will refuse without. */}
+                                    <NumberInput steppers={false} suffix="min" placeholder="Required" />
                                 </NumberField>
 
                                 {/* NaN is React Aria's empty value for a NumberField, and the

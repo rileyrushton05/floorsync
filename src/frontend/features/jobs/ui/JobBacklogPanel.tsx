@@ -73,7 +73,7 @@ export function JobBacklogPanel({
         <Card>
             <CardHeader className="flex-row items-center justify-between gap-2.5">
                 <CardTitle>Job backlog</CardTitle>
-                <Badge intent="secondary">{jobs.length} {jobs.length === 1 ? "job" : "jobs"}</Badge>
+                <Badge intent="outline">{jobs.length} {jobs.length === 1 ? "job" : "jobs"}</Badge>
             </CardHeader>
             <CardContent>
                 <TextField

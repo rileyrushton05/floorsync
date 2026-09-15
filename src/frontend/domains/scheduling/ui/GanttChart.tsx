@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "react-aria-components/Button";
 import { ToggleButton } from "react-aria-components/ToggleButton";
-import { jobColor, tint, type JobColor } from "../colors";
+import { jobColor, NEUTRAL_JOB_COLOR, tint, type JobColor } from "../colors";
 import { formatDuration, formatOffset } from "../format";
 import type { GeneratedSchedule, JobDef, Machine } from "../types";
 
@@ -132,7 +132,10 @@ export function GanttChart({
                                 {schedule.ops
                                     .filter((op) => op.machineId === machine.id)
                                     .map((op) => {
-                                        const color = jobColor(colors, op.jobId);
+                                        // A block cannot be invisible, so a job past the
+                                        // eighth is drawn neutral. Its name is on the block,
+                                        // which is what identifies it either way.
+                                        const color = jobColor(colors, op.jobId) ?? NEUTRAL_JOB_COLOR;
                                         const state = operationState(op.startMins, op.endMins, now);
                                         const durationMins = op.endMins - op.startMins;
                                         const dimmed = selectedJobId !== null && selectedJobId !== op.jobId;
@@ -212,10 +215,15 @@ export function GanttChart({
                                 className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.75 text-muted-fg text-xs outline-hidden hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 ${dimmed ? "opacity-40" : ""
                                     }`}
                             >
-                                <span
-                                    className="size-2.5 shrink-0 rounded-xs ring-1 ring-fg/20 ring-inset"
-                                    style={{ background: color.fill }}
-                                />
+                                {/* The legend exists to tie a colour to a name. A job
+                                    without a colour gets no swatch — a grey chip here
+                                    would claim an identity the chart is not using. */}
+                                {color !== null && (
+                                    <span
+                                        className="size-2.5 shrink-0 rounded-xs ring-1 ring-fg/20 ring-inset"
+                                        style={{ background: color.fill }}
+                                    />
+                                )}
                                 <span className="font-bold text-fg">{jobName(jobId)}</span>
                             </ToggleButton>
                         </li>

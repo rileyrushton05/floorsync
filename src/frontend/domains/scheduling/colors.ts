@@ -35,8 +35,13 @@ const PALETTE: JobColor[] = [
     { fill: "#e34948", ink: "#0b0b0b" }, // red
 ];
 
-/** Past the eight slots, colour stops carrying identity and the label alone does. */
-const OVERFLOW: JobColor = { fill: "#64748b", ink: "#ffffff" };
+/**
+ * For surfaces that must be painted whether or not a job has a colour — a Gantt
+ * block cannot be invisible. It is deliberately *not* an identity: several jobs
+ * share it, and it is only ever used where leaving the paint off is not an
+ * option. Anything that is purely a mark renders nothing instead.
+ */
+export const NEUTRAL_JOB_COLOR: JobColor = { fill: "#64748b", ink: "#ffffff" };
 
 /** What `stableJobOrder` and `buildJobColors` need off a job: an id, ideally a creation time. */
 export interface ColourableJob {
@@ -80,11 +85,27 @@ export function stableJobOrder<T extends ColourableJob>(jobs: readonly T[]): T[]
  * chart it draws from a single map, keyed off the backlog either way.
  */
 export function buildJobColors(jobs: readonly ColourableJob[]): Map<string, JobColor> {
-    return new Map(stableJobOrder(jobs).map((job, index) => [job.id, PALETTE[index] ?? OVERFLOW]));
+    return new Map(
+        stableJobOrder(jobs)
+            .slice(0, PALETTE.length)
+            .map((job, index) => [job.id, PALETTE[index]]),
+    );
 }
 
-export function jobColor(colors: Map<string, JobColor>, jobId: string): JobColor {
-    return colors.get(jobId) ?? OVERFLOW;
+/**
+ * The job's colour, or `null` when it has none.
+ *
+ * Only the first eight jobs get one. Past that, colour genuinely stops
+ * distinguishing anything, so those jobs are left out of the map rather than
+ * handed a shared grey: one grey worn by five jobs still reads as an
+ * assignment, and invites a manager to look for a meaning that is not there.
+ * Absence says the true thing — this job is identified by its name and number.
+ *
+ * Callers that must paint something regardless fall back to
+ * `NEUTRAL_JOB_COLOR`; callers drawing a mark render nothing.
+ */
+export function jobColor(colors: Map<string, JobColor>, jobId: string): JobColor | null {
+    return colors.get(jobId) ?? null;
 }
 
 /** Blend a hex toward white. `weight` is how much of the original survives. */
