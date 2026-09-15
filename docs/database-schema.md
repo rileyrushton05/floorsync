@@ -297,15 +297,15 @@ than the whole floor — see #231 and decision 0013.
 
 | column | type | constraints |
 |---|---|---|
-| schedule_id | Uuid | FK -> schedules.id, not null, ondelete CASCADE, part of the primary key |
-| job_id | Uuid | FK -> jobs.id, not null, ondelete RESTRICT, part of the primary key, indexed |
+| schedule_id | Uuid | FK -> schedules.id, not null, ondelete CASCADE, indexed |
+| job_id | Uuid | FK -> jobs.id, not null, ondelete RESTRICT, indexed |
 
 ```sql
-PRIMARY KEY (schedule_id, job_id)
+UNIQUE (schedule_id, job_id)
 ```
 
-The pair is the whole row, so there is no surrogate key: a schedule names a job at most once and
-there is nothing else to record about the pairing.
+Shaped like `schedule_dependencies`: a surrogate UUID key like every other table, with the pairing
+held by a unique constraint so a schedule names a job at most once.
 
 **Absence is meaningful.** No rows for a schedule means it was generated for the whole floor, which
 is true of every schedule made before this table existed and of every unscoped run since. That never

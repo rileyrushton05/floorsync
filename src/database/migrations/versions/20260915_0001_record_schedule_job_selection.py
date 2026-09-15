@@ -29,17 +29,27 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "schedule_job_selections",
-        sa.Column("schedule_id", sa.Uuid(as_uuid=True), nullable=False),
-        sa.Column("job_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "id",
+            sa.Uuid(),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
+        ),
+        sa.Column("schedule_id", sa.Uuid(), nullable=False),
+        sa.Column("job_id", sa.Uuid(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
-        # The pair is the whole row: a schedule names a job at most once, and there is nothing else
-        # to record about the pairing, so a surrogate key would only add a second way to say it.
-        sa.PrimaryKeyConstraint("schedule_id", "job_id", name=op.f("pk_schedule_job_selections")),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_schedule_job_selections")),
         sa.ForeignKeyConstraint(
             ["schedule_id"],
             ["schedules.id"],
@@ -54,10 +64,20 @@ def upgrade() -> None:
             name=op.f("fk_schedule_job_selections_job_id_jobs"),
             ondelete="RESTRICT",
         ),
+        # A schedule names a job at most once. A constraint rather than an application pre-check,
+        # so it holds under two writers racing for the same pair.
+        sa.UniqueConstraint(
+            "schedule_id", "job_id", name=op.f("uq_schedule_job_selections_schedule_id")
+        ),
     )
-    # The primary key already indexes schedule_id first, which serves "what was this schedule asked
-    # to plan". This serves the other direction, "which schedules named this job", which is what a
-    # RESTRICT on job deletion has to check.
+    # Both foreign keys are join and deletion paths: "what was this schedule asked to plan" reads by
+    # schedule_id, and the RESTRICT on job deletion has to look up by job_id. PostgreSQL does not
+    # index the referencing side of a foreign key on its own.
+    op.create_index(
+        op.f("ix_schedule_job_selections_schedule_id"),
+        "schedule_job_selections",
+        ["schedule_id"],
+    )
     op.create_index(
         op.f("ix_schedule_job_selections_job_id"), "schedule_job_selections", ["job_id"]
     )
@@ -65,4 +85,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(op.f("ix_schedule_job_selections_job_id"), table_name="schedule_job_selections")
+    op.drop_index(
+        op.f("ix_schedule_job_selections_schedule_id"), table_name="schedule_job_selections"
+    )
     op.drop_table("schedule_job_selections")

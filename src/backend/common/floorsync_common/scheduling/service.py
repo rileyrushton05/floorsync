@@ -42,6 +42,10 @@ class ScheduleStored:
     schedule: Schedule
 
 
+type LoadInputResult = SchedulingInput | SchedulingInputInvalid
+"""A snapshot ready for the engine, or the refusal of a selection that cannot become one."""
+
+
 class SchedulingService:
     """Read scheduling inputs and persist generated plans in caller-owned transactions."""
 
@@ -53,7 +57,7 @@ class SchedulingService:
         *,
         starts_at: datetime,
         job_ids: Collection[UUID] | None = None,
-    ) -> SchedulingInput | SchedulingInputInvalid:
+    ) -> LoadInputResult:
         """Snapshot the floor configuration for a later, transaction-free inference run.
 
         `job_ids` scopes the snapshot to those jobs; `None` takes the whole floor, which is what

@@ -4,13 +4,30 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from floorsync_common.scheduling import SchedulingInputInvalid, SchedulingIssue
+from floorsync_common.scheduling import SchedulingInput, SchedulingInputInvalid, SchedulingIssue
 from floorsync_workers.tasks import schedules
 
 
 @contextmanager
 def _fake_session_scope() -> Iterator[object]:
     yield object()
+
+
+def _loaded_input() -> SchedulingInput:
+    """The smallest thing `load_input` can hand back that the worker will pass on to the engine.
+
+    A bare `object()` no longer works there: the worker matches the loaded result exhaustively and
+    ends with `assert_never`, so an unknown stand-in is a failure rather than something passed
+    through unexamined.
+    """
+
+    return SchedulingInput(
+        starts_at=datetime(2026, 9, 6, 8, tzinfo=UTC),
+        machines=(),
+        operations=(),
+        routes=(),
+        dependencies=(),
+    )
 
 
 def test_worker_closes_the_read_transaction_before_running_resched(monkeypatch: Any) -> None:
@@ -27,9 +44,9 @@ def test_worker_closes_the_read_transaction_before_running_resched(monkeypatch: 
 
     def load_input(
         _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> object:
+    ) -> SchedulingInput:
         assert starts_at == datetime(2026, 9, 6, 8, tzinfo=UTC)
-        return object()
+        return _loaded_input()
 
     def generate(_: object) -> SchedulingInputInvalid:
         assert not transaction_open
@@ -54,9 +71,9 @@ def test_a_task_queued_without_a_selection_still_plans_the_whole_floor(monkeypat
 
     def load_input(
         _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> object:
+    ) -> SchedulingInput:
         seen.append(job_ids)
-        return object()
+        return _loaded_input()
 
     monkeypatch.setattr(schedules, "worker_session_scope", _fake_session_scope)
     monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
@@ -79,9 +96,9 @@ def test_the_worker_parses_the_selection_back_into_job_ids(monkeypatch: Any) -> 
 
     def load_input(
         _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> object:
+    ) -> SchedulingInput:
         seen.append(job_ids)
-        return object()
+        return _loaded_input()
 
     monkeypatch.setattr(schedules, "worker_session_scope", _fake_session_scope)
     monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))

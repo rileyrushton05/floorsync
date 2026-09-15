@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Uuid
+from sqlalchemy import ForeignKey, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from floorsync_common.database.base import Base
-from floorsync_common.database.models.mixins import TimestampMixin
+from floorsync_common.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 
-class ScheduleJobSelection(TimestampMixin, Base):
+class ScheduleJobSelection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """Which jobs a schedule was *asked* to plan, when the request named a subset (#231).
 
     Not derivable from `schedule_entries`. The entries record which operations were placed, which
@@ -22,16 +22,19 @@ class ScheduleJobSelection(TimestampMixin, Base):
     writes at least one row, because an empty selection is refused before generation
     (`selection.EMPTY_SELECTION`), so the two cases never collide and no separate flag is needed.
 
-    The composite key is the whole row: a schedule names a job at most once, and there is nothing
-    else to record about the pairing.
+    Shaped like `ScheduleDependency`: a surrogate UUID key like every other table, with the pairing
+    enforced as a unique constraint rather than a composite key, so a schedule names a job at most
+    once.
     """
 
     __tablename__ = "schedule_job_selections"
+    __table_args__ = (UniqueConstraint("schedule_id", "job_id"),)
 
     schedule_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("schedules.id", ondelete="CASCADE"),
-        primary_key=True,
+        nullable=False,
+        index=True,
     )
     # RESTRICT, matching how `schedule_entries` protects the operations it planned: a schedule is a
     # record of what was decided, and deleting a job it names would quietly rewrite that history.
@@ -41,6 +44,6 @@ class ScheduleJobSelection(TimestampMixin, Base):
     job_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("jobs.id", ondelete="RESTRICT"),
-        primary_key=True,
+        nullable=False,
         index=True,
     )

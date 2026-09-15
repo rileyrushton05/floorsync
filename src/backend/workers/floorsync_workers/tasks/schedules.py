@@ -9,6 +9,7 @@ from floorsync_common.scheduling import (
     ReSchedEngine,
     ReSchedRuntimeUnavailable,
     ScheduleGenerated,
+    SchedulingInput,
     SchedulingInputInvalid,
     SchedulingService,
 )
@@ -42,12 +43,17 @@ def generate_schedule(starts_at: str, job_ids: list[str] | None = None) -> dict[
     selection = [UUID(job_id) for job_id in job_ids] if job_ids is not None else None
 
     with worker_session_scope() as db:
-        problem = SchedulingService.load_input(
+        loaded = SchedulingService.load_input(
             db, starts_at=datetime.fromisoformat(starts_at), job_ids=selection
         )
-        # A refused selection never reaches the engine: there is nothing to run it on.
-        if isinstance(problem, SchedulingInputInvalid):
-            return {"outcome": "invalid", "issues": _issues_payload(problem)}
+    match loaded:
+        case SchedulingInputInvalid():
+            # A refused selection never reaches the engine: there is nothing to run it on.
+            return {"outcome": "invalid", "issues": _issues_payload(loaded)}
+        case SchedulingInput() as problem:
+            pass
+        case _:
+            assert_never(loaded)
 
     started_ns = perf_counter_ns()
     result = ReSchedEngine.generate(problem)

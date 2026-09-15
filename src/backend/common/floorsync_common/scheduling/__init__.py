@@ -22,13 +22,18 @@ from floorsync_common.scheduling.selection import (
     UNSCHEDULED_PREREQUISITE_JOB,
     selection_issues,
 )
-from floorsync_common.scheduling.service import ScheduleStored, SchedulingService
+from floorsync_common.scheduling.service import (
+    LoadInputResult,
+    ScheduleStored,
+    SchedulingService,
+)
 
 __all__ = [
     "EMPTY_SELECTION",
     "UNKNOWN_JOB",
     "UNSCHEDULED_PREREQUISITE_JOB",
     "DependencySpec",
+    "LoadInputResult",
     "MachineSpec",
     "OperationSpec",
     "ReSchedEngine",
