@@ -290,6 +290,38 @@ UNIQUE (schedule_entry_id, depends_on_schedule_entry_id)
 CHECK (schedule_entry_id <> depends_on_schedule_entry_id)
 ```
 
+## schedule_job_selections
+
+Which jobs a schedule was *asked* to plan, when the request named a subset of the backlog rather
+than the whole floor — see #231 and decision 0013.
+
+| column | type | constraints |
+|---|---|---|
+| schedule_id | Uuid | FK -> schedules.id, not null, ondelete CASCADE, indexed |
+| job_id | Uuid | FK -> jobs.id, not null, ondelete RESTRICT, indexed |
+
+```sql
+UNIQUE (schedule_id, job_id)
+```
+
+Shaped like `schedule_dependencies`: a surrogate UUID key like every other table, with the pairing
+held by a unique constraint so a schedule names a job at most once.
+
+**Absence is meaningful.** No rows for a schedule means it was generated for the whole floor, which
+is true of every schedule made before this table existed and of every unscoped run since. That never
+collides with a scoped run, because a scoped run always names at least one job — an empty selection
+is refused before generation starts.
+
+Not derivable from `schedule_entries`. The entries record which operations were *placed*, which
+answers "what got planned" and not "what was asked for"; the two differ whenever a selected job turns
+out to hold no schedulable work. `job_id` is `RESTRICT` for the same reason
+`schedule_entries.operation_id` is: a schedule is a record of a decision, and deleting a job it names
+would quietly rewrite that record.
+
+Note that this records job *selection*, not job *precedence*. There is still deliberately no
+job-level dependency anywhere in this schema — which jobs wait on which is derived from
+`dependencies` on demand, per decision 0013.
+
 ## simulations
 
 | column | type | constraints |

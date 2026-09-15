@@ -21,7 +21,7 @@ from floorsync_common.jobs.results import (
     JobNotFound,
     JobUpdated,
 )
-from floorsync_common.jobs.service import JobPage
+from floorsync_common.jobs.service import JobDependencyGraph, JobPage
 from floorsync_common.settings import Settings
 
 CREATED_AT = datetime(2026, 9, 9, 8, tzinfo=UTC)
@@ -178,6 +178,47 @@ def test_list_jobs_rejects_an_out_of_range_limit() -> None:
     response = job_client().get("/api/v1/jobs", params={"limit": 500})
 
     assert response.status_code == 422
+
+
+def test_dependency_graph_maps_each_edge(monkeypatch: pytest.MonkeyPatch) -> None:
+    before, after = uuid4(), uuid4()
+    stub(monkeypatch, "list_dependency_graph", JobDependencyGraph(edges=((before, after),)))
+
+    response = job_client().get("/api/v1/jobs/dependency-graph")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "edges": [{"before_job_id": str(before), "after_job_id": str(after)}]
+    }
+
+
+def test_dependency_graph_is_an_empty_list_when_no_job_waits_on_another(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub(monkeypatch, "list_dependency_graph", JobDependencyGraph(edges=()))
+
+    response = job_client().get("/api/v1/jobs/dependency-graph")
+
+    assert response.status_code == 200
+    assert response.json() == {"edges": []}
+
+
+def test_dependency_graph_is_not_read_as_a_job_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Declared before `/{job_id}`; the other way round this path is refused as a malformed UUID."""
+
+    stub(monkeypatch, "list_dependency_graph", JobDependencyGraph(edges=()))
+
+    response = job_client().get("/api/v1/jobs/dependency-graph")
+
+    assert response.status_code != 422
+
+
+def test_dependency_graph_requires_a_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    stub(monkeypatch, "list_dependency_graph", JobDependencyGraph(edges=()))
+
+    response = job_client(role="operator").get("/api/v1/jobs/dependency-graph")
+
+    assert response.status_code == 403
 
 
 def test_update_job_renames_it(monkeypatch: pytest.MonkeyPatch) -> None:

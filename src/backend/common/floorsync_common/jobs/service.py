@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
+from floorsync_common.jobs.dependency_graph import JobEdge, job_dependency_edges_statement
 from floorsync_common.jobs.results import (
     DeleteJobResult,
     GetJobResult,
@@ -35,6 +36,13 @@ class JobPage:
 
     jobs: tuple[Job, ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class JobDependencyGraph:
+    """Every job-level precedence edge in the backlog, as (before_job_id, after_job_id) pairs."""
+
+    edges: tuple[JobEdge, ...]
 
 
 class JobService:
@@ -93,6 +101,18 @@ class JobService:
             encode_cursor(page[-1].name, page[-1].id) if len(rows) > limit and page else None
         )
         return JobPage(jobs=page, next_cursor=next_cursor)
+
+    @staticmethod
+    async def list_dependency_graph(db: AsyncSession) -> JobDependencyGraph:
+        """Read which jobs wait on which, derived from the operation-level edges (#231).
+
+        Unpaginated on purpose: a job's prerequisites are not confined to any one page of
+        `list_jobs`, and the result is one row per cross-job edge, of which there are usually none.
+        No expected failure -- an empty backlog is an empty graph, not an error.
+        """
+
+        rows = (await db.execute(job_dependency_edges_statement())).tuples().all()
+        return JobDependencyGraph(edges=tuple(rows))
 
     @staticmethod
     async def update_job(

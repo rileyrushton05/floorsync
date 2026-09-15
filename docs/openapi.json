@@ -684,6 +684,44 @@
         "title": "JobDependenciesResponse",
         "type": "object"
       },
+      "JobDependencyEdgeResponse": {
+        "description": "One job that has to finish before another can start.",
+        "properties": {
+          "after_job_id": {
+            "format": "uuid",
+            "title": "After Job Id",
+            "type": "string"
+          },
+          "before_job_id": {
+            "format": "uuid",
+            "title": "Before Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before_job_id",
+          "after_job_id"
+        ],
+        "title": "JobDependencyEdgeResponse",
+        "type": "object"
+      },
+      "JobDependencyGraphResponse": {
+        "description": "Which jobs wait on which, across the whole backlog.\n\nDerived from `dependencies`, which joins operations rather than jobs: an edge appears here\nonly when its two operations belong to different jobs. Edges inside a single job order that\njob's own steps and are read through `GET /api/v1/jobs/{job_id}/dependencies` instead.\n\nDeliberately the whole graph in one response rather than a field on each job in the paginated\njob list. A job's prerequisites can sit on any page, and computing them per row would mean\nwalking the dependency graph once per job on every page read. The payload is one row per\ncross-job edge, of which there are usually none.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/JobDependencyEdgeResponse"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "title": "JobDependencyGraphResponse",
+        "type": "object"
+      },
       "JobDetailResponse": {
         "description": "A single job with the operations it contains, in position order.",
         "properties": {
@@ -1232,8 +1270,23 @@
       },
       "ScheduleCreateRequest": {
         "additionalProperties": false,
-        "description": "Request a draft schedule from the current floor configuration.",
+        "description": "Request a draft schedule from the current floor configuration.\n\n`job_ids` scopes the run to a chosen part of the backlog (#231). Omitting it plans the whole\nfloor, which is what this request has always meant, so no existing caller changes behaviour.\n\nA selection is validated where the dependency graph is already being read, not here: an unknown\njob, a selection with no schedulable work, and a selection missing a job that a selected job\nwaits on each come back through the generation status resource as a `rejected` outcome with its\nown issue code. See `GET /api/v1/jobs/dependency-graph` for working out what a selection\nimplies before sending one.",
         "properties": {
+          "job_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Ids"
+          },
           "starts_at": {
             "format": "date-time",
             "title": "Starts At",
@@ -1653,11 +1706,23 @@
         "type": "object"
       },
       "SchedulingIssueResponse": {
-        "description": "One unsupported or invalid scheduling input reported by the adapter.",
+        "description": "One unsupported or invalid scheduling input reported by the adapter.\n\nAt most one of the three ids is set, naming whichever the issue is about, so a client can mark\nthe offending row rather than parse `message`.",
         "properties": {
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           },
           "machine_id": {
             "anyOf": [
@@ -2350,6 +2415,33 @@
           }
         ],
         "summary": "Add a job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/jobs/dependency-graph": {
+      "get": {
+        "description": "Read every cross-job precedence edge, so a caller can tell what selecting a job implies.\n\nScoped schedule generation refuses a selection that leaves out a job a selected job waits on\n(#231). This is how a caller works that out before sending one: take the jobs the manager\nticked, follow these edges backwards, and tick whatever they land on. Following them forwards\nwould pull in jobs that merely wait on the selection, which do not have to be scheduled with it.\n\nThe whole graph, unpaginated, because it is one row per cross-job edge and a job's prerequisites\nare not confined to any one page of `GET /api/v1/jobs`.",
+        "operationId": "get_job_dependency_graph_api_v1_jobs_dependency_graph_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDependencyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get which jobs wait on which",
         "tags": [
           "jobs"
         ]
