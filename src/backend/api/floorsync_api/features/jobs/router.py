@@ -8,6 +8,8 @@ from floorsync_api.dependencies.authentication import require_roles
 from floorsync_api.dependencies.database import DbSession
 from floorsync_api.features.jobs.schemas import (
     JobCreateRequest,
+    JobDependencyEdgeResponse,
+    JobDependencyGraphResponse,
     JobDetailResponse,
     JobOperationResponse,
     JobResponse,
@@ -69,6 +71,36 @@ async def list_jobs(
     return CursorPage[JobResponse](
         items=[JobResponse.model_validate(job) for job in page.jobs],
         next_cursor=page.next_cursor,
+    )
+
+
+# Declared before `/{job_id}`: FastAPI matches routes in declaration order, and the other way round
+# this path is read as a job id and refused as a malformed UUID before ever reaching here.
+@router.get(
+    "/dependency-graph",
+    response_model=JobDependencyGraphResponse,
+    summary="Get which jobs wait on which",
+)
+async def get_job_dependency_graph(db: DbSession, _: Manager) -> JobDependencyGraphResponse:
+    """Read every cross-job precedence edge, so a caller can tell what selecting a job implies.
+
+    Scoped schedule generation refuses a selection that leaves out a job a selected job waits on
+    (#231). This is how a caller works that out before sending one: take the jobs the manager
+    ticked, follow these edges backwards, and tick whatever they land on. Following them forwards
+    would pull in jobs that merely wait on the selection, which do not have to be scheduled with it.
+
+    The whole graph, unpaginated, because it is one row per cross-job edge and a job's prerequisites
+    are not confined to any one page of `GET /api/v1/jobs`.
+    """
+
+    async with db.begin():
+        graph = await JobService.list_dependency_graph(db)
+
+    return JobDependencyGraphResponse(
+        edges=[
+            JobDependencyEdgeResponse(before_job_id=before, after_job_id=after)
+            for before, after in graph.edges
+        ]
     )
 
 

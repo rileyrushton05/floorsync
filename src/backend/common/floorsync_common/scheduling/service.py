@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -11,12 +12,15 @@ from sqlalchemy.orm import Session
 
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.dependency import Dependency
+from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
+from floorsync_common.database.models.schedule_job_selection import ScheduleJobSelection
 from floorsync_common.database.models.unavailability import Unavailability
+from floorsync_common.jobs.dependency_graph import job_dependency_edges_statement
 from floorsync_common.scheduling.contracts import (
     DependencySpec,
     MachineSpec,
@@ -24,9 +28,11 @@ from floorsync_common.scheduling.contracts import (
     RouteSpec,
     SchedulePlan,
     SchedulingInput,
+    SchedulingInputInvalid,
     UnavailabilitySpec,
 )
 from floorsync_common.scheduling.resched import ReSchedEngine
+from floorsync_common.scheduling.selection import no_schedulable_work_issue, selection_issues
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +40,10 @@ class ScheduleStored:
     """A draft schedule written in the caller's open transaction."""
 
     schedule: Schedule
+
+
+type LoadInputResult = SchedulingInput | SchedulingInputInvalid
+"""A snapshot ready for the engine, or the refusal of a selection that cannot become one."""
 
 
 class SchedulingService:
@@ -46,13 +56,63 @@ class SchedulingService:
         db: Session,
         *,
         starts_at: datetime,
-    ) -> SchedulingInput:
-        """Snapshot the current floor configuration for a later, transaction-free inference run."""
+        job_ids: Collection[UUID] | None = None,
+    ) -> LoadInputResult:
+        """Snapshot the floor configuration for a later, transaction-free inference run.
 
+        `job_ids` scopes the snapshot to those jobs; `None` takes the whole floor, which is what
+        every caller did before #231 and what an omitted selection still means.
+
+        A scoped snapshot is refused rather than quietly narrowed. Validating here rather than in
+        the API is deliberate: the checks need the dependency graph, this is the transaction that
+        already reads it, and a refusal then reaches the client through the same
+        `SchedulingInputInvalid` path the adapter's own refusals use. Refusing rather than adding
+        the missing jobs is the contract #231 asks for -- returning a schedule containing jobs the
+        caller did not ask for is worse than saying which ones are missing, and the manager's
+        backlog is expected to tick them itself before ever sending one.
+        """
+
+        selection: frozenset[UUID] | None = None
+        if job_ids is not None:
+            selection = frozenset(job_ids)
+            issues = selection_issues(
+                selection,
+                known_job_ids=set(db.scalars(select(Job.id).where(Job.id.in_(selection))).all()),
+                job_edges=list(db.execute(job_dependency_edges_statement()).tuples()),
+            )
+            if issues:
+                return SchedulingInputInvalid(issues=issues)
+
+        # Machines are never filtered. A machine belongs to the floor, not to a job, and an active
+        # machine that no selected operation can run is harmless -- the adapter only ever reads a
+        # machine through a route. Narrowing them would instead risk `no_compatible_machine` for an
+        # operation whose only machine was dropped for belonging to no selected job, which is not a
+        # thing a machine can do.
         machines = list(db.scalars(select(Machine)).all())
-        operations = list(db.scalars(select(Operation)).all())
-        routes = list(db.scalars(select(Compatibility)).all())
-        dependencies = list(db.scalars(select(Dependency)).all())
+
+        operation_statement = select(Operation)
+        if selection is not None:
+            operation_statement = operation_statement.where(Operation.job_id.in_(selection))
+        operations = list(db.scalars(operation_statement).all())
+        operation_ids = {operation.id for operation in operations}
+        if selection is not None and not operation_ids:
+            return SchedulingInputInvalid(issues=(no_schedulable_work_issue(),))
+
+        route_statement = select(Compatibility)
+        dependency_statement = select(Dependency)
+        if selection is not None:
+            route_statement = route_statement.where(Compatibility.operation_id.in_(operation_ids))
+            # Both endpoints, so an edge leaving the selection is dropped rather than left pointing
+            # at an operation the snapshot does not contain (which the adapter would refuse as
+            # `unknown_dependency_operation`). Only an *outbound* edge can be dropped this way: an
+            # inbound one would mean a prerequisite job was left out, and the selection check above
+            # has already refused that.
+            dependency_statement = dependency_statement.where(
+                Dependency.before_operation_id.in_(operation_ids),
+                Dependency.after_operation_id.in_(operation_ids),
+            )
+        routes = list(db.scalars(route_statement).all())
+        dependencies = list(db.scalars(dependency_statement).all())
         unavailabilities = list(db.scalars(select(Unavailability)).all())
 
         return SchedulingInput(
@@ -102,8 +162,15 @@ class SchedulingService:
         runtime_ms: int,
         input_operation_count: int,
         strategy: str | None = None,
+        job_ids: Collection[UUID] | None = None,
     ) -> ScheduleStored:
-        """Write one generated plan without re-running inference or changing prior schedules."""
+        """Write one generated plan without re-running inference or changing prior schedules.
+
+        `job_ids` is the selection the run was asked for, written verbatim rather than derived from
+        the plan: a selected job holding no schedulable work would otherwise vanish from the record.
+        `None` writes no selection rows at all, which is how an unscoped, whole-floor run is stored
+        (see `ScheduleJobSelection`).
+        """
 
         schedule = Schedule(
             status="draft",
@@ -116,6 +183,9 @@ class SchedulingService:
         )
         db.add(schedule)
         db.flush()
+
+        for job_id in sorted(set(job_ids or ())):
+            db.add(ScheduleJobSelection(schedule_id=schedule.id, job_id=job_id))
 
         entries_by_operation_id: dict[UUID, ScheduleEntry] = {}
         for assignment in plan.assignments:

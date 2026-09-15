@@ -7,19 +7,35 @@ from floorsync_api.schemas import RequestSchema, ResponseSchema
 
 
 class ScheduleCreateRequest(RequestSchema):
-    """Request a draft schedule from the current floor configuration."""
+    """Request a draft schedule from the current floor configuration.
+
+    `job_ids` scopes the run to a chosen part of the backlog (#231). Omitting it plans the whole
+    floor, which is what this request has always meant, so no existing caller changes behaviour.
+
+    A selection is validated where the dependency graph is already being read, not here: an unknown
+    job, a selection with no schedulable work, and a selection missing a job that a selected job
+    waits on each come back through the generation status resource as a `rejected` outcome with its
+    own issue code. See `GET /api/v1/jobs/dependency-graph` for working out what a selection
+    implies before sending one.
+    """
 
     starts_at: datetime
     strategy: Literal["resched", "exact"] = "resched"
+    job_ids: list[UUID] | None = None
 
 
 class SchedulingIssueResponse(ResponseSchema):
-    """One unsupported or invalid scheduling input reported by the adapter."""
+    """One unsupported or invalid scheduling input reported by the adapter.
+
+    At most one of the three ids is set, naming whichever the issue is about, so a client can mark
+    the offending row rather than parse `message`.
+    """
 
     code: str
     message: str
     operation_id: UUID | None = None
     machine_id: UUID | None = None
+    job_id: UUID | None = None
 
 
 class ScheduleGenerationAcceptedResponse(ResponseSchema):
