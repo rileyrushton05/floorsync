@@ -22,14 +22,16 @@ from floorsync_common.scheduling.contracts import (
     SchedulingIssue,
     UnavailabilitySpec,
 )
+from floorsync_common.scheduling.input_checks import (
+    strategy_limits,
+    validate_for_strategy,
+    validate_input,
+)
 from floorsync_common.scheduling.resched import ReSchedEngine
 from floorsync_common.scheduling.validation import (
     JOB_HAS_NO_OPERATIONS,
     MACHINE_HAS_NO_CAPABILITIES,
     ValidationService,
-    strategy_limits,
-    validate_for_worker,
-    validate_input,
 )
 
 STARTS_AT = datetime(2026, 9, 17, 8, tzinfo=UTC)
@@ -89,7 +91,8 @@ def test_a_coherent_floor_has_no_issues() -> None:
     problem, _, _ = _floor()
 
     assert validate_input(problem) == ()
-    assert validate_for_worker(problem) is None
+    assert validate_for_strategy(problem, "resched") is None
+    assert validate_for_strategy(problem, "exact") is None
 
 
 def test_an_empty_floor_is_refused() -> None:

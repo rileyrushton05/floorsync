@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -24,6 +23,7 @@ from floorsync_common.scheduling.contracts import (
     SchedulingInputInvalid,
     SchedulingIssue,
 )
+from floorsync_common.scheduling.input_checks import resched_strategy_limits, validate_input
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,41 +59,9 @@ class ReSchedEngine:
 
     @staticmethod
     def unsupported(problem: SchedulingInput) -> tuple[SchedulingIssue, ...]:
-        """What the pretrained ReSched policy cannot take, on data that is otherwise coherent.
+        """What this policy cannot take on coherent data; see `resched_strategy_limits`."""
 
-        These are limits of this strategy, not faults in the floor: the exact solver takes a
-        general precedence DAG, and neither engine models downtime. `validation.strategy_limits`
-        reports them per strategy so a manager can see which engine a floor is ready for.
-        """
-
-        issues: list[SchedulingIssue] = []
-        if problem.unavailabilities:
-            issues.append(
-                SchedulingIssue(
-                    "unsupported_unavailability",
-                    "ReSched does not model machine downtime.",
-                )
-            )
-
-        predecessors: dict[UUID, int] = defaultdict(int)
-        successors: dict[UUID, int] = defaultdict(int)
-        for edge in problem.dependencies:
-            predecessors[edge.after_operation_id] += 1
-            successors[edge.before_operation_id] += 1
-        shape_offenders = sorted(
-            {operation_id for operation_id, count in predecessors.items() if count > 1}
-            | {operation_id for operation_id, count in successors.items() if count > 1},
-            key=str,
-        )
-        issues.extend(
-            SchedulingIssue(
-                "unsupported_dependency_shape",
-                "ReSched requires at most one predecessor and successor per operation.",
-                operation_id,
-            )
-            for operation_id in shape_offenders
-        )
-        return tuple(issues)
+        return resched_strategy_limits(problem)
 
     @staticmethod
     def _validate(
@@ -101,15 +69,10 @@ class ReSchedEngine:
     ) -> tuple[tuple[SchedulingIssue, ...], tuple[tuple[UUID, ...], ...]]:
         """Accept only the standard FJSP input represented by the pretrained ReSched policy.
 
-        Data coherence is `validation.validate_input`'s job, shared with the exact solver and the
+        Data coherence is `input_checks.validate_input`'s job, shared with the exact solver and the
         pre-scheduling validation endpoint; this adds the policy's own limits and, once both are
         clear, lays the operations out as the linear chains the runtime consumes.
         """
-
-        # Imported here rather than at module level: `validation` imports `service`, which imports
-        # this module, so a top-level import would be circular. `validation` only needs
-        # `unsupported` from here, and this is the only place here that needs `validation`.
-        from floorsync_common.scheduling.validation import validate_input
 
         issues = validate_input(problem) + ReSchedEngine.unsupported(problem)
         if issues:

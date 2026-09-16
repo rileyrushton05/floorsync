@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 from gurobipy import GurobiError
 
 from floorsync_common.scheduling import (
@@ -17,6 +18,7 @@ from floorsync_common.scheduling.contracts import (
     MachineSpec,
     OperationSpec,
     RouteSpec,
+    UnavailabilitySpec,
 )
 from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
 from floorsync_common.scheduling.gurobi_exact_solver import NoFeasibleSchedule
@@ -442,3 +444,111 @@ def test_resched_worker_refuses_incoherent_data_before_the_engine_runs(monkeypat
             "operation_id": str(OPERATION_ID),
         }
     ]
+
+
+def test_exact_worker_refuses_downtime_windows_it_cannot_model(monkeypatch: Any) -> None:
+    """The exact solver has no guard of its own, so the worker must apply its limits (#133).
+
+    Without this the endpoint reports the floor as unschedulable by `exact` while the worker
+    adapts the input, drops the windows, and stores a schedule that ignores the downtime.
+    """
+
+    base = _loaded_input()
+    problem = SchedulingInput(
+        starts_at=base.starts_at,
+        machines=base.machines,
+        operations=base.operations,
+        routes=base.routes,
+        dependencies=base.dependencies,
+        unavailabilities=(
+            UnavailabilitySpec(
+                machine_id=MACHINE_ID,
+                starts_at=datetime(2026, 9, 6, 9, tzinfo=UTC),
+                ends_at=datetime(2026, 9, 6, 10, tzinfo=UTC),
+            ),
+        ),
+    )
+
+    def load_input(
+        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
+    ) -> SchedulingInput:
+        return problem
+
+    def adapt_scheduling_input(_: SchedulingInput) -> tuple[object, ...]:
+        raise AssertionError("the input must not be adapted when the strategy cannot take it")
+
+    monkeypatch.setattr(schedules, "worker_session_scope", _fake_session_scope)
+    monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
+    monkeypatch.setattr(schedules, "adapt_scheduling_input", adapt_scheduling_input)
+
+    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+
+    assert result == {
+        "outcome": "invalid",
+        "issues": [
+            {
+                "code": "unsupported_unavailability",
+                "message": "The exact solver does not model machine downtime.",
+            }
+        ],
+    }
+
+
+def test_both_workers_refuse_exactly_what_the_validation_report_says_they_would(
+    monkeypatch: Any,
+) -> None:
+    """The invariant behind #133: for the same input, `validate_for_strategy` and the worker agree.
+
+    Fan-in is coherent data ReSched cannot take and the exact solver can, so the two workers must
+    diverge on it in exactly the way the report predicts.
+    """
+
+    from floorsync_common.scheduling.input_checks import strategy_limits, validate_input
+
+    first, second, third = uuid4(), uuid4(), uuid4()
+    problem = SchedulingInput(
+        starts_at=datetime(2026, 9, 6, 8, tzinfo=UTC),
+        machines=(MachineSpec(id=MACHINE_ID, active=True, salary_per_minute=None),),
+        operations=tuple(OperationSpec(id=op, name="op") for op in (first, second, third)),
+        routes=tuple(
+            RouteSpec(operation_id=op, machine_id=MACHINE_ID, duration_minutes=5, energy=None)
+            for op in (first, second, third)
+        ),
+        dependencies=(
+            DependencySpec(before_operation_id=first, after_operation_id=third),
+            DependencySpec(before_operation_id=second, after_operation_id=third),
+        ),
+    )
+    assert validate_input(problem) == ()
+    limits = strategy_limits(problem)
+
+    def load_input(
+        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
+    ) -> SchedulingInput:
+        return problem
+
+    engine_ran: list[str] = []
+
+    def generate(_: object) -> object:
+        engine_ran.append("resched")
+        raise AssertionError("ReSched must not run on fan-in")
+
+    def adapt_scheduling_input(_: SchedulingInput) -> tuple[object, ...]:
+        engine_ran.append("exact")
+        raise RuntimeError("stop here: the exact path accepted the input")
+
+    monkeypatch.setattr(schedules, "worker_session_scope", _fake_session_scope)
+    monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
+    monkeypatch.setattr(schedules.ReSchedEngine, "generate", staticmethod(generate))
+    monkeypatch.setattr(schedules, "adapt_scheduling_input", adapt_scheduling_input)
+
+    resched_result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00")
+    assert resched_result["outcome"] == "invalid"
+    assert [issue["code"] for issue in resched_result["issues"]] == [  # type: ignore[union-attr]
+        issue.code for issue in limits["resched"]
+    ]
+
+    with pytest.raises(RuntimeError, match="accepted the input"):
+        schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+    assert limits["exact"] == ()
+    assert engine_ran == ["exact"]

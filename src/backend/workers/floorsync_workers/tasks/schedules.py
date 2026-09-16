@@ -22,11 +22,11 @@ from floorsync_common.scheduling.gurobi_exact_solver import (
     adapt_scheduling_input,
     solve_fajsp,
 )
+from floorsync_common.scheduling.input_checks import validate_for_strategy
 from floorsync_common.scheduling.task_names import (
     EXACT_SCHEDULE_GENERATION_TASK,
     SCHEDULE_GENERATION_TASK,
 )
-from floorsync_common.scheduling.validation import validate_for_worker
 from floorsync_workers.celery_app import celery_app
 from floorsync_workers.database import worker_session_scope
 
@@ -74,9 +74,10 @@ def generate_schedule(starts_at: str, job_ids: list[str] | None = None) -> dict[
         case _:
             assert_never(loaded)
 
-    # Data problems are refused here, by the same check every strategy and the validation endpoint
-    # use, so a floor that fails is refused the same way whichever engine was asked (#133).
-    invalid = validate_for_worker(problem)
+    # Refused here by the same checks the validation endpoint reports, data problems and this
+    # strategy's limits alike, so the endpoint and the worker can never disagree (#133). The engine
+    # re-checks its own limits inside `generate`; that is cheap and keeps it safe to call alone.
+    invalid = validate_for_strategy(problem, "resched")
     if invalid is not None:
         return {"outcome": "invalid", "issues": _issues_payload(invalid)}
 
@@ -141,7 +142,9 @@ def generate_schedule_exact(starts_at: str, job_ids: list[str] | None = None) ->
         case _:
             assert_never(loaded)
 
-    invalid = validate_for_worker(problem)
+    # The exact solver has no guard of its own, so this is the only place its limits are enforced:
+    # `adapt_scheduling_input` would otherwise drop downtime windows on the floor without a word.
+    invalid = validate_for_strategy(problem, "exact")
     if invalid is not None:
         return {"outcome": "invalid", "issues": _issues_payload(invalid)}
 

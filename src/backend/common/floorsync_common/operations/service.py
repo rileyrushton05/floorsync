@@ -18,6 +18,7 @@ from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.operations.graph import find_dependency_cycle
 from floorsync_common.operations.results import (
     CreateOperationResult,
     DeleteOperationResult,
@@ -50,40 +51,6 @@ class DependencyEdge:
 
     before_operation_id: UUID
     after_operation_id: UUID
-
-
-def find_dependency_cycle(edges: Sequence[tuple[UUID, UUID]]) -> tuple[UUID, ...]:
-    """Return the operations caught in a cycle, or an empty tuple when the graph is acyclic.
-
-    Kahn's algorithm: repeatedly remove an operation nothing is waiting on. Whatever cannot be
-    removed is exactly the set caught in a cycle -- more useful to report than one arbitrary path,
-    since there may be several cycles and every one of them has to be broken.
-
-    Pure and total, so the caller decides what a cycle means. `ReSched` would reject cyclic input
-    anyway, but far later and without naming the operations responsible.
-    """
-
-    successors: dict[UUID, list[UUID]] = {}
-    incoming: dict[UUID, int] = {}
-    for before, after in edges:
-        successors.setdefault(before, []).append(after)
-        successors.setdefault(after, [])
-        incoming.setdefault(before, 0)
-        incoming[after] = incoming.get(after, 0) + 1
-
-    ready = [operation for operation, count in incoming.items() if count == 0]
-    removed = 0
-    while ready:
-        operation = ready.pop()
-        removed += 1
-        for following in successors[operation]:
-            incoming[following] -= 1
-            if incoming[following] == 0:
-                ready.append(following)
-
-    if removed == len(incoming):
-        return ()
-    return tuple(sorted(operation for operation, count in incoming.items() if count > 0))
 
 
 class OperationService:
@@ -316,3 +283,8 @@ class DependencyService:
             )
         ).all()
         return tuple(dependencies)
+
+
+# `find_dependency_cycle` lives in `operations.graph` and is re-exported here so existing
+# importers keep working; new code should import it from `graph` directly.
+__all__ = ["DependencyEdge", "DependencyService", "OperationService", "find_dependency_cycle"]

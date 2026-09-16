@@ -49,7 +49,8 @@ counts unlike the selected checkpoint are permitted but must be evaluated before
 
 Two kinds of check apply to an input, and they are kept apart (#133). *Data coherence* (an
 operation nothing active can run, a non-positive duration, a precedence cycle, duplicate or
-dangling references) is a property of the floor and lives once in `scheduling/validation.py`;
+dangling references) is a property of the floor and lives once in `scheduling/input_checks.py`,
+which imports nothing but the contracts and the pure graph helper;
 both worker tasks run it before their engine, and `GET /api/v1/schedules/validation` runs it on
 demand so a manager can see what is wrong before generating. *Strategy limits* (ReSched's linear
 chains, neither engine's lack of downtime modelling) are a property of the engine and are reported
