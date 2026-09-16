@@ -15,6 +15,7 @@ from floorsync_common.database.models.operation import Operation
 from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.outcomes import ExpectedOutcome
+from floorsync_common.scheduling.references import ScheduleReferences
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +79,21 @@ class OperationDoesNotBelongToJob(ExpectedOutcome):
 
 @dataclass(frozen=True, slots=True)
 class JobDefinitionIsScheduled(ExpectedOutcome):
-    """One of this job's operations already appears in a generated schedule.
+    """This save would remove an operation a generated schedule already recorded.
 
-    Saving a definition over it would rewrite inputs, or graph edges, a schedule already recorded
-    as having been used to produce that schedule -- this v1 policy refuses the save instead.
+    Only removal is refused. Everything else a save can change is already snapshotted per schedule:
+    `schedule_entries` copies duration, energy, machine salary, machine and start time at
+    generation, and `schedule_dependencies` copies the graph, so a rename, a route change, a
+    reorder or an added step cannot rewrite what a schedule recorded (the ordering endpoint allows
+    the same edits for the same reason). Deleting an operation is different: the entry would point
+    at nothing, and `schedule_entries.operation_id` is ON DELETE RESTRICT, so without this check the
+    database would refuse the write and the caller would get an integrity error instead of a reason.
+    `references` names the schedules in the way; only the drafts among them can be deleted to clear
+    it (decision 0015).
     """
 
     job_id: UUID
+    references: ScheduleReferences
 
 
 @dataclass(frozen=True, slots=True)

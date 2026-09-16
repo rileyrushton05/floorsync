@@ -22,7 +22,12 @@ from floorsync_api.features.jobs.definitions_schemas import (
     JobDefinitionReplaceRequest,
     JobDefinitionResponse,
 )
-from floorsync_api.problems import ProblemDetail, problem_response
+from floorsync_api.problems import (
+    ProblemDetail,
+    problem_response,
+    schedule_references_hint,
+    schedule_references_members,
+)
 from floorsync_api.schemas import CursorPage
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.user import User
@@ -48,6 +53,7 @@ from floorsync_common.jobs.definitions import (
 )
 from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.operations.results import DependencyCycle
+from floorsync_common.scheduling.references import ScheduleReferences
 
 job_definitions_router = APIRouter(prefix="/job-definitions", tags=["jobs"])
 job_definition_router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -99,14 +105,18 @@ async def list_definitions(
     _: Manager,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
+    include_archived: bool = False,
 ) -> CursorPage[JobDefinitionResponse]:
-    """List every job with its operations and routes, a page at a time.
+    """List the backlog's jobs with their operations and routes, a page at a time.
 
     Lists every operation and route in this page in bulk, so the frontend has no N+1 detail fetch.
+    Archived jobs are left out unless `include_archived` is set, matching `GET /api/v1/jobs`.
     """
 
     async with db.begin():
-        page = await JobDefinitionService.list_definitions(db, limit=limit, cursor=cursor)
+        page = await JobDefinitionService.list_definitions(
+            db, limit=limit, cursor=cursor, include_archived=include_archived
+        )
 
     return CursorPage[JobDefinitionResponse](
         items=[_definition_response(definition) for definition in page.definitions],
@@ -142,7 +152,12 @@ async def get_definition(
     summary="Atomically replace one editable definition",
     responses={
         404: {"description": "The job does not exist"},
-        409: {"description": "An operation in this job already appears in a schedule"},
+        409: {
+            "description": (
+                "The save would remove an operation that appears in a schedule; the body names "
+                "the draft and confirmed schedules involved"
+            )
+        },
         422: {
             "description": (
                 "A route names an unknown or inactive machine, an operation id does not belong "
@@ -165,8 +180,10 @@ async def replace_definition(
     index becomes each operation's 1-based position. Only this job's own `builder_sequence`
     ordering edges are rebuilt; externally owned edges are never touched.
 
-    Refused with a conflict when any of this job's operations already appears in a generated
-    schedule, so a definition save can never rewrite a schedule's record of what was planned.
+    Refused with a conflict only when the save would remove an operation a generated schedule
+    already recorded; every other edit is covered by the schedule's own snapshot, so a scheduled
+    job stays editable. The conflict names the schedules in the way. An archived job is editable
+    too: archiving takes a job out of the backlog, it does not freeze it (decision 0015).
     """
 
     async with db.begin():
@@ -179,8 +196,8 @@ async def replace_definition(
                 return _definition_response(definition)
             case JobNotFound():
                 return _job_not_found(request, job_id)
-            case JobDefinitionIsScheduled():
-                return _job_definition_is_scheduled(request, job_id)
+            case JobDefinitionIsScheduled(references=references):
+                return _job_definition_is_scheduled(request, job_id, references)
             case OperationDoesNotBelongToJob(operation_id=operation_id, job_id=owning_job_id):
                 return _operation_does_not_belong_to_job(request, operation_id, owning_job_id)
             case OperationHasExternalDependents(operation_id=operation_id, job_id=owning_job_id):
@@ -258,6 +275,7 @@ def _definition_response(definition: JobDefinitionRead) -> JobDefinitionResponse
         id=definition.job.id,
         name=definition.job.name,
         priority=definition.job.priority,
+        archived_at=definition.job.archived_at,
         created_at=definition.job.created_at,
         updated_at=definition.job.updated_at,
         operations=[_operation_response(item) for item in definition.operations],
@@ -279,18 +297,25 @@ def _job_not_found(request: Request, job_id: UUID) -> JSONResponse:
     )
 
 
-def _job_definition_is_scheduled(request: Request, job_id: UUID) -> JSONResponse:
+def _job_definition_is_scheduled(
+    request: Request, job_id: UUID, references: ScheduleReferences
+) -> JSONResponse:
+    """Only a removal is refused: every other edit is covered by the schedule's own snapshot."""
+
     return problem_response(
         ProblemDetail(
             type="urn:floorsync:problem:job_definition_is_scheduled",
-            title="Job definition already appears in a schedule",
+            title="Operation appears in a generated schedule",
             status=status.HTTP_409_CONFLICT,
             detail=(
-                f"An operation in job {job_id} already appears in a generated schedule, so "
-                "saving this definition would rewrite inputs that schedule already recorded."
+                f"This save removes an operation from job {job_id} that a generated schedule "
+                "already recorded, which would leave that schedule referring to a step that no "
+                "longer exists. Keep the operation, or clear the schedules in the way. "
+                + schedule_references_hint(references)
             ),
             instance=request.url.path,
-        )
+        ),
+        extensions=schedule_references_members(references),
     )
 
 

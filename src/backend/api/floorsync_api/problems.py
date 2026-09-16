@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from floorsync_common.scheduling.references import ScheduleReferences
+
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 
 
@@ -51,6 +53,37 @@ def problem_response(
         content=content,
         headers=headers,
         media_type=PROBLEM_MEDIA_TYPE,
+    )
+
+
+def schedule_references_members(references: ScheduleReferences) -> dict[str, object]:
+    """Extension members naming the schedules that stand in the way of removing some work.
+
+    Three features refuse a removal for the same reason (a schedule entry points at the work) and
+    render the same two lists, so the shape is defined once: `draft_schedule_ids`, which the caller
+    can delete to clear the way, and `confirmed_schedule_ids`, which it cannot (decision 0015).
+    """
+
+    return {
+        "draft_schedule_ids": [str(schedule_id) for schedule_id in references.draft_schedule_ids],
+        "confirmed_schedule_ids": [
+            str(schedule_id) for schedule_id in references.confirmed_schedule_ids
+        ],
+    }
+
+
+def schedule_references_hint(references: ScheduleReferences) -> str:
+    """One sentence on what the caller can do about the schedules in the way, for a detail."""
+
+    drafts = len(references.draft_schedule_ids)
+    if references.confirmed_schedule_ids:
+        return (
+            "At least one of those schedules is confirmed, which is a record of what the floor was "
+            "told to do, so this cannot be removed; archive the job instead."
+        )
+    return (
+        f"Only draft schedules ({drafts}) reference it: delete them through "
+        "DELETE /api/v1/schedules/{schedule_id} and retry."
     )
 
 

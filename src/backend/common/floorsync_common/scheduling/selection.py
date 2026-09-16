@@ -26,19 +26,25 @@ EMPTY_SELECTION = "empty_selection"
 UNSCHEDULED_PREREQUISITE_JOB = "unscheduled_prerequisite_job"
 """The selection leaves out a job that a selected job waits on."""
 
+ARCHIVED_JOB = "archived_job"
+"""The selection names a job that has left the backlog."""
+
 
 def selection_issues(
     selected: Collection[UUID],
     *,
     known_job_ids: Collection[UUID],
     job_edges: Iterable[JobEdge],
+    archived_job_ids: Collection[UUID] = (),
 ) -> tuple[SchedulingIssue, ...]:
     """Report everything wrong with a job selection, before any of it reaches the scheduler.
 
     Unknown jobs are reported alone: a prerequisite walk over a selection containing ids that do not
     exist would report missing prerequisites for jobs the caller has already got wrong, which is
-    noise. Each issue names its job in `job_id` so a client can mark the offending row rather than
-    parse the message, and issues are ordered by id so the same bad request always reads the same.
+    noise. Archived jobs likewise: they exist, but have finished or been cancelled, so asking to
+    schedule one is a mistake in the request rather than a gap in it. Each issue names its job in
+    `job_id` so a client can mark the offending row rather than parse the message, and issues are
+    ordered by id so the same bad request always reads the same.
     """
 
     if not selected:
@@ -58,6 +64,17 @@ def selection_issues(
                 job_id=job_id,
             )
             for job_id in unknown
+        )
+
+    archived = sorted(set(selected) & set(archived_job_ids))
+    if archived:
+        return tuple(
+            SchedulingIssue(
+                ARCHIVED_JOB,
+                "This job has been archived, so it is no longer offered for scheduling.",
+                job_id=job_id,
+            )
+            for job_id in archived
         )
 
     missing = sorted(prerequisite_job_ids(selected, job_edges) - set(selected))

@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from floorsync_common.jobs.dependency_graph import prerequisite_job_ids
 from floorsync_common.scheduling.selection import (
+    ARCHIVED_JOB,
     EMPTY_SELECTION,
     UNKNOWN_JOB,
     UNSCHEDULED_PREREQUISITE_JOB,
@@ -132,6 +133,35 @@ def test_unknown_jobs_are_reported_without_a_prerequisite_walk() -> None:
     )
 
     assert {issue.code for issue in issues} == {UNKNOWN_JOB}
+
+
+def test_an_archived_job_is_refused_and_named() -> None:
+    """An archived job exists but has left the backlog, so selecting it is a mistake, not a gap."""
+
+    open_job, archived = _ids(2)
+
+    (issue,) = selection_issues(
+        [open_job, archived],
+        known_job_ids=[open_job, archived],
+        archived_job_ids=[archived],
+        job_edges=[],
+    )
+
+    assert issue.code == ARCHIVED_JOB
+    assert issue.job_id == archived
+
+
+def test_archived_jobs_are_reported_without_a_prerequisite_walk() -> None:
+    open_job, archived, prerequisite = _ids(3)
+
+    issues = selection_issues(
+        [open_job, archived],
+        known_job_ids=[open_job, archived, prerequisite],
+        archived_job_ids=[archived],
+        job_edges=[(prerequisite, open_job)],
+    )
+
+    assert {issue.code for issue in issues} == {ARCHIVED_JOB}
 
 
 def test_a_missing_prerequisite_is_refused_and_named() -> None:

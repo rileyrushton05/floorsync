@@ -134,10 +134,19 @@ disable a credential without waiting for an old token to expire.
 |---|---|---|
 | name | Text | not null |
 | priority | Text | not null, default 'med', CHECK priority IN ('high', 'med', 'low') |
+| archived_at | DateTime(timezone=True) | nullable, indexed |
 
 Jobs are independent of one another: there is no job-to-job dependency table or column, by design.
 Precedence is an operation-level fact on `dependencies`, and an edge may cross jobs only at that
 level. `priority` is lower-case in the database and API; the frontend maps to its own labels.
+
+`archived_at` is how a job leaves the backlog without being deleted (decision 0015). NULL means the
+job is open; a timestamp means it finished or was cancelled then. It is set for every job in a
+schedule whose simulation completes, or by hand through the jobs API. Listing and whole-floor
+generation skip archived jobs, and a precedence edge touching one is treated as satisfied. It is a
+timestamp rather than a flag because *when* a job left the backlog is the fact worth keeping, and
+the flag is derivable from it. Archiving never unlocks deletion: a job a confirmed schedule planned
+stays undeletable, which is the whole reason archiving exists.
 
 ## operations
 
@@ -224,8 +233,10 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 | confirmed_at | DateTime(timezone=True) | nullable |
 
 `strategy` stays as a label even though only one strategy is built, so a second one doesn't need a
-migration to add later. `discarded` exists so abandoning a draft is a status change, not a row
-deletion — see Deletion policy below. `confirmed_by_user_id` / `confirmed_at` are the audit trail for
+migration to add later. A draft is deleted outright when abandoned, entries and all, because a draft
+nobody confirmed records nothing and the FK on its entries would otherwise keep blocking edits to
+the jobs it named; `discarded` is reserved for a confirmed schedule that is later withdrawn
+(decision 0015, see Deletion policy below). `confirmed_by_user_id` / `confirmed_at` are the audit trail for
 who actually handed a schedule off to simulation and when; `ondelete SET NULL` so a later change to
 the confirming user's account never threatens the schedule record itself. `total_energy` /
 `total_labour_cost` are written once at generation, summed from `schedule_entries` below — the same
@@ -362,9 +373,18 @@ itself is already RESTRICT-protected from casual deletion.
 
 One rule, applied consistently: **never `CASCADE` across a boundary that represents something that
 actually happened.** `RESTRICT` there instead, and make "get rid of it" a status value
-(`schedules.status = 'discarded'`, `machines.active = false`) rather than a row deletion — which is
-also what makes post-hoc logging and evaluation evidence trustworthy, since nothing that was ever
-scheduled or simulated can quietly disappear.
+(`machines.active = false`, `jobs.archived_at`, `schedules.status = 'discarded'` for a withdrawn
+confirmed schedule) rather than a row deletion, which is also what makes post-hoc logging and
+evaluation evidence trustworthy, since nothing that was ever scheduled or simulated can quietly
+disappear.
+
+"Actually happened" is the test, and a draft schedule fails it: nobody confirmed it, so it is a
+proposal, not a record. A draft can therefore be deleted through the API, entries and all, and
+until it is, it blocks removal of the jobs and operations it planned. A confirmed schedule blocks
+them for good, and the job is archived instead (decision 0015). Every refusal names the schedules
+in the way, split into drafts the caller can delete and confirmed ones it cannot. Editing a
+scheduled job is always allowed; only removing an operation a schedule recorded is refused, because
+everything else a save can change is already snapshotted on the schedule's own rows.
 
 `CASCADE` is still used, deliberately, in exactly two situations:
 - **Pure pre-execution config with zero independent identity** — Operation has no meaning without
@@ -378,6 +398,8 @@ scheduled or simulated can quietly disappear.
 
 The practical effect: a `Machine`, `Job`, `Operation`, `Schedule`, or `Simulation` that has ever been
 used for anything real cannot be hard-deleted at all — the FK graph refuses it. That's intentional.
+"Used for anything real" starts at confirmation: a draft, and anything only a draft points at, is
+still deletable.
 
 ## Open questions for the team to confirm before the migration lands
 

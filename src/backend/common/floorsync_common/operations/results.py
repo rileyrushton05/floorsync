@@ -17,6 +17,7 @@ from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.outcomes import ExpectedOutcome
+from floorsync_common.scheduling.references import ScheduleReferences
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,10 +59,12 @@ class OperationIsScheduled(ExpectedOutcome):
     """The operation appears in a schedule, so removing it would destroy that schedule's history.
 
     `schedule_entries.operation_id` restricts deletion for exactly this reason; refusing here gives
-    the caller a reason instead of an integrity error. Same policy as deleting a job.
+    the caller a reason instead of an integrity error. Same policy as deleting a job: `references`
+    names the schedules, and only the drafts among them can be deleted to clear the way.
     """
 
     operation_id: UUID
+    references: ScheduleReferences
 
 
 type CreateOperationResult = OperationCreated | JobNotFound

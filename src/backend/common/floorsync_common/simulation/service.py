@@ -8,6 +8,7 @@ Transactions are owned by the caller. Nothing here commits or rolls back;
 `flush()` is used only where a generated value or a subsequent read needs it.
 """
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Final
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.database.models.simulation_event import SimulationEvent
+from floorsync_common.jobs.service import JobService
 from floorsync_common.simulation import queries
 from floorsync_common.simulation.events import (
     SimulatedTimePoint,
@@ -47,6 +49,8 @@ STATUS_NOT_STARTED: Final = "not_started"
 STATUS_RUNNING: Final = "running"
 STATUS_PAUSED: Final = "paused"
 STATUS_COMPLETE: Final = "complete"
+
+logger = logging.getLogger(__name__)
 
 SCHEDULE_CONFIRMED: Final = "confirmed"
 
@@ -212,6 +216,22 @@ class SimulationService:
         SimulationService._project_onto_simulation(
             simulation, event_type=event_type, speed=speed, occurred_at=occurred_at
         )
+        if event_type is SimulationEventType.COMPLETED:
+            # The floor has done this schedule's work, so its jobs leave the backlog. Same
+            # transaction as the event, so the two cannot disagree. A later RESET replays the
+            # simulation without bringing the jobs back (decision 0015).
+            archived = await JobService.archive_scheduled_jobs(
+                db, schedule_id=simulation.schedule_id, archived_at=occurred_at
+            )
+            logger.info(
+                "Simulation completion archived the schedule's jobs",
+                extra={
+                    "event": "simulation_completed_jobs_archived",
+                    "simulation_id": str(simulation_id),
+                    "schedule_id": str(simulation.schedule_id),
+                    "archived_jobs": archived,
+                },
+            )
         await db.flush()
 
         position = await SimulationService._derive_position(

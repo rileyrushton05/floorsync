@@ -97,6 +97,7 @@ class JobDefinitionResponse(ResponseSchema):
     id: UUID
     name: str
     priority: JobPriority
+    archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
     operations: list[BuilderOperationResponse]

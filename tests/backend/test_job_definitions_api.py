@@ -46,6 +46,7 @@ from floorsync_common.jobs.definition_results import (
 from floorsync_common.jobs.definitions import DefinitionPage, JobDefinitionService
 from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.operations.results import DependencyCycle
+from floorsync_common.scheduling.references import ScheduleReferences
 from floorsync_common.settings import Settings
 
 CREATED_AT = datetime(2026, 9, 12, 8, tzinfo=UTC)
@@ -264,6 +265,41 @@ def test_list_definitions_returns_a_cursor_page(monkeypatch: pytest.MonkeyPatch)
     assert [item["id"] for item in body["items"]] == [str(definition.job.id)]
 
 
+def test_list_definitions_hides_archived_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The builder's list is the backlog too, so it takes the same `include_archived` opt-in."""
+
+    received: list[bool] = []
+
+    async def fake(_: object, **kwargs: object) -> DefinitionsListed:
+        received.append(bool(kwargs["include_archived"]))
+        return DefinitionsListed(definitions=(), next_cursor=None)
+
+    monkeypatch.setattr(JobDefinitionService, "list_definitions", staticmethod(fake))
+
+    definition_client().get("/api/v1/job-definitions")
+    definition_client().get("/api/v1/job-definitions", params={"include_archived": "true"})
+
+    assert received == [False, True]
+
+
+def test_list_definitions_filters_archived_in_the_query() -> None:
+    """The filter lives in the service, not the route, so every caller gets the same backlog."""
+
+    source = inspect.getsource(JobDefinitionService.list_definitions)
+    assert "Job.archived_at.is_(None)" in source
+
+
+def test_definition_response_reports_archived_at(monkeypatch: pytest.MonkeyPatch) -> None:
+    definition = make_definition()
+    definition.job.archived_at = definition.job.created_at
+    stub(monkeypatch, "get_definition", DefinitionFound(definition=definition))
+
+    response = definition_client().get(f"/api/v1/jobs/{definition.job.id}/definition")
+
+    assert response.status_code == 200
+    assert response.json()["archived_at"] is not None
+
+
 def test_list_definitions_rejects_an_out_of_range_limit() -> None:
     response = definition_client().get("/api/v1/job-definitions", params={"limit": 500})
 
@@ -332,14 +368,31 @@ def test_replace_definition_returns_404_when_absent(monkeypatch: pytest.MonkeyPa
     assert response.json()["type"] == "urn:floorsync:problem:job-not-found"
 
 
-def test_replace_definition_refuses_when_scheduled(monkeypatch: pytest.MonkeyPatch) -> None:
-    job_id = uuid4()
-    stub(monkeypatch, "replace_definition", JobDefinitionIsScheduled(job_id=job_id))
+def test_replace_definition_refuses_when_a_removed_operation_is_scheduled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 409 names the schedules in the way, split by whether deleting them would clear it."""
+
+    job_id, draft_id = uuid4(), uuid4()
+    stub(
+        monkeypatch,
+        "replace_definition",
+        JobDefinitionIsScheduled(
+            job_id=job_id,
+            references=ScheduleReferences(
+                draft_schedule_ids=(draft_id,), confirmed_schedule_ids=()
+            ),
+        ),
+    )
 
     response = definition_client().put(f"/api/v1/jobs/{job_id}/definition", json=replace_body())
 
     assert response.status_code == 409
-    assert response.json()["type"] == "urn:floorsync:problem:job_definition_is_scheduled"
+    body = response.json()
+    assert body["type"] == "urn:floorsync:problem:job_definition_is_scheduled"
+    assert body["draft_schedule_ids"] == [str(draft_id)]
+    assert body["confirmed_schedule_ids"] == []
+    assert "removes an operation" in body["detail"]
 
 
 def test_replace_definition_reports_an_operation_from_another_job(
@@ -495,11 +548,30 @@ def test_replace_definition_skips_a_pair_a_retained_edge_already_covers() -> Non
     assert "if pair not in retained_pairs" in source
 
 
+def test_replace_definition_only_refuses_scheduled_operations_it_removes() -> None:
+    """The 409 is scoped to removals, not to every save touching a scheduled job (#258).
+
+    `schedule_entries` snapshots duration, energy, machine salary, machine and start time, and
+    `schedule_dependencies` snapshots the graph, so an edit that keeps every operation cannot
+    rewrite what a schedule recorded. Only a removal is unsafe, because
+    `schedule_entries.operation_id` is ON DELETE RESTRICT. Guarding the whole save instead made a
+    floor uneditable the moment one schedule had been generated over it.
+    """
+
+    source = inspect.getsource(definitions_service.JobDefinitionService.replace_definition)
+    guard = source.index("JobDefinitionIsScheduled(")
+    lookup = source.rindex("find_schedule_references(", 0, guard)
+    assert "operation_ids=removed_ids" in source[lookup:guard], (
+        "the scheduled-operation guard must look up removed_ids, not every existing operation"
+    )
+    assert source.index("removed_ids = ") < lookup
+
+
 def test_replace_definition_checks_scheduled_before_writing_anything() -> None:
     """The 409 check, and every validation check, must run before any attribute is mutated."""
 
     source = inspect.getsource(definitions_service.JobDefinitionService.replace_definition)
-    scheduled_check = source.index("JobDefinitionIsScheduled")
+    scheduled_check = source.index("JobDefinitionIsScheduled(")
     external_dependent_check = source.index("_find_external_dependent(")
     cycle_check = source.index("find_dependency_cycle(")
     first_write = source.index("job.name =")

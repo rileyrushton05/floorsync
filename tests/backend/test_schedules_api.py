@@ -16,7 +16,10 @@ from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
-from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
+from floorsync_common.scheduling.task_names import (
+    EXACT_SCHEDULE_GENERATION_TASK,
+    SCHEDULE_GENERATION_TASK,
+)
 from floorsync_common.settings import Settings
 
 
@@ -169,6 +172,24 @@ def test_manager_can_queue_schedule_generation(monkeypatch: Any) -> None:
     )
 
 
+def test_manager_can_request_the_exact_strategy(monkeypatch: Any) -> None:
+    queue = FakeTaskQueue()
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules",
+        json={"starts_at": "2026-09-06T08:00:00Z", "strategy": "exact"},
+    )
+
+    assert response.status_code == 202
+    assert queue.sent == (
+        EXACT_SCHEDULE_GENERATION_TASK,
+        ("2026-09-06T08:00:00+00:00", None),
+        "scheduling",
+    )
+
+
 def test_omitting_job_ids_still_queues_a_whole_floor_run(monkeypatch: Any) -> None:
     """The selection is optional, so #231 changes no existing caller's behaviour."""
 
@@ -202,6 +223,32 @@ def test_queued_generation_carries_the_selected_jobs(monkeypatch: Any) -> None:
     assert queue.sent == (
         SCHEDULE_GENERATION_TASK,
         ("2026-09-06T08:00:00+00:00", [str(first), str(second)]),
+        "scheduling",
+    )
+
+
+def test_a_job_selection_reaches_the_exact_solver_task_too(monkeypatch: Any) -> None:
+    """Both engines load through the same `SchedulingService.load_input`, so scoping isn't
+    resched-only."""
+
+    queue = FakeTaskQueue()
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+    job_id = uuid4()
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules",
+        json={
+            "starts_at": "2026-09-06T08:00:00Z",
+            "strategy": "exact",
+            "job_ids": [str(job_id)],
+        },
+    )
+
+    assert response.status_code == 202
+    assert queue.sent == (
+        EXACT_SCHEDULE_GENERATION_TASK,
+        ("2026-09-06T08:00:00+00:00", [str(job_id)]),
         "scheduling",
     )
 
@@ -457,5 +504,178 @@ def test_operator_cannot_list_schedules() -> None:
     response = TestClient(
         schedule_application(operator, cast(Any, FakeScheduleListSession([schedule])))
     ).get("/api/v1/schedules")
+
+    assert response.status_code == 403
+
+
+def _stub_delete_draft(monkeypatch: Any, outcome: object) -> None:
+    from floorsync_common.scheduling import lifecycle
+
+    async def fake(_: object, __: UUID) -> object:
+        return outcome
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "delete_draft", staticmethod(fake))
+
+
+def test_manager_can_delete_a_draft(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling.lifecycle import ScheduleDeleted
+
+    schedule_id = uuid4()
+    _stub_delete_draft(monkeypatch, ScheduleDeleted(schedule_id=schedule_id))
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{schedule_id}"
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_deleting_a_missing_schedule_returns_not_found(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling.lifecycle import ScheduleNotFound
+
+    schedule_id = uuid4()
+    _stub_delete_draft(monkeypatch, ScheduleNotFound(schedule_id=schedule_id))
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{schedule_id}"
+    )
+
+    assert response.status_code == 404
+
+
+def test_deleting_a_confirmed_schedule_is_refused(monkeypatch: Any) -> None:
+    """A confirmed schedule is the record of what the floor was told to do (decision 0015)."""
+
+    from floorsync_common.scheduling.lifecycle import ScheduleNotDraft
+
+    schedule_id = uuid4()
+    _stub_delete_draft(monkeypatch, ScheduleNotDraft(schedule_id=schedule_id, status="confirmed"))
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{schedule_id}"
+    )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["type"] == "urn:floorsync:problem:schedule-is-not-draft"
+    assert body["schedule_status"] == "confirmed"
+
+
+def test_operator_cannot_delete_a_schedule() -> None:
+    operator = User(id=uuid4(), name="Operator", role="operator")
+
+    response = TestClient(schedule_application(operator, FakeScheduleSession())).delete(
+        f"/api/v1/schedules/{uuid4()}"
+    )
+
+    assert response.status_code == 403
+
+
+def _stub_validation(monkeypatch: Any, report: object) -> list[object]:
+    """Replace the validation read with a fixed report; returns the selections it was asked for."""
+
+    from floorsync_common.scheduling import validation
+
+    calls: list[object] = []
+
+    async def fake(_: object, *, job_ids: object = None) -> object:
+        calls.append(job_ids)
+        return report
+
+    monkeypatch.setattr(validation.ValidationService, "validate_floor", staticmethod(fake))
+    return calls
+
+
+def test_validation_route_maps_the_report(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling.contracts import SchedulingIssue
+    from floorsync_common.scheduling.validation import FloorValidation, StrategyLimit
+
+    operation_id, job_id = uuid4(), uuid4()
+    _stub_validation(
+        monkeypatch,
+        FloorValidation(
+            issues=(SchedulingIssue("cyclic_dependencies", "Loop.", operation_id),),
+            warnings=(SchedulingIssue("job_has_no_operations", "Empty.", job_id=job_id),),
+            unsupported=(
+                StrategyLimit(
+                    strategy="resched",
+                    issue=SchedulingIssue("unsupported_dependency_shape", "Fan-in.", operation_id),
+                ),
+            ),
+            schedulable={"resched": False, "exact": False},
+        ),
+    )
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        "/api/v1/schedules/validation"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schedulable"] == {"resched": False, "exact": False}
+    assert body["issues"] == [
+        {
+            "code": "cyclic_dependencies",
+            "message": "Loop.",
+            "operation_id": str(operation_id),
+            "machine_id": None,
+            "job_id": None,
+        }
+    ]
+    assert body["warnings"][0]["job_id"] == str(job_id)
+    assert body["unsupported"][0]["strategy"] == "resched"
+    assert body["unsupported"][0]["issue"]["code"] == "unsupported_dependency_shape"
+
+
+def test_validation_route_passes_the_selection_through(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling.validation import FloorValidation
+
+    first, second = uuid4(), uuid4()
+    calls = _stub_validation(
+        monkeypatch,
+        FloorValidation(
+            issues=(), warnings=(), unsupported=(), schedulable={"resched": True, "exact": True}
+        ),
+    )
+    manager = User(id=uuid4(), name="Manager", role="manager")
+    client = TestClient(schedule_application(manager, FakeScheduleSession()))
+
+    client.get("/api/v1/schedules/validation")
+    client.get("/api/v1/schedules/validation", params={"job_ids": [str(first), str(second)]})
+
+    assert calls == [None, [first, second]]
+
+
+def test_validation_is_declared_before_the_schedule_id_route(monkeypatch: Any) -> None:
+    """Otherwise `/validation` is parsed as a schedule id and refused as a malformed UUID."""
+
+    from floorsync_common.scheduling.validation import FloorValidation
+
+    _stub_validation(
+        monkeypatch,
+        FloorValidation(
+            issues=(), warnings=(), unsupported=(), schedulable={"resched": True, "exact": True}
+        ),
+    )
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        "/api/v1/schedules/validation"
+    )
+
+    assert response.status_code != 422
+
+
+def test_operator_cannot_validate_the_floor() -> None:
+    operator = User(id=uuid4(), name="Operator", role="operator")
+
+    response = TestClient(schedule_application(operator, FakeScheduleSession())).get(
+        "/api/v1/schedules/validation"
+    )
 
     assert response.status_code == 403
