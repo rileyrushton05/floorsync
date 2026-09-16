@@ -120,6 +120,15 @@ is hashed with Argon2 before it is stored.
 [docs/accounts.md](docs/accounts.md) covers the rest: machine-bound operator accounts, listing
 accounts, resetting a password, disabling one, and why operators must be created *after* seeding.
 
+### Exact solver (Gurobi)
+
+The scheduler's "Exact" strategy runs the FAJSP MILP through Gurobi, which needs a license to solve
+anything beyond a trivial size. Drop your license file at the repo root as `gurobi.lic` — the worker
+container already mounts the whole repo at `/app` and has `GRB_LICENSE_FILE=/app/gurobi.lic` set, so
+nothing else to configure. `gurobi.lic` is gitignored; never commit it. Restart the worker after adding
+it: `docker compose up -d worker`. Without a license, "Exact" runs still queue but fail once Gurobi
+rejects the model — the "ReSched" strategy is unaffected either way.
+
 Open the frontend at <http://localhost:3000>, API health at <http://localhost:8002/health>, and FastAPI docs at <http://localhost:8002/docs>.
 The PostgreSQL and API host ports default to `5433` and `8002`; override
 `POSTGRES_HOST_PORT`, `API_HOST_PORT`, and the matching `NEXT_PUBLIC_API_URL` in `.env`

@@ -1291,6 +1291,15 @@
             "format": "date-time",
             "title": "Starts At",
             "type": "string"
+          },
+          "strategy": {
+            "default": "resched",
+            "enum": [
+              "resched",
+              "exact"
+            ],
+            "title": "Strategy",
+            "type": "string"
           }
         },
         "required": [

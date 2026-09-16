@@ -5,17 +5,37 @@ from time import perf_counter_ns
 from typing import assert_never
 from uuid import UUID
 
+from gurobipy import GurobiError
+
+from floorsync_common.operations.service import find_dependency_cycle
 from floorsync_common.scheduling import (
     ReSchedEngine,
     ReSchedRuntimeUnavailable,
     ScheduleGenerated,
     SchedulingInput,
     SchedulingInputInvalid,
+    SchedulingIssue,
     SchedulingService,
 )
-from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
+from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
+from floorsync_common.scheduling.gurobi_exact_solver import TIME_LIMIT_SECONDS as EXACT_TIME_LIMIT
+from floorsync_common.scheduling.gurobi_exact_solver import (
+    NoFeasibleSchedule,
+    adapt_scheduling_input,
+    solve_fajsp,
+)
+from floorsync_common.scheduling.task_names import (
+    EXACT_SCHEDULE_GENERATION_TASK,
+    SCHEDULE_GENERATION_TASK,
+)
 from floorsync_workers.celery_app import celery_app
 from floorsync_workers.database import worker_session_scope
+
+# Celery's own limits sit above Gurobi's `TimeLimit`, so a hung solve or a stalled database call is
+# still bounded even if Gurobi itself never returns: `soft_time_limit` gives the task a chance to
+# raise cleanly once the solve should already be done, `time_limit` is the last-resort hard kill.
+_EXACT_SOFT_TIME_LIMIT = EXACT_TIME_LIMIT + 30
+_EXACT_HARD_TIME_LIMIT = EXACT_TIME_LIMIT + 45
 
 
 def _issues_payload(result: SchedulingInputInvalid) -> list[dict[str, str]]:
@@ -77,3 +97,99 @@ def generate_schedule(starts_at: str, job_ids: list[str] | None = None) -> dict[
             job_ids=selection,
         )
     return {"outcome": "stored", "schedule_id": str(stored.schedule.id)}
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name=EXACT_SCHEDULE_GENERATION_TASK,
+    queue="scheduling",
+    soft_time_limit=_EXACT_SOFT_TIME_LIMIT,
+    time_limit=_EXACT_HARD_TIME_LIMIT,
+)
+def generate_schedule_exact(starts_at: str, job_ids: list[str] | None = None) -> dict[str, object]:
+    """Generate and persist a draft with the exact Gurobi solver.
+
+    Loads through the same `SchedulingService.load_input` as `generate_schedule`, so `job_ids`
+    scoping and its refusals (`unknown_job`, `empty_selection`, `unscheduled_prerequisite_job`)
+    behave identically regardless of which engine solves the result -- there is no second, exact-
+    solver-only read path to keep in sync with #231's rules.
+
+    Loading and storing each run in their own transaction, same as `generate_schedule`, so the
+    database connection isn't held for the duration of `model.optimize()`. A dependency cycle is
+    rejected before the model is even built: Gurobi would otherwise report the same instance as
+    infeasible, which is indistinguishable from a genuinely hard but acyclic one. A missing or
+    rejected Gurobi licence raises `GurobiError` rather than failing to find a feasible solution, so
+    it is reported as `unavailable` instead -- the same outcome `generate_schedule` reports for
+    `ReSchedRuntimeUnavailable`.
+    """
+
+    selection = [UUID(job_id) for job_id in job_ids] if job_ids is not None else None
+
+    with worker_session_scope() as db:
+        loaded = SchedulingService.load_input(
+            db, starts_at=datetime.fromisoformat(starts_at), job_ids=selection
+        )
+    match loaded:
+        case SchedulingInputInvalid():
+            return {"outcome": "invalid", "issues": _issues_payload(loaded)}
+        case SchedulingInput() as problem:
+            pass
+        case _:
+            assert_never(loaded)
+
+    cycle = find_dependency_cycle(
+        [
+            (dependency.before_operation_id, dependency.after_operation_id)
+            for dependency in problem.dependencies
+        ]
+    )
+    if cycle:
+        cyclic = SchedulingInputInvalid(
+            issues=tuple(
+                SchedulingIssue(
+                    "cyclic_dependencies",
+                    "This operation is part of a dependency cycle and can never be scheduled.",
+                    operation_id,
+                )
+                for operation_id in cycle
+            )
+        )
+        return {"outcome": "invalid", "issues": _issues_payload(cyclic)}
+
+    try:
+        operations, eligible_machines, operation_data, machine_meta = adapt_scheduling_input(
+            problem
+        )
+    except ValueError as exc:
+        return {
+            "outcome": "invalid",
+            "issues": [{"code": "no_compatible_machine", "message": str(exc)}],
+        }
+
+    try:
+        plan, runtime_ms, proven_optimal, gap = solve_fajsp(
+            operations,
+            eligible_machines,
+            operation_data,
+            machine_meta,
+            problem.starts_at,
+        )
+    except NoFeasibleSchedule as exc:
+        return {"outcome": "invalid", "issues": [{"code": "infeasible", "message": str(exc)}]}
+    except GurobiError:
+        return {"outcome": "unavailable"}
+
+    with worker_session_scope() as db:
+        stored = SchedulingService.store_draft(
+            db,
+            plan=plan,
+            runtime_ms=runtime_ms,
+            input_operation_count=len(operation_data),
+            strategy=EXACT_SOLVER_STRATEGY,
+            job_ids=selection,
+        )
+    return {
+        "outcome": "stored",
+        "schedule_id": str(stored.schedule.id),
+        "proven_optimal": proven_optimal,
+        "gap": gap,
+    }

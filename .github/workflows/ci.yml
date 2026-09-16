@@ -1,3 +1,4 @@
+
 name: CI
 
 on:
@@ -28,7 +29,7 @@ jobs:
           enable-cache: true
 
       - name: Install Python dependencies
-        run: uv sync --frozen --group dev --extra resched
+        run: uv sync --frozen --group dev --extra resched --extra exact
 
       - name: Check Python formatting
         run: uv run ruff format --check .

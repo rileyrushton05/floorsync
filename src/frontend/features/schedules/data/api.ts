@@ -21,9 +21,12 @@ export function fetchSchedules(token: string, signal?: AbortSignal) {
 export function fetchScheduleTimeline(scheduleId: string, token: string, signal?: AbortSignal) {
     return apiRequest<ScheduleTimeline>(`/api/v1/schedules/${encodeURIComponent(scheduleId)}/timeline`, token, { signal });
 }
-export function requestSchedule(startsAt: string, token: string) {
+/** Which engine plans the floor: the learned ReSched policy, or the exact Gurobi solver. */
+export type ScheduleStrategy = "resched" | "exact";
+
+export function requestSchedule(startsAt: string, token: string, strategy: ScheduleStrategy = "resched") {
     return apiRequest<ScheduleGenerationAccepted>("/api/v1/schedules", token, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ starts_at: startsAt }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ starts_at: startsAt, strategy }),
     });
 }
 export function fetchScheduleGeneration(generationId: string, token: string, signal?: AbortSignal) {

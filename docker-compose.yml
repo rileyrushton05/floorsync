@@ -43,6 +43,9 @@ services:
     env_file: .env
     environment:
       PYTHONPATH: /app/src/backend/common:/app/src/backend/api:/app/src/backend/workers
+      # Gurobi picks this up on import. `.:/app` already mounts the repo root,
+      # so dropping gurobi.lic there is enough -- no extra volume needed.
+      GRB_LICENSE_FILE: /app/gurobi.lic
     volumes:
       - .:/app
     depends_on:
