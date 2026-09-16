@@ -7,6 +7,7 @@ import {
     fetchSchedules,
     requestSchedule,
     type ScheduleGenerationStatus,
+    type ScheduleStrategy,
 } from "./api";
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -75,7 +76,8 @@ export function useScheduleGeneration(generation: { id: string; deadline: number
 export function useRequestSchedule() {
     const { token } = useAuth();
     return useMutation({
-        mutationFn: ({ startsAt }: { startsAt: string }) => requestSchedule(startsAt, requireToken(token)),
+        mutationFn: ({ startsAt, strategy }: { startsAt: string; strategy: ScheduleStrategy }) =>
+            requestSchedule(startsAt, requireToken(token), strategy),
     });
 }
 

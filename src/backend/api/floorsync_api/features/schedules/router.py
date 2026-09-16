@@ -30,12 +30,20 @@ from floorsync_common.scheduling.lifecycle import (
     ScheduleNotDraft,
     ScheduleNotFound,
 )
-from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
+from floorsync_common.scheduling.task_names import (
+    EXACT_SCHEDULE_GENERATION_TASK,
+    SCHEDULE_GENERATION_TASK,
+)
 from floorsync_common.task_queue import create_task_queue
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 Manager = Annotated[User, Depends(require_roles("manager"))]
 task_queue = create_task_queue()
+
+_GENERATION_TASK_BY_STRATEGY = {
+    "resched": SCHEDULE_GENERATION_TASK,
+    "exact": EXACT_SCHEDULE_GENERATION_TASK,
+}
 
 SCHEDULING_ENGINE_UNAVAILABLE_DETAIL = (
     "The scheduling engine is unavailable for this run. "
@@ -62,13 +70,13 @@ async def create_schedule(
 ) -> ScheduleGenerationAcceptedResponse | JSONResponse:
     """Queue draft generation without running the scheduling policy in the API process."""
 
+    # The selection travels as strings because a Celery argument has to survive JSON, and is sent
+    # unvalidated: checking it needs the dependency graph, and this endpoint reads no database at
+    # all. Both tasks load through the same `SchedulingService.load_input`, so the worker refuses a
+    # bad selection and the status resource reports it identically regardless of strategy.
     try:
         task = task_queue.send_task(
-            SCHEDULE_GENERATION_TASK,
-            # The selection travels as strings because a Celery argument has to survive JSON, and
-            # is sent unvalidated: checking it needs the dependency graph, and this endpoint reads
-            # no database at all. The worker refuses a bad selection and the status resource
-            # reports it, the same way every other unschedulable input is reported.
+            _GENERATION_TASK_BY_STRATEGY[command.strategy],
             args=(
                 command.starts_at.isoformat(),
                 None if command.job_ids is None else [str(job_id) for job_id in command.job_ids],

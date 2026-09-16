@@ -3,6 +3,7 @@
 import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+    type ScheduleStrategy,
     type ScheduleTimeline,
     type SchedulingIssue,
 } from "../data/api";
@@ -35,6 +36,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
@@ -87,6 +89,12 @@ const IN_FLIGHT: ReadonlySet<Generation["status"]> = new Set([
     "running",
     "drawing",
 ] as const);
+
+/** The engines a manager can choose between when queuing a run. */
+const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
+    { value: "resched", label: "ReSched", hint: "Learned policy — fast, approximate" },
+    { value: "exact", label: "Exact", hint: "Gurobi MILP — optimal, slower" },
+];
 
 /** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
 function formatCreated(iso: string): string {
@@ -244,6 +252,7 @@ export default function SchedulerPage() {
     const requestSchedule = useRequestSchedule();
     const [generationRequest, setGenerationRequest] = useState<{ id: string; deadline: number } | null>(null);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+    const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
     const generationQuery = useScheduleGeneration(generationRequest);
     const reportedGenerationFailure = useRef<string | null>(null);
     const latestSchedule = schedulesQuery.data?.[0] ?? null;
@@ -306,7 +315,7 @@ export default function SchedulerPage() {
 
     const generate = () => {
         setHighlightedJobId(null);
-        requestSchedule.mutate({ startsAt: new Date().toISOString() }, {
+        requestSchedule.mutate({ startsAt: new Date().toISOString(), strategy }, {
             onSuccess: (accepted) => {
                 setGenerationRequest({ id: accepted.id, deadline: Date.now() + 180_000 });
             },
@@ -407,6 +416,28 @@ export default function SchedulerPage() {
 
     return (
         <ManagerShell actions={<>
+                <ToggleGroup
+                    aria-label="Scheduling engine"
+                    selectionMode="single"
+                    disallowEmptySelection
+                    isDisabled={busy}
+                    selectedKeys={new Set([strategy])}
+                    onSelectionChange={(keys) => {
+                        const [first] = Array.from(keys);
+                        if (first === "resched" || first === "exact") setStrategy(first);
+                    }}
+                >
+                    {STRATEGIES.map((option) => (
+                        <ToggleGroupItem
+                            key={option.value}
+                            id={option.value}
+                            aria-label={`${option.label} — ${option.hint}`}
+                        >
+                            {option.label}
+                        </ToggleGroupItem>
+                    ))}
+                </ToggleGroup>
+
                 {/* `isPending` rather than `isDisabled`: React Aria already stops
                     onPress firing while pending, and keeps the control focusable
                     and announced as busy instead of silently going dead. */}

@@ -20,6 +20,7 @@ class ScheduleCreateRequest(RequestSchema):
     """
 
     starts_at: datetime
+    strategy: Literal["resched", "exact"] = "resched"
     job_ids: list[UUID] | None = None
 
 

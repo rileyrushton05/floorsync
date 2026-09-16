@@ -24,6 +24,7 @@ pnpm-debug.log*
 .env.production
 *.key
 *.pem
+gurobi.lic
 
 # Build outputs
 dist/
