@@ -173,6 +173,54 @@ export function draftProblem(draft: JobDraft): string | null {
     return null;
 }
 
+/** Whether a draft can be written, and what to say when it cannot. */
+export interface SaveGate {
+    canSave: boolean;
+    /** Shown beside the save button, and raised if a save is asked for anyway. */
+    reason: string | null;
+    /** True when there is work to write but something is standing in the way. */
+    held: boolean;
+}
+
+/**
+ * The one answer to "can this be saved yet", shared by the button and Ctrl+S.
+ *
+ * Two places can ask for a save, and a shortcut that saves what a disabled
+ * button refuses — or refuses what the button offers — is worse than having no
+ * shortcut at all. So the condition lives here and neither of them owns it.
+ *
+ * `held` separates "nothing to do" from "something is in the way": pressing
+ * Ctrl+S on an unchanged job should do nothing quietly, while pressing it on a
+ * draft that cannot be written yet has to say why.
+ */
+export function saveGate(input: {
+    isNew: boolean;
+    dirty: boolean;
+    problem: string | null;
+    graphReady: boolean;
+    graphFailed: boolean;
+    loading: boolean;
+    hasLoadError: boolean;
+}): SaveGate {
+    if (input.loading || input.hasLoadError) {
+        return { canSave: false, reason: null, held: input.dirty };
+    }
+    if (!input.graphReady) {
+        return {
+            canSave: false,
+            reason: input.graphFailed
+                ? "This job's step order could not be loaded, so saving would overwrite it."
+                : "Loading this job's step order…",
+            held: true,
+        };
+    }
+    if (input.problem !== null) return { canSave: false, reason: input.problem, held: true };
+    if (!input.dirty) {
+        return { canSave: false, reason: input.isNew ? null : "No unsaved changes.", held: false };
+    }
+    return { canSave: true, reason: null, held: false };
+}
+
 export interface JobFilters {
     query: string;
     priority: Priority | "All";

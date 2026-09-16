@@ -18,7 +18,7 @@ import {
 import { useMachines } from "@/features/machines/data/queries";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
 import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
@@ -35,6 +35,7 @@ import {
     draftProblem,
     filterJobs,
     jobSequenceNumbers,
+    saveGate,
     type JobDraft,
     type JobFilters,
 } from "@/features/jobs/model/editor";
@@ -179,7 +180,15 @@ function JobsPageInner() {
     const visibleJobs = useMemo(() => filterJobs(jobs, filters), [jobs, filters]);
 
     const dirty = draftFingerprint(draft) !== draftFingerprint(baselineDraft);
-    const problem = draftProblem(draft);
+    const gate = saveGate({
+        isNew: draft.id === null,
+        dirty,
+        problem: draftProblem(draft),
+        graphReady,
+        graphFailed: graphError !== null && graphError !== undefined,
+        loading,
+        hasLoadError: Boolean(loadError),
+    });
     // Holds in-app links and warns on tab close / reload while work is unsaved.
     useNavigationGuard(dirty, {
         title: "Leave without saving?",
@@ -187,6 +196,47 @@ function JobsPageInner() {
         confirmLabel: "Discard and leave",
         cancelLabel: "Stay on this page",
     });
+
+    /**
+     * Ctrl+S / ⌘S saves, exactly as pressing the button would.
+     *
+     * Bound on the window rather than on the form: the draft is edited from two
+     * panels and a diagram, so the cursor is rarely inside the thing being
+     * saved. The default is always prevented while this screen is mounted —
+     * letting the browser's "Save page as…" sheet open instead would be a worse
+     * answer to the shortcut than doing nothing.
+     */
+    function saveFromShortcut() {
+        // A dialog is a question waiting on an answer; saving the draft behind
+        // it would act on something the manager has already stepped away from.
+        if (pendingOpen !== null || pendingOperationRemoval !== null || confirmingDelete) return;
+        if (saving) return;
+        if (gate.canSave) {
+            void saveDraft();
+            return;
+        }
+        // Silence is the honest answer to "save" when there is nothing to save.
+        // Anything else was an action that did not happen, so it has to say why.
+        if (gate.held && gate.reason !== null) toast.warning(gate.reason);
+    }
+
+    const shortcutRef = useRef(saveFromShortcut);
+    useEffect(() => {
+        shortcutRef.current = saveFromShortcut;
+    });
+
+    useEffect(() => {
+        function onKeyDown(event: KeyboardEvent) {
+            const chord = (event.metaKey || event.ctrlKey) && !event.altKey;
+            if (!chord || event.key.toLowerCase() !== "s") return;
+            event.preventDefault();
+            // Holding the keys down should ask once, not once per repeat.
+            if (!event.repeat) shortcutRef.current();
+        }
+
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, []);
 
     /** Set the draft *and* the baseline: this is the job as the API has it. */
     function openDraft(next: JobDraft) {
@@ -483,8 +533,7 @@ function JobsPageInner() {
                     saving={saving}
                     hasLoadError={Boolean(loadError)}
                     dirty={dirty}
-                    problem={problem}
-                    graphReady={graphReady}
+                    gate={gate}
                     graphError={graphError}
                     onRetryGraph={() => void dependencyQuery.refetch()}
                     onDiscard={discardChanges}

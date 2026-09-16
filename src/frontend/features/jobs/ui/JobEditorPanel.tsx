@@ -1,3 +1,6 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,9 +21,22 @@ import {
     PlusIcon,
 } from "@heroicons/react/24/outline";
 import { criticalPathMins, wouldCreateCycle } from "../model/dependencies";
-import { JOB_PRIORITIES, type JobDraft } from "../model/editor";
+import { JOB_PRIORITIES, type JobDraft, type SaveGate } from "../model/editor";
 import { JobGraphDiagram } from "./JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
+
+/**
+ * Which save chord to print, or null while there is no platform to ask.
+ *
+ * The server cannot know, and guessing then correcting on hydration would flash
+ * the wrong label. `useSyncExternalStore` is the shape for exactly this: a
+ * server snapshot of null, a client snapshot read off the platform, and no
+ * subscription because the answer never changes within a session.
+ */
+const NEVER_CHANGES = () => () => { };
+const readShortcut = () =>
+    /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent) ? "⌘S" : "Ctrl+S";
+const noShortcutOnServer = () => null;
 
 /** One figure in the draft summary. */
 function Stat({ value, label, hint }: { value: string; label: string; hint?: string }) {
@@ -50,8 +66,7 @@ export function JobEditorPanel({
     saving,
     hasLoadError,
     dirty,
-    problem,
-    graphReady,
+    gate,
     graphError,
     onRetryGraph,
     onDiscard,
@@ -80,11 +95,9 @@ export function JobEditorPanel({
     hasLoadError: boolean;
     /** Whether the draft differs from the job as the API has it. */
     dirty: boolean;
-    /** Why this draft cannot be saved yet, or null when it can. */
-    problem: string | null;
-    /** Whether the job's real precedence has arrived, rather than the chain default. */
-    graphReady: boolean;
-    /** Why it has not, when the fetch failed outright. */
+    /** Whether a save is allowed, and why not — shared with the Ctrl+S shortcut. */
+    gate: SaveGate;
+    /** Why the precedence graph has not arrived, when the fetch failed outright. */
     graphError: unknown;
     onRetryGraph: () => void;
     onDiscard: () => void;
@@ -109,6 +122,7 @@ export function JobEditorPanel({
     onSave: () => void;
     onRequestDelete: () => void;
 }) {
+    const shortcut = useSyncExternalStore(NEVER_CHANGES, readShortcut, noShortcutOnServer);
     const workMins = totalWorkMins(draft);
     const durationOf = new Map(
         draft.operations.map((operation) => [operation.id, routeMins(primaryRoute(operation))]),
@@ -120,16 +134,6 @@ export function JobEditorPanel({
     const elapsedMins = criticalPathMins(nodes, (id) => durationOf.get(id) ?? 0);
     // A save waits on the real graph, on the draft being complete, and on the
     // page being in a state where a write makes sense at all.
-    const blocked = loading || hasLoadError || !graphReady || problem !== null || !dirty;
-    const blockedReason = !graphReady
-        ? graphError
-            ? "This job's step order could not be loaded, so saving would overwrite it."
-            : "Loading this job's step order…"
-        : problem !== null
-            ? problem
-            : !dirty && draft.id !== null
-                ? "No unsaved changes."
-                : null;
     const selectedIndex = draft.operations.findIndex((operation) => operation.id === selectedOperationId);
     const selected = selectedIndex >= 0 ? draft.operations[selectedIndex] : null;
     const predecessorOptionsFor = (operationId: string) =>
@@ -297,9 +301,9 @@ export function JobEditorPanel({
                         The message says what to do, in the same place every
                         time, rather than arriving as a toast after a round trip
                         the draft was never going to survive. */}
-                    {blockedReason !== null && (
+                    {gate.reason !== null && (
                         <span className="me-auto text-muted-fg text-sm" role="status">
-                            {blockedReason}
+                            {gate.reason}
                         </span>
                     )}
                     {draft.id && (
@@ -323,8 +327,25 @@ export function JobEditorPanel({
                     >
                         <ArrowUturnLeftIcon /> Discard changes
                     </Button>
-                    <Button onPress={onSave} isPending={saving} isDisabled={blocked}>
+                    <Button
+                        onPress={onSave}
+                        isPending={saving}
+                        isDisabled={!gate.canSave}
+                        aria-keyshortcuts="Control+S Meta+S"
+                    >
                         <CheckIcon /> {draft.id ? "Save changes" : "Create job"}
+                        {/* A shortcut nobody is told about is a shortcut nobody
+                            uses. Rendered only after mount, so the server and
+                            the first client render agree on nothing rather than
+                            on a guess about which platform this is. */}
+                        {shortcut !== null && (
+                            <kbd
+                                aria-hidden
+                                className="ms-1 font-sans text-[0.75em] opacity-70"
+                            >
+                                {shortcut}
+                            </kbd>
+                        )}
                     </Button>
                 </div>
             </CardContent>
