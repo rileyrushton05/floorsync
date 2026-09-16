@@ -12,6 +12,9 @@ the same name would be two types that no single `case` pattern could catch. Call
 from dataclasses import dataclass
 from uuid import UUID
 
+from floorsync_common.database.models.compatibility import Compatibility
+from floorsync_common.database.models.machine import Machine
+
 from floorsync_common.database.models.category import Category
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.machine import Machine
@@ -41,6 +44,24 @@ class MachineNotFound(ExpectedOutcome):
 
 
 @dataclass(frozen=True, slots=True)
+class MachineDeleted:
+    machine_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class MachineHasOperations(ExpectedOutcome):
+    """The machine is still assigned to operations, so removing it would break the scheduler.
+
+    `compatibilities.machine_id` restricts deletion for exactly this reason: the route tells the
+    scheduler which machines can run an operation, and dropping a machine that operations still
+    name would leave those definitions pointing at nothing.
+    """
+
+    machine_id: UUID
+    operation_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class MachineNameAlreadyExists(ExpectedOutcome):
     """`machines.name` is unique, so a second machine cannot reuse a name already in service."""
 
@@ -57,6 +78,7 @@ type GetMachineResult = MachineFound | MachineNotFound
 type UpdateMachineResult = (
     MachineUpdated | MachineNotFound | MachineNameAlreadyExists | CategoryNotFound
 )
+type DeleteMachineResult = MachineDeleted | MachineNotFound | MachineHasOperations
 
 
 @dataclass(frozen=True, slots=True)

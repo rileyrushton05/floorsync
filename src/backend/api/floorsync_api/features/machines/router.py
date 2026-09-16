@@ -28,7 +28,9 @@ from floorsync_common.machines.results import (
     CategoryNameAlreadyExists,
     CategoryNotFound,
     MachineCreated,
+    MachineDeleted,
     MachineFound,
+    MachineHasOperations,
     MachineNameAlreadyExists,
     MachineNotFound,
     MachineUpdated,
@@ -172,6 +174,55 @@ async def update_machine(
                 return _machine_name_conflict(request, name)
             case CategoryNotFound(category_id=category_id):
                 return _category_reference_invalid(request, category_id)
+            case _:
+                assert_never(result)
+
+
+@router.delete(
+    "/{machine_id}",
+    # The route answers 204 on success and 409 when operations still assign the machine, so it
+    # returns a Response itself rather than letting FastAPI infer one body shape for both.
+    response_model=None,
+    summary="Remove a machine",
+    responses={
+        204: {"description": "The machine was removed"},
+        409: {"description": "Operations are still assigned to the machine"},
+    },
+)
+async def delete_machine(
+    machine_id: UUID,
+    request: Request,
+    db: DbSession,
+    _: Manager,
+) -> Response | JSONResponse:
+    """Remove a machine no operation is assigned to.
+
+    A machine that any job definition's routes still name cannot be removed: the scheduler would be
+    left planning work onto a machine that no longer exists. Unassign or re-route those operations
+    first, or deactivate the machine to keep it out of new plans while retaining history.
+    """
+
+    async with db.begin():
+        result = await MachineService.remove_machine(db, machine_id)
+
+        match result:
+            case MachineDeleted():
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            case MachineNotFound():
+                raise _machine_not_found()
+            case MachineHasOperations(machine_id=machine_id, operation_count=count):
+                return problem_response(
+                    ProblemDetail(
+                        type="urn:floorsync:problem:machine-has-operations",
+                        title="Machine is still assigned to operations",
+                        status=status.HTTP_409_CONFLICT,
+                        detail=(
+                            f"{count} operation{'s are' if count != 1 else ' is'} still assigned "
+                            "to this machine. Unassign or re-route them before removing it."
+                        ),
+                        instance=request.url.path,
+                    )
+                )
             case _:
                 assert_never(result)
 

@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Button } from "react-aria-components/Button";
 import { ToggleButton } from "react-aria-components/ToggleButton";
 import { jobColor, tint, type JobColor } from "../colors";
 import { formatDuration, formatOffset } from "../format";
-import { DEFAULT_HOUR_PX, timelineHourStyle, type TimelineZoomControls } from "./TimelineNavigator";
 import type { GeneratedSchedule, JobDef, Machine } from "../types";
+import { DEFAULT_HOUR_PX, TIMELINE_GUTTER_PX, timelineHourStyle, type TimelineZoomControls } from "./TimelineNavigator";
 
 /**
  * The schedule grid, shared by the plan view and the simulation.
@@ -64,6 +64,7 @@ export function GanttChart({
     highlightedMachineId = null,
     onSelectJob,
     zoom = null,
+    onScrub = null,
 }: {
     machines: Machine[];
     jobs: JobDef[];
@@ -76,11 +77,60 @@ export function GanttChart({
     onSelectJob?: (jobId: string) => void;
     /** Live zoom state from `useTimelineZoom`; omit for the fixed default scale. */
     zoom?: TimelineZoomControls | null;
+    /** In simulation mode, drag the "now" line to move the clock to `mins`. */
+    onScrub?: ((mins: number) => void) | null;
 }) {
     const now = mode === "simulation" ? nowMins : null;
     const hours = Math.max(1, Math.ceil(schedule.makespanMins / 60));
     const jobName = (jobId: string) => jobs.find((job) => job.id === jobId)?.name ?? jobId;
     const [hoveredOpId, setHoveredOpId] = useState<string | null>(null);
+    const chartRef = useRef<HTMLDivElement | null>(null);
+
+    // Dragging the "now" line scrubs the clock: convert the pointer's x, which
+    // lives in screen space, back into plan minutes via the live hour scale.
+    const scrubTo = useCallback(
+        (clientX: number) => {
+            const chart = chartRef.current;
+            if (!chart || !onScrub) return;
+            const rect = chart.getBoundingClientRect();
+            const hourPx = zoom?.hourPx ?? DEFAULT_HOUR_PX;
+            const mins = ((clientX - rect.left - TIMELINE_GUTTER_PX) / hourPx) * 60;
+            onScrub(Math.max(0, Math.min(schedule.makespanMins, mins)));
+        },
+        [onScrub, schedule.makespanMins, zoom?.hourPx],
+    );
+    const onNowPointerDown = useCallback(
+        (event: React.PointerEvent<HTMLDivElement>) => {
+            if (!onScrub) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            scrubTo(event.clientX);
+        },
+        [onScrub, scrubTo],
+    );
+    const onNowPointerMove = useCallback(
+        (event: React.PointerEvent<HTMLDivElement>) => {
+            // Pointer capture keeps the drag alive even when the pointer leaves
+            // the chart, and the buttons filter out non-drag moves.
+            if (event.buttons & 1) scrubTo(event.clientX);
+        },
+        [scrubTo],
+    );
+    const onNowKeyDown = useCallback(
+        (event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (!onScrub || now === null) return;
+            const stepMins = event.shiftKey ? 60 : 10;
+            let next: number | null = null;
+            if (event.key === "ArrowLeft") next = now - stepMins;
+            if (event.key === "ArrowRight") next = now + stepMins;
+            if (event.key === "Home") next = 0;
+            if (event.key === "End") next = schedule.makespanMins;
+            if (next === null) return;
+            event.preventDefault();
+            onScrub(Math.max(0, Math.min(schedule.makespanMins, next)));
+        },
+        [now, onScrub, schedule.makespanMins],
+    );
     const usedMachines = machines.filter((machine) =>
         schedule.ops.some((op) => op.machineId === machine.id),
     );
@@ -100,6 +150,7 @@ export function GanttChart({
                 `overscroll-x-contain` stops a trackpad swipe past the end from
                 turning into browser back-navigation. */}
             <div
+                ref={chartRef}
                 className="scroll-rail max-h-[68dvh] min-h-0 flex-1 overflow-auto overscroll-x-contain rounded-lg border bg-muted"
                 {...(zoom ? zoom.chartProps : {})}
             >
@@ -132,6 +183,40 @@ export function GanttChart({
                                 </div>
                             ));
                         })()}
+                        {onScrub && now !== null && (
+                            /* The black hour ruler doubles as a scrub surface:
+                               pressing anywhere along it jumps the clock there and
+                               dragging continues the scrub, exactly like the
+                               narrower grab strip on the now-line below. */
+                            <div
+                                role="slider"
+                                tabIndex={0}
+                                aria-label="Scrub the simulation clock along the hour ruler"
+                                aria-valuemin={0}
+                                aria-valuemax={schedule.makespanMins}
+                                aria-valuenow={Math.round(now)}
+                                aria-valuetext={formatOffset(now)}
+                                className="absolute inset-y-0 right-0 left-(--gutter) cursor-ew-resize touch-none"
+                                onPointerDown={(event) => {
+                                    event.preventDefault();
+                                    event.currentTarget.setPointerCapture(event.pointerId);
+                                    scrubTo(event.clientX);
+                                }}
+                                onPointerMove={(event) => {
+                                    if (event.buttons & 1) scrubTo(event.clientX);
+                                }}
+                                onKeyDown={(event) => {
+                                    const step = event.shiftKey ? 60 : 15;
+                                    if (event.key === "ArrowLeft") {
+                                        event.preventDefault();
+                                        onScrub(Math.max(0, now - step));
+                                    } else if (event.key === "ArrowRight") {
+                                        event.preventDefault();
+                                        onScrub(Math.min(schedule.makespanMins, now + step));
+                                    }
+                                }}
+                            />
+                        )}
                     </div>
 
                     {usedMachines.map((machine) => (
@@ -210,10 +295,39 @@ export function GanttChart({
 
                     {now !== null && (
                         <div
-                            className="pointer-events-none absolute top-0 bottom-0 z-3 w-0.5 bg-fg"
+                            className="absolute top-0 bottom-0 z-1 w-0"
                             style={{ left: `calc(var(--gutter) + var(--hour) * ${now / 60})` }}
                         >
-                            <span className="absolute top-0 left-[-4px] size-0 border-t-[7px] border-t-fg border-x-[5px] border-x-transparent" />
+                            {/* z-1 sits above the operation blocks but below the pinned
+                                machine-name column (z-2) and hour ruler (z-3), so the
+                                line can never paint across the side headings when the
+                                chart is scrolled — it simply slides underneath them. */}
+                            {onScrub ? (
+                                // The whole bar is the control: grab the line or the
+                                // flag anywhere and drag, or focus it and use the
+                                // arrow keys (±10 min, ±60 with Shift).
+                                <div
+                                    role="slider"
+                                    tabIndex={0}
+                                    aria-label="Scrub the simulation clock"
+                                    aria-valuemin={0}
+                                    aria-valuemax={schedule.makespanMins}
+                                    aria-valuenow={Math.round(now)}
+                                    aria-valuetext={formatOffset(now)}
+                                    className="group absolute top-0 bottom-0 -left-2.5 w-5 cursor-ew-resize touch-none outline-hidden focus-visible:outline-2 focus-visible:outline-fg focus-visible:outline-offset-1"
+                                    onPointerDown={onNowPointerDown}
+                                    onPointerMove={onNowPointerMove}
+                                    onKeyDown={onNowKeyDown}
+                                >
+                                    <span className="pointer-events-none absolute top-0 bottom-0 left-[9px] w-0.5 bg-fg transition-[width] group-hover:w-1" />
+                                    <span className="pointer-events-none absolute top-0 left-[6px] size-0 border-t-[7px] border-t-fg border-x-[5px] border-x-transparent" />
+                                </div>
+                            ) : (
+                                <>
+                                    <span className="pointer-events-none absolute top-0 bottom-0 left-[-1px] w-0.5 bg-fg" />
+                                    <span className="pointer-events-none absolute top-0 left-[-4px] size-0 border-t-[7px] border-t-fg border-x-[5px] border-x-transparent" />
+                                </>
+                            )}
                         </div>
                     )}
                 </div>

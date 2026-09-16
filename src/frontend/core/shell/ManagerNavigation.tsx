@@ -27,7 +27,7 @@ export function ManagerNavigation() {
         <Tabs selectedKey={selected} aria-label="Manager sections" className="w-auto">
             <TabList items={TABS} className="ml-15">
                 {TABS.map((tab) => (
-                    <Tab key={tab.href} id={tab.href} href={tab.href}>
+                    <Tab key={tab.href} id={tab.href} href={tab.href} className="whitespace-nowrap">
                         {tab.label}
                     </Tab>
                 ))}

@@ -1,5 +1,6 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Note } from "@/components/ui/note";
@@ -16,23 +17,63 @@ export function MachineEditor({
     categories,
     categoryNames,
     saving,
+    assignedOperationCount,
     onDraftChange,
     onSave,
     onDeactivate,
+    onRemove,
 }: {
     draft: MachineDraft;
     selected: MachineSummary | null;
     categories: MachineCategory[];
     categoryNames: ReadonlyMap<string, string>;
     saving: boolean;
+    /** Number of job-definition operation routes assigned to this machine. */
+    assignedOperationCount: number;
     onDraftChange: (update: (draft: MachineDraft) => MachineDraft) => void;
     onSave: () => void;
+    /** Retire or restore the machine, depending on its current status. */
     onDeactivate: () => void;
+    /** Hard-delete the machine; the screen guards the assigned-operations case. */
+    onRemove: () => void;
 }) {
+    const editing = Boolean(draft.id) && draft.id === selected?.id;
+    const canToggleActive = editing && !saving;
+    const blockedByOperations = canToggleActive && assignedOperationCount > 0;
+    const machineActive = draft.active;
     return (
-        <Card>
-            <CardHeader><CardTitle>{draft.id ? "Edit machine" : "Add machine"}</CardTitle></CardHeader>
-            <CardContent className="max-w-xl space-y-5">
+        <Card className="min-h-full">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2.5">
+                    {draft.id ? "Edit machine" : "Add machine"}
+                    {draft.id && (
+                        <Badge intent={machineActive ? "success" : "secondary"}>
+                            {machineActive ? "Active" : "Inactive"}
+                        </Badge>
+                    )}
+                </CardTitle>
+                {editing && (
+                    <CardAction>
+                        {/* Activate reads green (a restore action); deactivate
+                            reads red, but much lighter than the remove button's
+                            solid danger so retiring never reads as removing. */}
+                        <Button
+                            intent="plain"
+                            size="sm"
+                            className={machineActive
+                                ? "bg-danger/20 text-danger hover:bg-danger/30"
+                                : "bg-success/20 text-success hover:bg-success/30"}
+                            onPress={onDeactivate}
+                            isDisabled={saving}
+                        >
+                            {machineActive ? "Deactivate" : "Activate"}
+                        </Button>
+                    </CardAction>
+                )}
+            </CardHeader>
+            {/* Fill the card: the fields stretch edge to edge instead of the
+                previous `max-w-xl` column that left the right half empty. */}
+            <CardContent className="flex flex-1 flex-col space-y-5">
                 <Note intent="info">This screen shows only fields stored by the machine API. A machine is retired by setting it inactive; the API intentionally does not delete machine history.</Note>
                 <TextField value={draft.name} onChange={(name) => onDraftChange((value) => ({ ...value, name }))}>
                     <Label>Machine name</Label><Input placeholder="e.g. Assembly station 2" autoComplete="off" />
@@ -47,13 +88,18 @@ export function MachineEditor({
                 <TextField value={draft.salary} onChange={(salary) => onDraftChange((value) => ({ ...value, salary }))}>
                     <Label>Hourly salary</Label><Input inputMode="decimal" placeholder="Optional" />
                 </TextField>
-                <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-                    <div><p className="font-medium text-sm">Available to the scheduler</p><p className="text-muted-fg text-xs">Inactive machines are kept as history but excluded from scheduling.</p></div>
-                    <Button intent={draft.active ? "success" : "outline"} size="sm" onPress={() => onDraftChange((value) => ({ ...value, active: !value.active }))}>{draft.active ? "Active" : "Inactive"}</Button>
-                </div>
                 {draft.id && <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t pt-4 text-sm"><dt className="text-muted-fg">Created</dt><dd>{new Date(selected?.created_at ?? "").toLocaleString()}</dd><dt className="text-muted-fg">Category</dt><dd>{draft.categoryId ? categoryNames.get(draft.categoryId) ?? draft.categoryId : "None"}</dd></dl>}
-                <div className="flex flex-wrap justify-between gap-3 border-t pt-5">
-                    {selected?.active && draft.id === selected.id ? <Button intent="danger" onPress={onDeactivate} isDisabled={saving}>Deactivate</Button> : <span />}
+                {blockedByOperations && (
+                    <Note intent="warning" className="mt-auto">
+                        This machine has {assignedOperationCount} assigned operation{assignedOperationCount === 1 ? "" : "s"}. Unassign or re-route them before removing it.
+                    </Note>
+                )}
+                <div className="flex flex-wrap items-center justify-end gap-2.5 border-t pt-5">
+                    {draft.id && (
+                        <Button intent="danger" onPress={onRemove} isDisabled={saving || blockedByOperations || machineActive}>
+                            Remove machine
+                        </Button>
+                    )}
                     <Button onPress={onSave} isPending={saving}><CheckIcon /> {draft.id ? "Save changes" : "Add machine"}</Button>
                 </div>
             </CardContent>

@@ -22,11 +22,11 @@ import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { buildJobColors } from "@/domains/scheduling/colors";
-import { JobDot } from "@/domains/scheduling/ui/JobDot";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
 import type { GeneratedSchedule } from "@/domains/scheduling/types";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
+import { JobDot } from "@/domains/scheduling/ui/JobDot";
 import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
 import { useScheduleSummaries, useScheduleTimeline } from "@/features/schedules/data/queries";
 import { toScheduleOption } from "@/features/schedules/model/schedule";
@@ -278,7 +278,11 @@ export default function SimulationPage() {
 
     return (
         <ManagerShell actions={<>
-            <div className="flex flex-wrap items-center gap-2.5">
+            {/* `shrink-0` + nowrap: the cluster keeps one row inside the topbar
+                even when space is tight — the flexible centre (calendar) and
+                navigation absorb the compression instead of the controls
+                wrapping onto a second row and stretching the header. */}
+            <div className="flex flex-nowrap items-center gap-2.5 whitespace-nowrap shrink-0">
                 <Button
                     size="sq-sm"
                     onPress={() => {
@@ -321,7 +325,9 @@ export default function SimulationPage() {
                     ))}
                 </ToggleGroup>
 
-                <span className="font-semibold tabular-nums">{formatOffset(simMins)}</span>
+                {/* Least essential item in the cluster: dropped below `sm` so
+                    the controls keep their row without squeezing the tabs. */}
+                <span className="hidden font-semibold tabular-nums whitespace-nowrap sm:inline">{formatOffset(simMins)}</span>
             </div>
         </>}>
 
@@ -441,13 +447,27 @@ export default function SimulationPage() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="flex items-center gap-3">
-                            <ProgressBar
+                            {/* The blue fill bar is live too: it is a real slider
+                                (click / drag anywhere on the track to move the
+                                clock) with a visually hidden thumb, so keyboard
+                                and screen-reader users still get a control. */}
+                            <Slider
                                 aria-label="Elapsed share of the schedule"
-                                value={overallPct}
                                 className="flex-1"
+                                minValue={0}
+                                maxValue={makespan}
+                                step={1}
+                                value={simMins}
+                                onChange={(value) => {
+                                    setPlaying(false);
+                                    setSimMins(Array.isArray(value) ? value[0] : value);
+                                }}
                             >
-                                <ProgressBarTrack className="min-w-0" />
-                            </ProgressBar>
+                                <SliderTrack className="min-w-0">
+                                    <SliderFill />
+                                    <SliderThumb className="size-0 opacity-0 ring-0" />
+                                </SliderTrack>
+                            </Slider>
                             <span className="shrink-0 text-muted-fg text-xs">
                                 {completedOps} done · {runningOps} running ·{" "}
                                 {activeSchedule.ops.length - completedOps - runningOps} to go
@@ -467,6 +487,13 @@ export default function SimulationPage() {
                             onSelectJob={(jobId) =>
                                 setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
                             }
+                            // Dragging the black "now" line scrubs the clock. Pause
+                            // while dragging so the tick interval does not fight
+                            // the pointer for the position.
+                            onScrub={(mins) => {
+                                setPlaying(false);
+                                setSimMins(mins);
+                            }}
                         />
                     </CardContent>
                 </Card>
