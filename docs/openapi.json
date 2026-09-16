@@ -1764,6 +1764,53 @@
         "title": "ScheduleSummaryResponse",
         "type": "object"
       },
+      "ScheduleValidationResponse": {
+        "description": "What is wrong with the floor, or the selection, before anyone asks for a schedule (#133).\n\n`issues` stop every strategy and name the record at fault. `warnings` stop nothing: a job with\nno operations, a machine nothing can run on. `unsupported` is per strategy: fan-in is valid\ndata the exact solver takes and ReSched does not, so it is reported against `resched` rather\nthan as a fault in the floor. `schedulable` is the yes/no the scheduler page needs per\nstrategy, and is exactly `not issues and nothing unsupported for that strategy`.",
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/SchedulingIssueResponse"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "schedulable": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "propertyNames": {
+              "enum": [
+                "resched",
+                "exact"
+              ]
+            },
+            "title": "Schedulable",
+            "type": "object"
+          },
+          "unsupported": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyLimitResponse"
+            },
+            "title": "Unsupported",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SchedulingIssueResponse"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schedulable",
+          "issues",
+          "warnings",
+          "unsupported"
+        ],
+        "title": "ScheduleValidationResponse",
+        "type": "object"
+      },
       "SchedulingIssueResponse": {
         "description": "One unsupported or invalid scheduling input reported by the adapter.\n\nAt most one of the three ids is set, naming whichever the issue is about, so a client can mark\nthe offending row rather than parse `message`.",
         "properties": {
@@ -1940,6 +1987,28 @@
           "complete"
         ],
         "type": "string"
+      },
+      "StrategyLimitResponse": {
+        "description": "One thing a named strategy cannot take, on data that is otherwise coherent.",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/SchedulingIssueResponse"
+          },
+          "strategy": {
+            "enum": [
+              "resched",
+              "exact"
+            ],
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy",
+          "issue"
+        ],
+        "title": "StrategyLimitResponse",
+        "type": "object"
       },
       "TimelineLaneResponse": {
         "description": "A machine lane or job row, identified by key and shown by label.",
@@ -3608,6 +3677,65 @@
           }
         ],
         "summary": "Get schedule-generation status",
+        "tags": [
+          "schedules"
+        ]
+      }
+    },
+    "/api/v1/schedules/validation": {
+      "get": {
+        "description": "Report what would stop a generation run, before queueing one (#133).\n\nReads the floor exactly as `POST /api/v1/schedules` would, selection included, and runs the\nsame data checks every strategy runs. Always `200`: a floor with problems is a successful\nanswer to \"what is wrong\", and the report says per strategy whether Generate would succeed.\nNothing is written.",
+        "operationId": "validate_schedule_input_api_v1_schedules_validation_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "job_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Ids"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleValidationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Check the floor is ready to schedule",
         "tags": [
           "schedules"
         ]

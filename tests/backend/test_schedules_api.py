@@ -573,3 +573,107 @@ def test_operator_cannot_delete_a_schedule() -> None:
     )
 
     assert response.status_code == 403
+
+
+def _stub_validation(monkeypatch: Any, report: object) -> None:
+    from floorsync_common.scheduling import validation
+
+    async def fake(_: object, *, job_ids: object = None) -> object:
+        fake.calls.append(job_ids)  # type: ignore[attr-defined]
+        return report
+
+    fake.calls = []  # type: ignore[attr-defined]
+    monkeypatch.setattr(validation.ValidationService, "validate_floor", staticmethod(fake))
+    monkeypatch.setattr(validation, "_fake_calls", fake.calls, raising=False)  # type: ignore[attr-defined]
+
+
+def test_validation_route_maps_the_report(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling.contracts import SchedulingIssue
+    from floorsync_common.scheduling.validation import FloorValidation, StrategyLimit
+
+    operation_id, job_id = uuid4(), uuid4()
+    _stub_validation(
+        monkeypatch,
+        FloorValidation(
+            issues=(SchedulingIssue("cyclic_dependencies", "Loop.", operation_id),),
+            warnings=(SchedulingIssue("job_has_no_operations", "Empty.", job_id=job_id),),
+            unsupported=(
+                StrategyLimit(
+                    strategy="resched",
+                    issue=SchedulingIssue("unsupported_dependency_shape", "Fan-in.", operation_id),
+                ),
+            ),
+            schedulable={"resched": False, "exact": False},
+        ),
+    )
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        "/api/v1/schedules/validation"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schedulable"] == {"resched": False, "exact": False}
+    assert body["issues"] == [
+        {
+            "code": "cyclic_dependencies",
+            "message": "Loop.",
+            "operation_id": str(operation_id),
+            "machine_id": None,
+            "job_id": None,
+        }
+    ]
+    assert body["warnings"][0]["job_id"] == str(job_id)
+    assert body["unsupported"][0]["strategy"] == "resched"
+    assert body["unsupported"][0]["issue"]["code"] == "unsupported_dependency_shape"
+
+
+def test_validation_route_passes_the_selection_through(monkeypatch: Any) -> None:
+    from floorsync_common.scheduling import validation
+    from floorsync_common.scheduling.validation import FloorValidation
+
+    first, second = uuid4(), uuid4()
+    _stub_validation(
+        monkeypatch,
+        FloorValidation(
+            issues=(), warnings=(), unsupported=(), schedulable={"resched": True, "exact": True}
+        ),
+    )
+    manager = User(id=uuid4(), name="Manager", role="manager")
+    client = TestClient(schedule_application(manager, FakeScheduleSession()))
+
+    client.get("/api/v1/schedules/validation")
+    client.get("/api/v1/schedules/validation", params={"job_ids": [str(first), str(second)]})
+
+    assert validation._fake_calls == [None, [first, second]]  # type: ignore[attr-defined]
+
+
+def test_validation_is_declared_before_the_schedule_id_route(monkeypatch: Any) -> None:
+    """Otherwise `/validation` is parsed as a schedule id and refused as a malformed UUID."""
+
+    from floorsync_common.scheduling.validation import FloorValidation
+
+    _stub_validation(
+        monkeypatch,
+        FloorValidation(
+            issues=(), warnings=(), unsupported=(), schedulable={"resched": True, "exact": True}
+        ),
+    )
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        "/api/v1/schedules/validation"
+    )
+
+    assert response.status_code != 422
+
+
+def test_operator_cannot_validate_the_floor() -> None:
+    operator = User(id=uuid4(), name="Operator", role="operator")
+
+    response = TestClient(schedule_application(operator, FakeScheduleSession())).get(
+        "/api/v1/schedules/validation"
+    )
+
+    assert response.status_code == 403

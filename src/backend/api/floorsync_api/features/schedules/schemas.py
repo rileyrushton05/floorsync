@@ -108,3 +108,26 @@ class ScheduleResponse(ResponseSchema):
     confirmed_at: datetime | None
     entries: list[ScheduleEntryResponse]
     dependencies: list[ScheduleDependencyResponse]
+
+
+class StrategyLimitResponse(ResponseSchema):
+    """One thing a named strategy cannot take, on data that is otherwise coherent."""
+
+    strategy: Literal["resched", "exact"]
+    issue: SchedulingIssueResponse
+
+
+class ScheduleValidationResponse(ResponseSchema):
+    """What is wrong with the floor, or the selection, before anyone asks for a schedule (#133).
+
+    `issues` stop every strategy and name the record at fault. `warnings` stop nothing: a job with
+    no operations, a machine nothing can run on. `unsupported` is per strategy: fan-in is valid
+    data the exact solver takes and ReSched does not, so it is reported against `resched` rather
+    than as a fault in the floor. `schedulable` is the yes/no the scheduler page needs per
+    strategy, and is exactly `not issues and nothing unsupported for that strategy`.
+    """
+
+    schedulable: dict[Literal["resched", "exact"], bool]
+    issues: list[SchedulingIssueResponse]
+    warnings: list[SchedulingIssueResponse]
+    unsupported: list[StrategyLimitResponse]

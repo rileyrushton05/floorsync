@@ -12,7 +12,12 @@ from floorsync_common.scheduling import (
     SchedulingInputInvalid,
     SchedulingIssue,
 )
-from floorsync_common.scheduling.contracts import DependencySpec, OperationSpec
+from floorsync_common.scheduling.contracts import (
+    DependencySpec,
+    MachineSpec,
+    OperationSpec,
+    RouteSpec,
+)
 from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
 from floorsync_common.scheduling.gurobi_exact_solver import NoFeasibleSchedule
 from floorsync_workers.tasks import schedules
@@ -23,19 +28,29 @@ def _fake_session_scope() -> Iterator[object]:
     yield object()
 
 
+MACHINE_ID = uuid4()
+OPERATION_ID = uuid4()
+
+
 def _loaded_input() -> SchedulingInput:
     """The smallest thing `load_input` can hand back that the worker will pass on to the engine.
 
     A bare `object()` no longer works there: the worker matches the loaded result exhaustively and
     ends with `assert_never`, so an unknown stand-in is a failure rather than something passed
-    through unexamined.
+    through unexamined. It also has to be *coherent*: the worker runs the shared data validation
+    before any engine (#133), so an empty floor would be refused as `no_operations` before the
+    mocked engine ever saw it. One machine, one operation, one route is the least that passes.
     """
 
     return SchedulingInput(
         starts_at=datetime(2026, 9, 6, 8, tzinfo=UTC),
-        machines=(),
-        operations=(),
-        routes=(),
+        machines=(MachineSpec(id=MACHINE_ID, active=True, salary_per_minute=None),),
+        operations=(OperationSpec(id=OPERATION_ID, name="Cut"),),
+        routes=(
+            RouteSpec(
+                operation_id=OPERATION_ID, machine_id=MACHINE_ID, duration_minutes=5, energy=None
+            ),
+        ),
         dependencies=(),
     )
 
@@ -152,7 +167,11 @@ def test_exact_worker_closes_the_read_transaction_before_solving(monkeypatch: An
 def test_exact_worker_rejects_a_dependency_cycle_before_building_the_model(
     monkeypatch: Any,
 ) -> None:
-    """Gurobi would report this as infeasible; the cycle is a clearer, more specific refusal."""
+    """Gurobi would report this as infeasible; the cycle is a clearer, more specific refusal.
+
+    The floor is otherwise coherent (both operations have a route), so the cycle is the only
+    thing the shared validation reports and the assertion below stays exact.
+    """
 
     first, second = uuid4(), uuid4()
 
@@ -161,9 +180,16 @@ def test_exact_worker_rejects_a_dependency_cycle_before_building_the_model(
     ) -> SchedulingInput:
         return SchedulingInput(
             starts_at=datetime(2026, 9, 6, 8, tzinfo=UTC),
-            machines=(),
+            machines=(MachineSpec(id=MACHINE_ID, active=True, salary_per_minute=None),),
             operations=(OperationSpec(id=first, name="a"), OperationSpec(id=second, name="b")),
-            routes=(),
+            routes=(
+                RouteSpec(
+                    operation_id=first, machine_id=MACHINE_ID, duration_minutes=5, energy=None
+                ),
+                RouteSpec(
+                    operation_id=second, machine_id=MACHINE_ID, duration_minutes=5, energy=None
+                ),
+            ),
             dependencies=(
                 DependencySpec(before_operation_id=first, after_operation_id=second),
                 DependencySpec(before_operation_id=second, after_operation_id=first),
@@ -374,3 +400,45 @@ def test_a_refused_selection_never_reaches_the_engine(monkeypatch: Any) -> None:
             {"code": "unknown_job", "message": "No such job.", "job_id": str(job_id)},
         ],
     }
+
+
+def test_resched_worker_refuses_incoherent_data_before_the_engine_runs(monkeypatch: Any) -> None:
+    """Shared validation (#133) runs first, so both strategies refuse a bad floor the same way."""
+
+    machine = MachineSpec(id=MACHINE_ID, active=False, salary_per_minute=None)
+    problem = SchedulingInput(
+        starts_at=datetime(2026, 9, 6, 8, tzinfo=UTC),
+        machines=(machine,),
+        operations=(OperationSpec(id=OPERATION_ID, name="Cut"),),
+        routes=(
+            RouteSpec(
+                operation_id=OPERATION_ID, machine_id=MACHINE_ID, duration_minutes=5, energy=None
+            ),
+        ),
+        dependencies=(),
+    )
+
+    def load_input(
+        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
+    ) -> SchedulingInput:
+        return problem
+
+    def generate(_: object) -> object:
+        raise AssertionError("the engine must not run on an incoherent floor")
+
+    monkeypatch.setattr(schedules, "worker_session_scope", _fake_session_scope)
+    monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
+    monkeypatch.setattr(schedules.ReSchedEngine, "generate", staticmethod(generate))
+
+    result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00")
+
+    assert result["outcome"] == "invalid"
+    issues = result["issues"]
+    assert isinstance(issues, list)
+    assert issues == [
+        {
+            "code": "no_compatible_machine",
+            "message": "Operation has no active compatible machine.",
+            "operation_id": str(OPERATION_ID),
+        }
+    ]

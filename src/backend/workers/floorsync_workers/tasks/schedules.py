@@ -7,14 +7,12 @@ from uuid import UUID
 
 from gurobipy import GurobiError
 
-from floorsync_common.operations.service import find_dependency_cycle
 from floorsync_common.scheduling import (
     ReSchedEngine,
     ReSchedRuntimeUnavailable,
     ScheduleGenerated,
     SchedulingInput,
     SchedulingInputInvalid,
-    SchedulingIssue,
     SchedulingService,
 )
 from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
@@ -28,6 +26,7 @@ from floorsync_common.scheduling.task_names import (
     EXACT_SCHEDULE_GENERATION_TASK,
     SCHEDULE_GENERATION_TASK,
 )
+from floorsync_common.scheduling.validation import validate_for_worker
 from floorsync_workers.celery_app import celery_app
 from floorsync_workers.database import worker_session_scope
 
@@ -74,6 +73,12 @@ def generate_schedule(starts_at: str, job_ids: list[str] | None = None) -> dict[
             pass
         case _:
             assert_never(loaded)
+
+    # Data problems are refused here, by the same check every strategy and the validation endpoint
+    # use, so a floor that fails is refused the same way whichever engine was asked (#133).
+    invalid = validate_for_worker(problem)
+    if invalid is not None:
+        return {"outcome": "invalid", "issues": _issues_payload(invalid)}
 
     started_ns = perf_counter_ns()
     result = ReSchedEngine.generate(problem)
@@ -136,24 +141,9 @@ def generate_schedule_exact(starts_at: str, job_ids: list[str] | None = None) ->
         case _:
             assert_never(loaded)
 
-    cycle = find_dependency_cycle(
-        [
-            (dependency.before_operation_id, dependency.after_operation_id)
-            for dependency in problem.dependencies
-        ]
-    )
-    if cycle:
-        cyclic = SchedulingInputInvalid(
-            issues=tuple(
-                SchedulingIssue(
-                    "cyclic_dependencies",
-                    "This operation is part of a dependency cycle and can never be scheduled.",
-                    operation_id,
-                )
-                for operation_id in cycle
-            )
-        )
-        return {"outcome": "invalid", "issues": _issues_payload(cyclic)}
+    invalid = validate_for_worker(problem)
+    if invalid is not None:
+        return {"outcome": "invalid", "issues": _issues_payload(invalid)}
 
     try:
         operations, eligible_machines, operation_data, machine_meta = adapt_scheduling_input(
