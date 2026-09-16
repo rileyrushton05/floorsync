@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, Text, Uuid
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Numeric, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from floorsync_common.database.base import Base
@@ -40,5 +40,10 @@ class Simulation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     speed: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, server_default="1")
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # How many `simulation.changed` notifications this simulation has issued (#148). Allocated
+    # atomically by `LiveUpdateOutboxService`; a client orders and gap-checks messages by it.
+    live_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
 
     schedule: Mapped[Schedule] = relationship()

@@ -24,6 +24,7 @@ Decision records help explain why the team made particular design, technical, sc
 | [0014](0014-fajsp_milp_formulation.md) | Accepted | Single-shot MILP as a second, general-DAG-capable schedule generation strategy |
 | [0015](0015-schedule-lifecycle-and-job-archival.md) | Accepted | Drafts are disposable, confirmed schedules are history, finished jobs are archived |
 | [0016](0016-shared-input-validation.md) | Accepted | Validate production data once, apart from what each scheduler can take |
+| [0017](0017-live-update-outbox.md) | Proposed | Announce simulation changes through a transactional outbox with a versioned envelope |
 
 ## Suggested Decision Record Format
 
