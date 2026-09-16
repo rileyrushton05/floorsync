@@ -382,7 +382,6 @@ dependencies = [
     { name = "asyncpg" },
     { name = "celery", extra = ["redis"] },
     { name = "fastapi" },
-    { name = "gurobipy" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic-settings" },
@@ -393,6 +392,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+exact = [
+    { name = "gurobipy" },
+]
 resched = [
     { name = "numpy" },
     { name = "torch", version = "2.14.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
@@ -413,7 +415,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.31.0,<1" },
     { name = "celery", extras = ["redis"], specifier = ">=5.6.3,<6" },
     { name = "fastapi", specifier = ">=0.141.1,<1" },
-    { name = "gurobipy", specifier = ">=13.0.3" },
+    { name = "gurobipy", marker = "extra == 'exact'", specifier = ">=13.0.3,<14" },
     { name = "numpy", marker = "extra == 'resched'", specifier = ">=1.26,<3" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.10,<4" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3.0,<1" },
@@ -424,7 +426,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'resched'", specifier = ">=2.4,<3", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3,<1" },
 ]
-provides-extras = ["resched"]
+provides-extras = ["resched", "exact"]
 
 [package.metadata.requires-dev]
 dev = [

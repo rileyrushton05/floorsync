@@ -185,7 +185,7 @@ def test_manager_can_request_the_exact_strategy(monkeypatch: Any) -> None:
     assert response.status_code == 202
     assert queue.sent == (
         EXACT_SCHEDULE_GENERATION_TASK,
-        ("2026-09-06T08:00:00+00:00",),
+        ("2026-09-06T08:00:00+00:00", None),
         "scheduling",
     )
 
@@ -223,6 +223,32 @@ def test_queued_generation_carries_the_selected_jobs(monkeypatch: Any) -> None:
     assert queue.sent == (
         SCHEDULE_GENERATION_TASK,
         ("2026-09-06T08:00:00+00:00", [str(first), str(second)]),
+        "scheduling",
+    )
+
+
+def test_a_job_selection_reaches_the_exact_solver_task_too(monkeypatch: Any) -> None:
+    """Both engines load through the same `SchedulingService.load_input`, so scoping isn't
+    resched-only."""
+
+    queue = FakeTaskQueue()
+    monkeypatch.setattr(schedules_router, "task_queue", queue)
+    manager = User(id=uuid4(), name="Manager", role="manager")
+    job_id = uuid4()
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
+        "/api/v1/schedules",
+        json={
+            "starts_at": "2026-09-06T08:00:00Z",
+            "strategy": "exact",
+            "job_ids": [str(job_id)],
+        },
+    )
+
+    assert response.status_code == 202
+    assert queue.sent == (
+        EXACT_SCHEDULE_GENERATION_TASK,
+        ("2026-09-06T08:00:00+00:00", [str(job_id)]),
         "scheduling",
     )
 

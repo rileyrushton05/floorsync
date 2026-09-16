@@ -66,20 +66,15 @@ async def create_schedule(
 
     # The selection travels as strings because a Celery argument has to survive JSON, and is sent
     # unvalidated: checking it needs the dependency graph, and this endpoint reads no database at
-    # all. The worker refuses a bad selection and the status resource reports it, the same way
-    # every other unschedulable input is reported. Only the resched task accepts a selection today;
-    # the exact solver still always plans the whole floor.
-    args: tuple[str] | tuple[str, list[str] | None] = (command.starts_at.isoformat(),)
-    if command.strategy == "resched":
-        args = (
-            command.starts_at.isoformat(),
-            None if command.job_ids is None else [str(job_id) for job_id in command.job_ids],
-        )
-
+    # all. Both tasks load through the same `SchedulingService.load_input`, so the worker refuses a
+    # bad selection and the status resource reports it identically regardless of strategy.
     try:
         task = task_queue.send_task(
             _GENERATION_TASK_BY_STRATEGY[command.strategy],
-            args=args,
+            args=(
+                command.starts_at.isoformat(),
+                None if command.job_ids is None else [str(job_id) for job_id in command.job_ids],
+            ),
             queue="scheduling",
         )
     except OperationalError:

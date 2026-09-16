@@ -14,13 +14,15 @@ dependencies = [
   "pydantic-settings>=2.15.0,<3",
   "sqlalchemy[asyncio]>=2.0.48,<3",
   "uvicorn[standard]>=0.52.3,<1",
-  "gurobipy>=13.0.3",
 ]
 
 [project.optional-dependencies]
 resched = [
   "numpy>=1.26,<3",
   "torch>=2.4,<3",
+]
+exact = [
+  "gurobipy>=13.0.3,<14",
 ]
 
 [tool.uv.sources]
