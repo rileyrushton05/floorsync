@@ -17,8 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from floorsync_common.database.models.schedule import Schedule, ScheduleStatus
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.outcomes import ExpectedOutcome
-
-SCHEDULE_DRAFT: ScheduleStatus = "draft"
+from floorsync_common.scheduling.references import SCHEDULE_DRAFT
 
 
 @dataclass(frozen=True, slots=True)

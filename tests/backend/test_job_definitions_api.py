@@ -265,6 +265,41 @@ def test_list_definitions_returns_a_cursor_page(monkeypatch: pytest.MonkeyPatch)
     assert [item["id"] for item in body["items"]] == [str(definition.job.id)]
 
 
+def test_list_definitions_hides_archived_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The builder's list is the backlog too, so it takes the same `include_archived` opt-in."""
+
+    received: list[bool] = []
+
+    async def fake(_: object, **kwargs: object) -> DefinitionsListed:
+        received.append(bool(kwargs["include_archived"]))
+        return DefinitionsListed(definitions=(), next_cursor=None)
+
+    monkeypatch.setattr(JobDefinitionService, "list_definitions", staticmethod(fake))
+
+    definition_client().get("/api/v1/job-definitions")
+    definition_client().get("/api/v1/job-definitions", params={"include_archived": "true"})
+
+    assert received == [False, True]
+
+
+def test_list_definitions_filters_archived_in_the_query() -> None:
+    """The filter lives in the service, not the route, so every caller gets the same backlog."""
+
+    source = inspect.getsource(JobDefinitionService.list_definitions)
+    assert "Job.archived_at.is_(None)" in source
+
+
+def test_definition_response_reports_archived_at(monkeypatch: pytest.MonkeyPatch) -> None:
+    definition = make_definition()
+    definition.job.archived_at = definition.job.created_at
+    stub(monkeypatch, "get_definition", DefinitionFound(definition=definition))
+
+    response = definition_client().get(f"/api/v1/jobs/{definition.job.id}/definition")
+
+    assert response.status_code == 200
+    assert response.json()["archived_at"] is not None
+
+
 def test_list_definitions_rejects_an_out_of_range_limit() -> None:
     response = definition_client().get("/api/v1/job-definitions", params={"limit": 500})
 

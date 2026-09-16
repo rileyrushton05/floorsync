@@ -280,6 +280,15 @@ def test_update_job_rejects_an_explicit_null_archived() -> None:
     assert response.status_code == 422
 
 
+def test_update_job_names_every_nulled_field_at_once() -> None:
+    """Same collect-all pattern as `MachineUpdateRequest`, so one round trip reports every slip."""
+
+    response = job_client().patch(f"/api/v1/jobs/{uuid4()}", json={"name": None, "archived": None})
+
+    assert response.status_code == 422
+    assert "name, archived cannot be null" in response.text
+
+
 def test_list_jobs_hides_archived_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
     """The list is the backlog, so archived jobs are opt-in."""
 

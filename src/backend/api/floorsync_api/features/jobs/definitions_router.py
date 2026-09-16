@@ -105,14 +105,18 @@ async def list_definitions(
     _: Manager,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
+    include_archived: bool = False,
 ) -> CursorPage[JobDefinitionResponse]:
-    """List every job with its operations and routes, a page at a time.
+    """List the backlog's jobs with their operations and routes, a page at a time.
 
     Lists every operation and route in this page in bulk, so the frontend has no N+1 detail fetch.
+    Archived jobs are left out unless `include_archived` is set, matching `GET /api/v1/jobs`.
     """
 
     async with db.begin():
-        page = await JobDefinitionService.list_definitions(db, limit=limit, cursor=cursor)
+        page = await JobDefinitionService.list_definitions(
+            db, limit=limit, cursor=cursor, include_archived=include_archived
+        )
 
     return CursorPage[JobDefinitionResponse](
         items=[_definition_response(definition) for definition in page.definitions],
@@ -176,8 +180,10 @@ async def replace_definition(
     index becomes each operation's 1-based position. Only this job's own `builder_sequence`
     ordering edges are rebuilt; externally owned edges are never touched.
 
-    Refused with a conflict when any of this job's operations already appears in a generated
-    schedule, so a definition save can never rewrite a schedule's record of what was planned.
+    Refused with a conflict only when the save would remove an operation a generated schedule
+    already recorded; every other edit is covered by the schedule's own snapshot, so a scheduled
+    job stays editable. The conflict names the schedules in the way. An archived job is editable
+    too: archiving takes a job out of the backlog, it does not freeze it (decision 0015).
     """
 
     async with db.begin():
@@ -269,6 +275,7 @@ def _definition_response(definition: JobDefinitionRead) -> JobDefinitionResponse
         id=definition.job.id,
         name=definition.job.name,
         priority=definition.job.priority,
+        archived_at=definition.job.archived_at,
         created_at=definition.job.created_at,
         updated_at=definition.job.updated_at,
         operations=[_operation_response(item) for item in definition.operations],

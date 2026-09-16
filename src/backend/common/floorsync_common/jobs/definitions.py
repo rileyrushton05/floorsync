@@ -146,15 +146,23 @@ class JobDefinitionService:
 
     @staticmethod
     async def list_definitions(
-        db: AsyncSession, *, limit: int = 50, cursor: str | None = None
+        db: AsyncSession,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        include_archived: bool = False,
     ) -> DefinitionsListed:
         """Read one page of job definitions ordered by name, with every operation and route.
 
         Fetches the page's nested data with two further bulk queries regardless of page size, so
-        the frontend has no N+1 detail fetch.
+        the frontend has no N+1 detail fetch. Archived jobs are left out unless asked for, the same
+        reading `JobService.list_jobs` gives the backlog: they still exist and can still be read
+        and edited one at a time, but they are not what the builder's list is for.
         """
 
         statement: Select[tuple[Job]] = select(Job).order_by(Job.name, Job.id)
+        if not include_archived:
+            statement = statement.where(Job.archived_at.is_(None))
         position = decode_cursor(cursor)
         if position is not None:
             statement = statement.where(tuple_(Job.name, Job.id) > position)

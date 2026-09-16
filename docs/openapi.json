@@ -608,6 +608,18 @@
       "JobDefinitionResponse": {
         "description": "The canonical shape of a job definition: everything the builder needs to redraw it.",
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -642,6 +654,7 @@
           "id",
           "name",
           "priority",
+          "archived_at",
           "created_at",
           "updated_at",
           "operations"
@@ -2242,7 +2255,7 @@
     },
     "/api/v1/job-definitions": {
       "get": {
-        "description": "List every job with its operations and routes, a page at a time.\n\nLists every operation and route in this page in bulk, so the frontend has no N+1 detail fetch.",
+        "description": "List the backlog's jobs with their operations and routes, a page at a time.\n\nLists every operation and route in this page in bulk, so the frontend has no N+1 detail fetch.\nArchived jobs are left out unless `include_archived` is set, matching `GET /api/v1/jobs`.",
         "operationId": "list_definitions_api_v1_job_definitions_get",
         "parameters": [
           {
@@ -2271,6 +2284,16 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
             }
           }
         ],
@@ -2700,7 +2723,7 @@
         ]
       },
       "put": {
-        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when any of this job's operations already appears in a generated\nschedule, so a definition save can never rewrite a schedule's record of what was planned.",
+        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict only when the save would remove an operation a generated schedule\nalready recorded; every other edit is covered by the schedule's own snapshot, so a scheduled\njob stays editable. The conflict names the schedules in the way. An archived job is editable\ntoo: archiving takes a job out of the backlog, it does not freeze it (decision 0015).",
         "operationId": "replace_definition_api_v1_jobs__job_id__definition_put",
         "parameters": [
           {

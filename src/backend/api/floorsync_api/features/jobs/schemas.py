@@ -35,9 +35,13 @@ class JobUpdateRequest(RequestSchema):
 
     @model_validator(mode="after")
     def reject_explicit_nulls(self) -> "JobUpdateRequest":
-        for field in ("name", "archived"):
-            if field in self.model_fields_set and getattr(self, field) is None:
-                raise ValueError(f"{field} cannot be null")
+        nulled = [
+            field
+            for field in ("name", "archived")
+            if field in self.model_fields_set and getattr(self, field) is None
+        ]
+        if nulled:
+            raise ValueError(f"{', '.join(nulled)} cannot be null")
         return self
 
 

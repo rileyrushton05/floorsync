@@ -102,11 +102,13 @@ class SchedulingService:
 
         # An archived job has left the backlog (finished or cancelled), so a whole-floor run skips
         # it; a scoped run naming one has already been refused above.
-        operation_statement = select(Operation).join(Job, Job.id == Operation.job_id)
+        operation_statement = select(Operation)
         if selection is not None:
             operation_statement = operation_statement.where(Operation.job_id.in_(selection))
         else:
-            operation_statement = operation_statement.where(Job.archived_at.is_(None))
+            operation_statement = operation_statement.join(Job, Job.id == Operation.job_id).where(
+                Job.archived_at.is_(None)
+            )
         operations = list(db.scalars(operation_statement).all())
         operation_ids = {operation.id for operation in operations}
         if selection is not None and not operation_ids:

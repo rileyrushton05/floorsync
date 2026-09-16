@@ -53,6 +53,13 @@ have to be repointed at the copies. The only thing a schedule reads live is a di
 6. **A precedence edge touching an archived job is treated as satisfied.** Both the job dependency
    graph the backlog reads and the input the scheduler loads drop such edges, so the backlog never
    auto-ticks a job the scheduler would then refuse.
+7. **Archiving takes a job out of the backlog; it does not freeze it.** An archived job can still
+   be read and edited through every job, operation and definition endpoint. Blocking edits would
+   add a refusal to four write paths for no user story: a cancelled job that comes back gets fixed
+   and unarchived in whichever order the manager likes, and a finished job's record is protected
+   by the confirmed schedule, not by the job row. The archived state is exposed on every job
+   response so the builder can show it; hiding an archived job from the lists is what stops it
+   being edited by accident.
 
 ## Rationale
 
