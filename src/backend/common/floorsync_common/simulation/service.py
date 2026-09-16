@@ -184,10 +184,13 @@ class SimulationService:
         The appended event is the authoritative record; the columns on
         ``simulations`` are updated alongside it as a readable projection, not as
         a second source of truth.
+
+        The simulation row is locked for the rest of the transaction, so concurrent
+        controls are applied one at a time against the status the previous one left.
         """
         occurred_at = at or datetime.now(UTC)
 
-        simulation = await queries.load_simulation(db, simulation_id)
+        simulation = await queries.lock_simulation(db, simulation_id)
         if simulation is None:
             return SimulationNotFound(simulation_id=simulation_id)
 

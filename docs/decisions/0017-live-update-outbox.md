@@ -92,9 +92,10 @@ of every operator's browser, which a frontend-side filter cannot promise.
 - The route that records a control must call `enqueue_simulation_change` inside the same
   `db.begin()` and only publish after it returns. That wiring, the ticket endpoint, the socket
   protocol and the relay are the transport half of #148 and are not part of this decision.
-- `record_control` should lock the simulation row (`SELECT ... FOR UPDATE`) before validating a
-  control, so two managers pressing pause and resume at once are applied in one order and the
-  sequence order matches the event order. That is a follow-up on the same ticket.
+- `record_control` locks the simulation row (`queries.lock_simulation`, `SELECT ... FOR UPDATE`)
+  before validating a control, so two managers pressing buttons at once are applied one after the
+  other against the status the previous one left, and sequence order matches event order. Reads
+  (`get_simulation`) do not lock, so a dashboard poll never queues behind a control.
 - Published rows accumulate. Retention is a separate maintenance task and must not precede
   delivery verification (#148).
 - Bumping `ENVELOPE_VERSION` is a breaking change for every subscriber; adding an optional field
