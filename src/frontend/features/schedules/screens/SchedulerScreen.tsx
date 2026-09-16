@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { Link } from "@/components/ui/link";
@@ -22,7 +22,8 @@ import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { buildJobColors, jobColor } from "@/domains/scheduling/colors";
+import { buildJobColors } from "@/domains/scheduling/colors";
+import { JobDot } from "@/domains/scheduling/ui/JobDot";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
@@ -101,7 +102,13 @@ function formatCreated(iso: string): string {
     });
 }
 
-/** The first segment of a UUID: enough to quote a run, short enough to read. */
+/**
+ * The first segment of a UUID: enough to quote a run, short enough to read.
+ *
+ * Runs only. A *job* is never identified this way — a manager picks jobs by
+ * name, while a generation id is an operational handle they may have to quote
+ * to someone looking at the worker.
+ */
 function shortId(id: string): string {
     return id.split("-")[0] ?? id;
 }
@@ -186,6 +193,20 @@ function GenerationState({ generation }: { generation: Generation }) {
                         </ul>
                     ) : (
                         <p className="mt-2">The engine reported no specific reason.</p>
+                    )}
+                    {/* This issue names no operation, and a run covers the whole
+                        database, so without this the manager is told the floor
+                        failed with no way to find the job responsible. */}
+                    {generation.issues.some((issue) => issue.code === "unsupported_dependency_shape") && (
+                        <p className="mt-2">
+                            A run covers every job at once, so a single job whose steps branch —
+                            two steps waiting on the same earlier one, or one step waiting on
+                            several — stops the whole floor being planned.{" "}
+                            <Link href="/manager/jobs" className="underline">
+                                Open the job backlog
+                            </Link>{" "}
+                            to find it: any job with a branching graph is flagged in its editor.
+                        </p>
                     )}
                 </Note>
             );
@@ -452,14 +473,8 @@ export default function SchedulerPage() {
                                     <Checkbox>
                                         <span className="flex min-w-0 flex-col gap-0.5">
                                             <span className="flex items-center gap-2">
-                                                <span
-                                                    className="size-3 shrink-0 rounded-full"
-                                                    style={{ background: jobColor(colors, job.id).fill }}
-                                                />
+                                                <JobDot colors={colors} jobId={job.id} />
                                                 <span className="font-semibold text-sm">{job.name}</span>
-                                            </span>
-                                            <span className="text-muted-fg text-xs">
-                                                {shortId(job.id)}
                                             </span>
                                         </span>
                                     </Checkbox>
@@ -601,10 +616,7 @@ export default function SchedulerPage() {
                                                 <TableCell className="tabular-nums">{index + 1}</TableCell>
                                                 <TableCell>
                                                     <span className="flex items-center gap-2">
-                                                        <span
-                                                            className="size-3 shrink-0 rounded-full"
-                                                            style={{ background: jobColor(colors, id).fill }}
-                                                        />
+                                                        <JobDot colors={colors} jobId={id} />
                                                         <span>
                                                             {plan.jobs.find((job) => job.id === id)?.name ?? id}
                                                         </span>
@@ -624,7 +636,7 @@ export default function SchedulerPage() {
                                 <Separator className="my-3" />
                                 <Link
                                     href="/manager/simulation"
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#15803D] px-4 py-2 font-semibold text-sm text-[#DCFCE7] transition-colors hover:bg-[#166534] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803D]"
+                                    className={buttonStyles({ intent: "success", className: "w-full" })}
                                 >
                                     Run this plan in the simulation →
                                 </Link>

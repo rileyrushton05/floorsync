@@ -35,6 +35,22 @@ export function formatDuration(mins: number): string {
     return `${hours}h ${minutes}m`;
 }
 
+/**
+ * Energy for display, in kWh. `null` is **not recorded**, never zero.
+ *
+ * The database is explicit that a null energy means the source this pairing
+ * came from did not record one (an academic job-shop benchmark records duration
+ * and nothing else), so cost reporting has to exclude it rather than count it
+ * as drawing no power. Rendering it as "0 kWh" would quietly assert the one
+ * thing the column says it does not know.
+ */
+export function formatEnergy(energy: string | null): string {
+    if (energy === null || energy.trim() === "") return "Not recorded";
+    const value = Number(energy);
+    if (Number.isNaN(value)) return energy;
+    return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`;
+}
+
 /** 135 -> "T+2:15" */
 export function formatOffset(mins: number): string {
     const hours = Math.floor(mins / 60);

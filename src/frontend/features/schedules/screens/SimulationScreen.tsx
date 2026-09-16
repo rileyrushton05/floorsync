@@ -21,7 +21,8 @@ import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { buildJobColors, jobColor } from "@/domains/scheduling/colors";
+import { buildJobColors } from "@/domains/scheduling/colors";
+import { JobDot } from "@/domains/scheduling/ui/JobDot";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
 import type { GeneratedSchedule } from "@/domains/scheduling/types";
@@ -387,10 +388,7 @@ export default function SimulationPage() {
                                         {activity.kind === "running" && (
                                             <>
                                                 <div className="mt-2 flex items-center gap-1.5 text-xs">
-                                                    <span
-                                                        className="size-2.5 shrink-0 rounded-full"
-                                                        style={{ background: jobColor(colors, activity.jobId).fill }}
-                                                    />
+                                                    <JobDot colors={colors} jobId={activity.jobId} size="sm" />
                                                     <strong>{jobLabel(activity.jobId)}</strong> · Op {activity.opIndex}/
                                                     {activity.opTotal} {activity.opName}
                                                 </div>
@@ -510,10 +508,7 @@ export default function SimulationPage() {
                                         <TableRow id={id}>
                                             <TableCell>
                                                 <span className="flex items-center gap-1.5">
-                                                    <span
-                                                        className="size-2.5 shrink-0 rounded-full"
-                                                        style={{ background: jobColor(colors, id).fill }}
-                                                    />
+                                                    <JobDot colors={colors} jobId={id} size="sm" />
                                                     {jobLabel(id)}
                                                 </span>
                                             </TableCell>
