@@ -575,16 +575,19 @@ def test_operator_cannot_delete_a_schedule() -> None:
     assert response.status_code == 403
 
 
-def _stub_validation(monkeypatch: Any, report: object) -> None:
+def _stub_validation(monkeypatch: Any, report: object) -> list[object]:
+    """Replace the validation read with a fixed report; returns the selections it was asked for."""
+
     from floorsync_common.scheduling import validation
 
+    calls: list[object] = []
+
     async def fake(_: object, *, job_ids: object = None) -> object:
-        fake.calls.append(job_ids)  # type: ignore[attr-defined]
+        calls.append(job_ids)
         return report
 
-    fake.calls = []  # type: ignore[attr-defined]
     monkeypatch.setattr(validation.ValidationService, "validate_floor", staticmethod(fake))
-    monkeypatch.setattr(validation, "_fake_calls", fake.calls, raising=False)  # type: ignore[attr-defined]
+    return calls
 
 
 def test_validation_route_maps_the_report(monkeypatch: Any) -> None:
@@ -630,11 +633,10 @@ def test_validation_route_maps_the_report(monkeypatch: Any) -> None:
 
 
 def test_validation_route_passes_the_selection_through(monkeypatch: Any) -> None:
-    from floorsync_common.scheduling import validation
     from floorsync_common.scheduling.validation import FloorValidation
 
     first, second = uuid4(), uuid4()
-    _stub_validation(
+    calls = _stub_validation(
         monkeypatch,
         FloorValidation(
             issues=(), warnings=(), unsupported=(), schedulable={"resched": True, "exact": True}
@@ -646,7 +648,7 @@ def test_validation_route_passes_the_selection_through(monkeypatch: Any) -> None
     client.get("/api/v1/schedules/validation")
     client.get("/api/v1/schedules/validation", params={"job_ids": [str(first), str(second)]})
 
-    assert validation._fake_calls == [None, [first, second]]  # type: ignore[attr-defined]
+    assert calls == [None, [first, second]]
 
 
 def test_validation_is_declared_before_the_schedule_id_route(monkeypatch: Any) -> None:

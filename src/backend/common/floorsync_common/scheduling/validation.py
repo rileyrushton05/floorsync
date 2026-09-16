@@ -22,7 +22,7 @@ from collections import defaultdict
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, assert_never
 from uuid import UUID
 
 from sqlalchemy import select
@@ -265,6 +265,8 @@ class ValidationService:
                 )
             case SchedulingInput() as problem:
                 pass
+            case _:
+                assert_never(loaded)
 
         issues = validate_input(problem)
         limits = strategy_limits(problem)

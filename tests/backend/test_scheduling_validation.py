@@ -7,8 +7,10 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.scheduling.contracts import (
     DependencySpec,
@@ -290,10 +292,14 @@ def _run(coroutine: Any) -> Any:
     return asyncio.run(coroutine)
 
 
+def _session(fake: FakeSession) -> AsyncSession:
+    return cast(AsyncSession, fake)
+
+
 def test_service_reports_a_coherent_floor_as_schedulable_by_every_strategy() -> None:
     problem, _, _ = _floor()
 
-    report = _run(ValidationService.validate_floor(FakeSession(problem)))  # type: ignore[arg-type]
+    report = _run(ValidationService.validate_floor(_session(FakeSession(problem))))
 
     assert report.issues == ()
     assert report.unsupported == ()
@@ -303,7 +309,7 @@ def test_service_reports_a_coherent_floor_as_schedulable_by_every_strategy() -> 
 def test_service_reports_fan_in_as_schedulable_by_exact_only() -> None:
     problem, _, _ = _floor(operations=3, dependencies=((0, 2), (1, 2)))
 
-    report = _run(ValidationService.validate_floor(FakeSession(problem)))  # type: ignore[arg-type]
+    report = _run(ValidationService.validate_floor(_session(FakeSession(problem))))
 
     assert report.issues == ()
     assert [limit.strategy for limit in report.unsupported] == ["resched"]
@@ -313,7 +319,7 @@ def test_service_reports_fan_in_as_schedulable_by_exact_only() -> None:
 def test_service_turns_a_data_problem_into_no_for_every_strategy() -> None:
     problem, _, _ = _floor(active=False)
 
-    report = _run(ValidationService.validate_floor(FakeSession(problem)))  # type: ignore[arg-type]
+    report = _run(ValidationService.validate_floor(_session(FakeSession(problem))))
 
     assert _codes(report.issues) == {"no_compatible_machine"}
     assert report.schedulable == {"resched": False, "exact": False}
@@ -328,7 +334,7 @@ def test_service_reports_a_refused_selection_as_issues() -> None:
     )
 
     report = _run(
-        ValidationService.validate_floor(FakeSession(refused), job_ids=[job_id])  # type: ignore[arg-type]
+        ValidationService.validate_floor(_session(FakeSession(refused)), job_ids=[job_id])
     )
 
     assert _codes(report.issues) == {"archived_job"}
@@ -341,7 +347,7 @@ def test_service_warns_about_empty_jobs_and_idle_machines_by_id() -> None:
 
     report = _run(
         ValidationService.validate_floor(
-            FakeSession(problem, empty_jobs=[job_id], idle_machines=[machine_id])  # type: ignore[arg-type]
+            _session(FakeSession(problem, empty_jobs=[job_id], idle_machines=[machine_id]))
         )
     )
 

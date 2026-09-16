@@ -106,6 +106,9 @@ class ReSchedEngine:
         clear, lays the operations out as the linear chains the runtime consumes.
         """
 
+        # Imported here rather than at module level: `validation` imports `service`, which imports
+        # this module, so a top-level import would be circular. `validation` only needs
+        # `unsupported` from here, and this is the only place here that needs `validation`.
         from floorsync_common.scheduling.validation import validate_input
 
         issues = validate_input(problem) + ReSchedEngine.unsupported(problem)
