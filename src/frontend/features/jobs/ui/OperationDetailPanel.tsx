@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -19,6 +22,13 @@ import { PredecessorPicker, type PredecessorOption } from "./PredecessorPicker";
  * It holds no state — every control writes straight to the job draft, which is
  * what the graph renders from, so the picture and the fields cannot disagree.
  *
+ * Focus is placed only when a step was *just added* — `autoFocusName`. React's
+ * own `autoFocus` fires on mount, and this panel stays mounted across
+ * selections, so it used to focus the first step opened and none of the rest.
+ * Focusing on every selection would be worse than either: the graph's nodes are
+ * buttons, and keyboard traversal would throw the cursor into a text field on
+ * each arrow press.
+ *
  * There is no move control. Order no longer decides what waits for what, and
  * once the step list was replaced by the graph the only thing it still affected
  * was left-to-right placement among steps sharing a row — so the buttons did
@@ -28,6 +38,8 @@ import { PredecessorPicker, type PredecessorOption } from "./PredecessorPicker";
 export function OperationDetailPanel({
     operation,
     index,
+    autoFocusName,
+    foreignPredecessors,
     machines,
     activeMachines,
     saving,
@@ -42,6 +54,10 @@ export function OperationDetailPanel({
     operation: DraftOperation | null;
     /** Only used to name an unnamed step for screen readers. */
     index: number;
+    /** True only for a step that was just added, which lands unnamed. */
+    autoFocusName: boolean;
+    /** How many operations in *other* jobs this step waits on. Not editable here. */
+    foreignPredecessors: number;
     machines: Machine[];
     activeMachines: Machine[];
     saving: boolean;
@@ -53,6 +69,13 @@ export function OperationDetailPanel({
     onRemoveRoute: (routeIndex: number) => void;
     onRemove: () => void;
 }) {
+    const nameRef = useRef<HTMLInputElement>(null);
+    const operationId = operation?.id ?? null;
+
+    useEffect(() => {
+        if (autoFocusName) nameRef.current?.focus();
+    }, [autoFocusName, operationId]);
+
     if (operation === null) {
         return (
             <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed p-5 text-center text-muted-fg text-sm">
@@ -74,15 +97,16 @@ export function OperationDetailPanel({
                 </Button>
             </div>
 
-            <TextField value={operation.name} onChange={(name) => onPatch({ name })} autoFocus>
+            <TextField value={operation.name} onChange={(name) => onPatch({ name })}>
                 <Label className="text-muted-fg text-xs">Step name</Label>
-                <Input placeholder="Operation name" autoComplete="off" />
+                <Input ref={nameRef} placeholder="Operation name" autoComplete="off" />
             </TextField>
 
             <PredecessorPicker
                 label={label}
                 options={predecessorOptions}
                 selected={operation.dependsOn}
+                foreignPredecessors={foreignPredecessors}
                 onChange={onDependenciesChange}
             />
 

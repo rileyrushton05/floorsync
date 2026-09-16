@@ -1,4 +1,18 @@
+"use client";
+
+import { useState } from "react";
+import { Input, InputGroup } from "@/components/ui/input";
+import { TextField } from "@/components/ui/text-field";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+
+/**
+ * Above this many options the chips stop being scannable and a filter appears.
+ *
+ * A benchmark job runs to fifty steps; forty-nine truncated chips is a wall,
+ * not a control. Below the threshold the filter would only be a box to ignore.
+ */
+const SEARCHABLE_FROM = 8;
 
 /** One operation this step could be made to wait on. */
 export interface PredecessorOption {
@@ -19,15 +33,33 @@ export function PredecessorPicker({
     label,
     options,
     selected,
+    foreignPredecessors = 0,
     onChange,
 }: {
     /** How this step is named in the control's accessible label. */
     label: string;
     options: PredecessorOption[];
     selected: string[];
+    /** Steps in other jobs this one waits on: shown, never editable here. */
+    foreignPredecessors?: number;
     onChange: (predecessorIds: string[]) => void;
 }) {
-    if (options.length === 0) return null;
+    const [query, setQuery] = useState("");
+    const needle = query.trim().toLowerCase();
+    const searchable = options.length >= SEARCHABLE_FROM;
+    // A selected step always stays on screen. Filtering one out of view would
+    // hide a choice that is in force, and un-picking it would mean remembering
+    // what to search for to find it again.
+    const shown =
+        needle === ""
+            ? options
+            : options.filter(
+                (option) =>
+                    selected.includes(option.id) ||
+                    (option.name || "untitled step").toLowerCase().includes(needle),
+            );
+
+    if (options.length === 0 && foreignPredecessors === 0) return null;
 
     return (
         <div className="rounded-lg border bg-muted p-3">
@@ -39,6 +71,20 @@ export function PredecessorPicker({
                     ? "Nothing — this step can start immediately."
                     : "Every step selected here must finish first."}
             </p>
+            {searchable && (
+                <TextField
+                    aria-label={`Search the steps ${label} could run after`}
+                    className="mt-2"
+                    value={query}
+                    onChange={setQuery}
+                >
+                    <InputGroup>
+                        <MagnifyingGlassIcon data-slot="icon" />
+                        <Input placeholder="Search steps…" autoComplete="off" />
+                    </InputGroup>
+                </TextField>
+            )}
+
             <ToggleGroup
                 aria-label={`Steps ${label} runs after`}
                 className="mt-2 flex-wrap"
@@ -47,7 +93,7 @@ export function PredecessorPicker({
                 selectedKeys={new Set(selected)}
                 onSelectionChange={(keys) => onChange(Array.from(keys).map(String))}
             >
-                {options.map((option) => (
+                {shown.map((option) => (
                     <ToggleGroupItem
                         key={option.id}
                         id={option.id}
@@ -69,6 +115,23 @@ export function PredecessorPicker({
                     </ToggleGroupItem>
                 ))}
             </ToggleGroup>
+
+            {searchable && shown.length === 0 && (
+                <p className="mt-2 text-muted-fg text-xs">No step matches “{query.trim()}”.</p>
+            )}
+
+            {/* The database allows a predecessor in another job, and the ordering
+                endpoint replaces every edge pointing into this one — so a save
+                carries these through untouched. The diagram cannot draw them
+                (it only knows this job's steps), but staying silent would let a
+                save look like it had dropped them. */}
+            {foreignPredecessors > 0 && (
+                <p className="mt-2 text-muted-fg text-xs">
+                    Also waits on {foreignPredecessors}{" "}
+                    {foreignPredecessors === 1 ? "step" : "steps"} in another job. Not shown in the
+                    graph and not changed by saving.
+                </p>
+            )}
         </div>
     );
 }

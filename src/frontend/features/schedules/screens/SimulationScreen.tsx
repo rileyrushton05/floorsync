@@ -3,6 +3,7 @@
 import { useAuth } from "@/core/auth/AuthProvider";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
+import { useJobSummaries } from "@/features/jobs/data/queries";
 import { toScheduleOption } from "@/features/schedules/model/schedule";
 import { useScheduleSummaries, useScheduleTimeline } from "@/features/schedules/data/queries";
 import { ScheduleBar } from "@/features/schedules/ui/ScheduleBar";
@@ -130,6 +131,7 @@ export default function SimulationPage() {
     const selectedId = schedules.some((schedule) => schedule.id === selectedOverrideId)
         ? selectedOverrideId
         : defaultScheduleId;
+    const jobsQuery = useJobSummaries();
     const timelineQuery = useScheduleTimeline(selectedId);
     const timeline = timelineQuery.data ?? null;
     const plan = useMemo(() => (timeline ? timelineToPlan(timeline) : null), [timeline]);
@@ -138,7 +140,14 @@ export default function SimulationPage() {
     const activeSchedule = plan?.schedule ?? null;
     const [playingPlan, setPlayingPlan] = useState(activeSchedule);
 
-    const colors = useMemo(() => buildJobColors(plan?.jobs ?? []), [plan]);
+    // Colour is keyed off the backlog, exactly as the scheduler screen keys it,
+    // so a job wears the same colour here as it does on the plan it came from
+    // and in the job builder. A timeline lane carries no creation time, so
+    // building from `plan.jobs` would order by the backend's lane order instead
+    // and hand the same job two different colours on two screens. The plan's own
+    // jobs stay the fallback for when the backlog could not be read.
+    const backlog = jobsQuery.data ?? null;
+    const colors = useMemo(() => buildJobColors(backlog ?? plan?.jobs ?? []), [backlog, plan]);
     const jobLabel = useCallback(
         (jobId: string) => plan?.jobs.find((job) => job.id === jobId)?.name ?? jobId,
         [plan],

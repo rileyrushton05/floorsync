@@ -37,6 +37,11 @@ const CORNER = 16;
  * It is a picture of precedence, not a schedule. A row says "cannot start
  * before", never "starts at" — machine contention is the scheduler's business,
  * and letting a row imply a start time would make it mean two things at once.
+ *
+ * The canvas scrolls in both directions inside a fixed viewport. A benchmark
+ * job runs to fifty steps, and laid out at full height that is a card several
+ * thousand pixels tall with the step editor beside it pushed off screen — the
+ * graph would grow until the thing it is drawn next to became unreachable.
  */
 export function JobGraphDiagram({
     operations,
@@ -45,7 +50,8 @@ export function JobGraphDiagram({
 }: {
     operations: GraphOperation[];
     selectedId: string | null;
-    onSelect: (operationId: string) => void;
+    /** `null` clears the selection — Escape, or a click on empty canvas. */
+    onSelect: (operationId: string | null) => void;
 }) {
     if (operations.length === 0) return null;
 
@@ -159,7 +165,15 @@ export function JobGraphDiagram({
     }
 
     return (
-        <div className="scroll-rail flex h-full flex-col justify-center overflow-x-auto rounded-xl border bg-muted p-4">
+        <div
+            className="scroll-rail flex max-h-[32rem] min-h-40 flex-col justify-center overflow-auto rounded-xl border bg-muted p-4"
+            // Clicking the canvas rather than a node clears the selection. The
+            // nodes stop the event, so this only ever fires on empty space.
+            onClick={() => onSelect(null)}
+            onKeyDown={(event) => {
+                if (event.key === "Escape") onSelect(null);
+            }}
+        >
             <div className="relative mx-auto shrink-0" style={{ width, height }}>
                 <svg
                     width={width}
@@ -219,7 +233,10 @@ export function JobGraphDiagram({
                             <li key={operation.id}>
                                 <button
                                     type="button"
-                                    onClick={() => onSelect(operation.id)}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onSelect(operation.id);
+                                    }}
                                     aria-pressed={isSelected}
                                     aria-label={describeNode(operation, operations)}
                                     style={{ left: at.x, top: at.y, width: NODE_WIDTH, height: NODE_HEIGHT }}

@@ -6,10 +6,18 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
-import { formatDuration, primaryRoute, totalWorkMins } from "@/domains/scheduling/format";
+import { Note } from "@/components/ui/note";
+import { errorMessage } from "@/core/http/errors";
+import { formatDuration, primaryRoute, routeMins, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
-import { CheckIcon, CursorArrowRaysIcon, PlusIcon } from "@heroicons/react/24/outline";
-import { wouldCreateCycle } from "../model/dependencies";
+import {
+    ArrowPathIcon,
+    ArrowUturnLeftIcon,
+    CheckIcon,
+    CursorArrowRaysIcon,
+    PlusIcon,
+} from "@heroicons/react/24/outline";
+import { criticalPathMins, wouldCreateCycle } from "../model/dependencies";
 import { JOB_PRIORITIES, type JobDraft } from "../model/editor";
 import { JobGraphDiagram } from "./JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
@@ -41,6 +49,12 @@ export function JobEditorPanel({
     loading,
     saving,
     hasLoadError,
+    dirty,
+    problem,
+    graphReady,
+    graphError,
+    onRetryGraph,
+    onDiscard,
     notes,
     onNameChange,
     onPriorityChange,
@@ -52,6 +66,7 @@ export function JobEditorPanel({
     onRemoveRoute,
     onDependenciesChange,
     selectedOperationId,
+    focusOperationId,
     onSelectOperation,
     onSave,
     onRequestDelete,
@@ -63,6 +78,16 @@ export function JobEditorPanel({
     loading: boolean;
     saving: boolean;
     hasLoadError: boolean;
+    /** Whether the draft differs from the job as the API has it. */
+    dirty: boolean;
+    /** Why this draft cannot be saved yet, or null when it can. */
+    problem: string | null;
+    /** Whether the job's real precedence has arrived, rather than the chain default. */
+    graphReady: boolean;
+    /** Why it has not, when the fetch failed outright. */
+    graphError: unknown;
+    onRetryGraph: () => void;
+    onDiscard: () => void;
     notes: React.ReactNode;
     onNameChange: (name: string) => void;
     onPriorityChange: (priority: JobDraft["priority"]) => void;
@@ -78,15 +103,33 @@ export function JobEditorPanel({
     onRemoveRoute: (operationIndex: number, routeIndex: number) => void;
     onDependenciesChange: (operationIndex: number, predecessorIds: string[]) => void;
     selectedOperationId: string | null;
+    /** The step that should take the cursor — a step just added, and nothing else. */
+    focusOperationId: string | null;
     onSelectOperation: (operationId: string | null) => void;
     onSave: () => void;
     onRequestDelete: () => void;
 }) {
     const workMins = totalWorkMins(draft);
+    const durationOf = new Map(
+        draft.operations.map((operation) => [operation.id, routeMins(primaryRoute(operation))]),
+    );
     const machineCount = new Set(
         draft.operations.flatMap((operation) => operation.routes.map((route) => route.machineId)),
     ).size;
     const nodes = draft.operations.map((operation) => ({ id: operation.id, dependsOn: operation.dependsOn }));
+    const elapsedMins = criticalPathMins(nodes, (id) => durationOf.get(id) ?? 0);
+    // A save waits on the real graph, on the draft being complete, and on the
+    // page being in a state where a write makes sense at all.
+    const blocked = loading || hasLoadError || !graphReady || problem !== null || !dirty;
+    const blockedReason = !graphReady
+        ? graphError
+            ? "This job's step order could not be loaded, so saving would overwrite it."
+            : "Loading this job's step order…"
+        : problem !== null
+            ? problem
+            : !dirty && draft.id !== null
+                ? "No unsaved changes."
+                : null;
     const selectedIndex = draft.operations.findIndex((operation) => operation.id === selectedOperationId);
     const selected = selectedIndex >= 0 ? draft.operations[selectedIndex] : null;
     const predecessorOptionsFor = (operationId: string) =>
@@ -107,17 +150,40 @@ export function JobEditorPanel({
 
     return (
         <Card>
-            <CardHeader className="flex-row items-center justify-between gap-3">
+            <CardHeader className="flex-row items-center gap-3">
                 <span className="flex items-center gap-2.5">
                     <CardTitle>{draft.id ? "Edit job" : "New job"}</CardTitle>
                     {draft.id && sequenceNumber !== undefined && (
                         <Badge intent="secondary">#{sequenceNumber}</Badge>
+                    )}
+                    {/* Unsaved work is otherwise invisible until something tries
+                        to navigate away and a dialog appears out of nowhere. */}
+                    {dirty && (
+                        <Badge intent="warning" role="status">
+                            Unsaved changes
+                        </Badge>
                     )}
                 </span>
             </CardHeader>
 
             <CardContent className="space-y-5">
                 {notes}
+
+                {/* Without this the editor would quietly present the straight
+                    chain `draftFromJob` opens on as though it were the job. */}
+                {graphError !== null && graphError !== undefined && (
+                    <Note intent="danger" role="alert">
+                        <strong>Could not load the order this job&rsquo;s steps run in.</strong>
+                        <div className="mt-1">{errorMessage(graphError)}</div>
+                        <div className="mt-1">
+                            The steps below are shown running one after another, which may not be
+                            how this job is stored. Saving is held until the real order loads.
+                        </div>
+                        <Button intent="outline" size="sm" className="mt-2.5" onPress={onRetryGraph}>
+                            <ArrowPathIcon /> Try again
+                        </Button>
+                    </Note>
+                )}
 
                 <div className="flex flex-col gap-4 sm:flex-row">
                     <TextField className="flex-2" value={draft.name} onChange={onNameChange}>
@@ -173,6 +239,14 @@ export function JobEditorPanel({
                             <OperationDetailPanel
                                 operation={selected}
                                 index={selectedIndex}
+                                autoFocusName={selected !== null && selected.id === focusOperationId}
+                                foreignPredecessors={
+                                    selected === null
+                                        ? 0
+                                        : draft.foreignEdges.filter(
+                                            (edge) => edge.after_operation_id === selected.id,
+                                        ).length
+                                }
                                 machines={machines}
                                 activeMachines={activeMachines}
                                 saving={saving}
@@ -191,15 +265,25 @@ export function JobEditorPanel({
 
                 <Separator />
 
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                {/* "Duration" used to be the sum of every step, which was
+                    defensible while a job could only be a chain. It is not any
+                    more: steps sharing a row in the graph run at once, so the
+                    sum overstates how long the job takes. Both figures are shown
+                    and each is named for what it actually measures. */}
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                     <Stat
                         value={String(draft.operations.length)}
                         label={draft.operations.length === 1 ? "Operation" : "Operations"}
                     />
                     <Stat
                         value={formatDuration(workMins)}
-                        label="Duration"
-                        hint="On each step's first machine"
+                        label="Total work"
+                        hint="Every step added up"
+                    />
+                    <Stat
+                        value={formatDuration(elapsedMins)}
+                        label="Longest path"
+                        hint="If parallel steps run at once"
                     />
                     <Stat
                         value={String(machineCount)}
@@ -209,6 +293,15 @@ export function JobEditorPanel({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2.5">
+                    {/* A disabled button with no reason beside it is a dead end.
+                        The message says what to do, in the same place every
+                        time, rather than arriving as a toast after a round trip
+                        the draft was never going to survive. */}
+                    {blockedReason !== null && (
+                        <span className="me-auto text-muted-fg text-sm" role="status">
+                            {blockedReason}
+                        </span>
+                    )}
                     {draft.id && (
                         <Button
                             intent="danger"
@@ -218,7 +311,19 @@ export function JobEditorPanel({
                             Delete job
                         </Button>
                     )}
-                    <Button onPress={onSave} isPending={saving} isDisabled={loading || hasLoadError}>
+                    {/* Discard is the opposite of Save, so it sits beside it
+                        rather than up in the title row. Always rendered, merely
+                        disabled while there is nothing to discard: appearing
+                        only when the draft is dirty would shift Save sideways
+                        under the pointer at the moment of the first keystroke. */}
+                    <Button
+                        intent="outline"
+                        onPress={onDiscard}
+                        isDisabled={!dirty || saving || loading || hasLoadError}
+                    >
+                        <ArrowUturnLeftIcon /> Discard changes
+                    </Button>
+                    <Button onPress={onSave} isPending={saving} isDisabled={blocked}>
                         <CheckIcon /> {draft.id ? "Save changes" : "Create job"}
                     </Button>
                 </div>

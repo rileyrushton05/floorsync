@@ -3,11 +3,12 @@
 import { Button } from "@/components/ui/button";
 import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
-import { reportMutationError } from "@/core/feedback/reportMutationError";
+import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import type { JobDef, OperationDef } from "@/domains/scheduling/types";
 import {
+    JobGraphWriteError,
     useCreateJobDefinition,
     useDeleteJobDefinition,
     useJobDefinitions,
@@ -31,6 +32,7 @@ import {
     applyDependencies,
     draftFingerprint,
     draftFromJob,
+    draftProblem,
     filterJobs,
     jobSequenceNumbers,
     type JobDraft,
@@ -78,10 +80,16 @@ function JobsPageInner() {
     const saving = createJob.isPending || updateJob.isPending || deleteJob.isPending;
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<JobDraft>(() => (jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT));
-    // The draft as last loaded or saved. Anything else on screen is unsaved
+    // The job as the API has it. Anything the draft says differently is unsaved
     // work, which is what the leave warnings key off.
-    const [baseline, setBaseline] = useState<string>(() =>
-        draftFingerprint(jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT),
+    //
+    // Held as a draft rather than as its fingerprint so the graph arriving can
+    // be applied to *both* — the edges are part of the job as saved, not an
+    // edit, and folding them into the baseline alone would also fold in
+    // whatever the manager had typed while the fetch was in flight, silently
+    // clearing the dirty flag that protects it.
+    const [baselineDraft, setBaselineDraft] = useState<JobDraft>(() =>
+        jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT,
     );
     const [isCreating, setIsCreating] = useState(false);
     /** A job switch or a new job, held back until unsaved work is dealt with. */
@@ -97,6 +105,12 @@ function JobsPageInner() {
     // Which step the graph has open. Held here rather than in the graph because
     // the operation cards highlight the same selection and edit the same draft.
     const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
+    // A step added by a click lands unnamed and wants the cursor; one merely
+    // selected in the graph does not, or keyboard traversal of the diagram
+    // would throw focus into a text field on every arrow press.
+    const [focusOperationId, setFocusOperationId] = useState<string | null>(null);
+    /** A step removal held back until it is confirmed — the edit is not undoable. */
+    const [pendingOperationRemoval, setPendingOperationRemoval] = useState<number | null>(null);
 
     // The floor definition arrives after authentication. Select its first job
     // only while the editor is pristine, so a delayed API response never
@@ -121,7 +135,11 @@ function JobsPageInner() {
     // never rendered. Adjusting state during render (guarded by
     // lastOpenedJobId) avoids the render cascade of doing it inside an effect.
     const requestedJobId = searchParams.get("job");
-    const [lastOpenedJobId, setLastOpenedJobId] = useState(requestedJobId);
+    // Starts null, never at `requestedJobId`: the backlog is still loading on
+    // the first render, so seeding this with the requested id would mark the
+    // link as handled before there was any job to match it against, and the
+    // screen would silently fall back to the first job in the backlog.
+    const [lastOpenedJobId, setLastOpenedJobId] = useState<string | null>(null);
     if (requestedJobId && requestedJobId !== lastOpenedJobId) {
         const match = jobs.find((job) => job.id === requestedJobId);
         if (match) {
@@ -140,36 +158,61 @@ function JobsPageInner() {
     const loadedEdges = dependencyQuery.data?.edges;
     if (draft.id !== null && loadedEdges !== undefined && graphLoadedFor !== draft.id) {
         setGraphLoadedFor(draft.id);
-        // The graph arriving is the job finishing loading, not an edit — so it
-        // moves the baseline with it rather than reading as unsaved work.
-        openDraft(applyDependencies(draft, loadedEdges));
+        // The graph arriving is the job finishing loading, not an edit. It lands
+        // on the draft *and* on the baseline independently, so an edit made
+        // while the fetch was in flight still reads as unsaved.
+        setDraft((previous) => applyDependencies(previous, loadedEdges));
+        setBaselineDraft((previous) => applyDependencies(previous, loadedEdges));
     }
+
+    // Until the graph has actually arrived the editor is showing the straight
+    // chain `draftFromJob` opens on, which for a branching job is not the job.
+    // Saving that would overwrite the real graph with a chain, so a save waits
+    // — and a graph that failed to load says so rather than passing a guess off
+    // as the job.
+    const graphReady = draft.id === null || graphLoadedFor === draft.id;
+    const graphError = draft.id !== null && graphLoadedFor !== draft.id ? dependencyQuery.error : null;
 
     const colors = useMemo(() => buildJobColors(jobs), [jobs]);
     const sequenceNumbers = useMemo(() => jobSequenceNumbers(jobs), [jobs]);
     const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
     const visibleJobs = useMemo(() => filterJobs(jobs, filters), [jobs, filters]);
 
-    const dirty = draftFingerprint(draft) !== baseline;
+    const dirty = draftFingerprint(draft) !== draftFingerprint(baselineDraft);
+    const problem = draftProblem(draft);
     // Holds in-app links and warns on tab close / reload while work is unsaved.
-    useNavigationGuard(dirty);
+    useNavigationGuard(dirty, {
+        title: "Leave without saving?",
+        description: `“${draft.name.trim() || "This job"}” has changes that have not been saved. Leaving this page discards them.`,
+        confirmLabel: "Discard and leave",
+        cancelLabel: "Stay on this page",
+    });
 
     /** Set the draft *and* the baseline: this is the job as the API has it. */
     function openDraft(next: JobDraft) {
         setDraft(next);
-        setBaseline(draftFingerprint(next));
+        setBaselineDraft(next);
+    }
+
+    /** Put the editor back to the job as saved, throwing the edits away. */
+    function discardChanges() {
+        setDraft(baselineDraft);
+        setSelectedOperationId(null);
+        setFocusOperationId(null);
     }
 
     function openNewJob() {
         setIsCreating(true);
         openDraft(EMPTY_JOB_DRAFT);
         setSelectedOperationId(null);
+        setFocusOperationId(null);
     }
 
     function openJob(job: JobDef) {
         setIsCreating(false);
         openDraft(draftFromJob(job));
         setSelectedOperationId(null);
+        setFocusOperationId(null);
     }
 
     // Switching jobs replaces the draft outright, so it is the same loss as
@@ -209,8 +252,11 @@ function JobsPageInner() {
             };
         });
         // Open it immediately: a step added from the graph is added in order to
-        // be filled in, and it lands unnamed with a default route.
+        // be filled in, and it lands unnamed with a default route. Only a step
+        // added this way takes the cursor — selecting an existing one in the
+        // graph must leave focus where the manager put it.
         setSelectedOperationId(id);
+        setFocusOperationId(id);
     }
 
     function patchOperation(index: number, patch: Partial<Pick<OperationDef, "name">>) {
@@ -267,6 +313,7 @@ function JobsPageInner() {
 
     function removeOperation(index: number) {
         if (draft.operations[index]?.id === selectedOperationId) setSelectedOperationId(null);
+        setFocusOperationId(null);
         setDraft((previous) => {
             const removed = previous.operations[index];
             if (removed === undefined) return previous;
@@ -308,36 +355,59 @@ function JobsPageInner() {
         }));
     }
 
+    /**
+     * Reopen the editor on the job the API just stored.
+     *
+     * `draftFromJob` reopens on the chain default, so the graph that was just
+     * written is re-applied — translated onto the ids the API assigned. Without
+     * this the editor would show a chain until the refetch landed, which reads
+     * as the save having discarded the graph.
+     */
+    function adoptSavedJob(saved: JobDef) {
+        const savedIds = saved.operations.map((op) => op.id);
+        const stillPresent = new Set(savedIds);
+        openDraft(
+            applyDependencies(draftFromJob(saved), [
+                ...edgesForSavedOperations(draft.operations, savedIds),
+                ...draft.foreignEdges.filter((edge) => stillPresent.has(edge.after_operation_id)),
+            ]),
+        );
+        setGraphLoadedFor(saved.id);
+        setIsCreating(false);
+        // A step created in this draft had a placeholder id the server has now
+        // replaced, so keep the panel on the same step by position.
+        setSelectedOperationId((previous) => {
+            const openAt = draft.operations.findIndex((op) => op.id === previous);
+            return openAt >= 0 ? savedIds[openAt] ?? null : null;
+        });
+        setFocusOperationId(null);
+    }
+
     async function saveDraft() {
         const wasExisting = Boolean(draft.id);
         try {
             const saved = draft.id
                 ? await updateJob.mutateAsync({ id: draft.id, job: draft })
                 : await createJob.mutateAsync(draft);
-            // `draftFromJob` reopens on the chain default, so re-apply the graph
-            // that was just written — translated onto the ids the API assigned.
-            // Without this the editor would show a chain until the refetch
-            // landed, which reads as the save having discarded the graph.
-            openDraft(
-                applyDependencies(
-                    draftFromJob(saved),
-                    edgesForSavedOperations(draft.operations, saved.operations.map((op) => op.id)),
-                ),
+            adoptSavedJob(saved);
+            toast.success(
+                wasExisting ? `“${saved.name}” saved.` : `“${saved.name}” created in the backlog.`,
             );
-            setGraphLoadedFor(saved.id);
-            // A step created in this draft had a placeholder id the server has
-            // now replaced, so keep the panel on the same step by position.
-            setSelectedOperationId((previous) => {
-                const openAt = draft.operations.findIndex((op) => op.id === previous);
-                return openAt >= 0 ? saved.operations[openAt]?.id ?? null : null;
-            });
-            if (wasExisting) {
-                toast.success(`“${saved.name}” saved.`);
-            } else {
-                setIsCreating(false);
-                toast.success(`“${saved.name}” created in the backlog.`);
-            }
         } catch (error) {
+            // A definition and its precedence are two writes, so a save can
+            // half-succeed. The job exists either way: adopt it, or a second
+            // press of "Create job" would make a duplicate rather than a retry.
+            if (error instanceof JobGraphWriteError) {
+                adoptSavedJob(error.saved);
+                setGraphLoadedFor(null);
+                reportBackendFailure(
+                    wasExisting
+                        ? `“${error.saved.name}” was saved, but the order its steps run in was not.`
+                        : `“${error.saved.name}” was created, but the order its steps run in was not. Fix the problem below and save again.`,
+                    [errorMessage(error.cause)],
+                );
+                return;
+            }
             reportMutationError(error);
         }
     }
@@ -399,6 +469,7 @@ function JobsPageInner() {
                     sequenceNumbers={sequenceNumbers}
                     selectedJobId={draft.id}
                     filters={filters}
+                    busy={saving}
                     onFiltersChange={(update) => setFilters(update)}
                     onSelect={editJob}
                 />
@@ -411,18 +482,28 @@ function JobsPageInner() {
                     loading={loading}
                     saving={saving}
                     hasLoadError={Boolean(loadError)}
+                    dirty={dirty}
+                    problem={problem}
+                    graphReady={graphReady}
+                    graphError={graphError}
+                    onRetryGraph={() => void dependencyQuery.refetch()}
+                    onDiscard={discardChanges}
                     notes={notes}
                     onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
                     onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
                     onAddOperation={addOperation}
-                    onRemoveOperation={removeOperation}
+                    onRemoveOperation={(index) => setPendingOperationRemoval(index)}
                     onPatchOperation={patchOperation}
                     onPatchRoute={patchRoute}
                     onAddRoute={addRoute}
                     onRemoveRoute={removeRoute}
                     onDependenciesChange={setDependencies}
                     selectedOperationId={selectedOperationId}
-                    onSelectOperation={setSelectedOperationId}
+                    focusOperationId={focusOperationId}
+                    onSelectOperation={(operationId) => {
+                        setSelectedOperationId(operationId);
+                        setFocusOperationId(null);
+                    }}
                     onSave={saveDraft}
                     onRequestDelete={() => setConfirmingDelete(true)}
                 />
@@ -444,6 +525,21 @@ function JobsPageInner() {
                         if (pendingOpen.kind === "new") openNewJob();
                         else openJob(pendingOpen.job);
                         setPendingOpen(null);
+                    }}
+                />
+            )}
+
+            {pendingOperationRemoval !== null && (
+                <ConfirmDialog
+                    title="Remove this step?"
+                    description={`“${draft.operations[pendingOperationRemoval]?.name.trim() || `Step ${pendingOperationRemoval + 1}`}” and its machines are removed from this job. Anything waiting on it waits on what it waited on instead. Nothing is written until you save.`}
+                    confirmLabel="Remove step"
+                    cancelLabel="Keep it"
+                    danger
+                    onCancel={() => setPendingOperationRemoval(null)}
+                    onConfirm={() => {
+                        removeOperation(pendingOperationRemoval);
+                        setPendingOperationRemoval(null);
                     }}
                 />
             )}

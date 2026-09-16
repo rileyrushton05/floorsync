@@ -9,7 +9,9 @@ import {
     fetchJobs,
     replaceJobDefinition,
     replaceJobDependencies,
+    type DependencyEdge,
 } from "./api";
+import { errorMessage } from "@/core/http/errors";
 import { fetchEveryPage } from "@/core/query/pagination";
 import type { JobDef } from "@/domains/scheduling/types";
 import { scheduleKeys } from "@/features/schedules/data/keys";
@@ -61,7 +63,29 @@ export function useJobDependencies(jobId: string | null) {
 }
 
 /** What a save needs beyond the definition: the graph the definition cannot carry. */
-type JobWithGraph = Omit<JobDef, "id"> & { operations: (JobDef["operations"][number] & PrecedenceNode)[] };
+type JobWithGraph = Omit<JobDef, "id"> & {
+    operations: (JobDef["operations"][number] & PrecedenceNode)[];
+    /** Edges from another job's operations into this one, passed through untouched. */
+    foreignEdges: DependencyEdge[];
+};
+
+/**
+ * The job was written, its precedence was not.
+ *
+ * A definition and its graph are two endpoints, so a save can half-succeed. On
+ * a create that matters: without knowing the job now exists, the screen would
+ * still be offering "Create job" and a second press would make a duplicate.
+ * Carrying the saved job lets the editor adopt it, so retrying is an update.
+ */
+export class JobGraphWriteError extends Error {
+    constructor(
+        readonly saved: JobDef,
+        readonly cause: unknown,
+    ) {
+        super(errorMessage(cause));
+        this.name = "JobGraphWriteError";
+    }
+}
 
 /**
  * Write the job's real precedence over the chain the definition save derived.
@@ -71,13 +95,28 @@ type JobWithGraph = Omit<JobDef, "id"> & { operations: (JobDef["operations"][num
  * replaces every edge pointing into the job, so sending the real graph
  * immediately afterwards is what makes a non-linear job stick. The order is not
  * optional: reversed, the chain would overwrite the graph.
+ *
+ * Cross-job edges go back in the same write. The endpoint clears every edge
+ * pointing into this job, so one that is not resent is deleted — and those are
+ * edges the builder never showed and the manager never asked to change.
  */
 async function writeGraph(saved: JobDef, draft: JobWithGraph, token: string): Promise<void> {
-    await replaceJobDependencies(
-        saved.id,
-        edgesForSavedOperations(draft.operations, saved.operations.map((operation) => operation.id)),
-        token,
-    );
+    const savedIds = saved.operations.map((operation) => operation.id);
+    const stillPresent = new Set(savedIds);
+    try {
+        await replaceJobDependencies(
+            saved.id,
+            [
+                ...edgesForSavedOperations(draft.operations, savedIds),
+                // An operation that was deleted takes its inbound edges with it;
+                // resending one would be a 422 for an operation that is gone.
+                ...draft.foreignEdges.filter((edge) => stillPresent.has(edge.after_operation_id)),
+            ],
+            token,
+        );
+    } catch (error) {
+        throw new JobGraphWriteError(saved, error);
+    }
 }
 
 /**
@@ -109,10 +148,13 @@ async function saveOverStoredGraph(
     try {
         return await save();
     } catch (error) {
-        await replaceJobDependencies(jobId, stored.edges, token).catch(() => {
-            // Swallowed on purpose: the save's own failure is the one worth
-            // reporting, and hiding it behind a restore failure would leave the
-            // manager with no idea why their save did not go through.
+        await replaceJobDependencies(jobId, stored.edges, token).catch((restoreError: unknown) => {
+            // Not rethrown: the save's own failure is the one worth reporting,
+            // and hiding it behind a restore failure would leave the manager
+            // with no idea why their save did not go through. It is still
+            // logged — this is the one path that can lose a stored graph, so it
+            // must not be silent to whoever is looking at the console.
+            console.error("Could not restore the job's precedence after a failed save", restoreError);
         });
         throw error;
     }

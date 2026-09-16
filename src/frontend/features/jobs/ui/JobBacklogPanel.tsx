@@ -27,6 +27,17 @@ import {
 } from "../model/editor";
 
 /**
+ * How many rows are put in the DOM at once.
+ *
+ * A seeded floor can hold hundreds of jobs — the `bel00` benchmark alone is 792
+ * — and every row here is a grid item with a badge, a colour dot and two lines
+ * of text. Rendering all of them costs more than anyone can read, so the list
+ * stops and says so; search, the filters and the sort are how you reach the
+ * rest, and they all run over the whole backlog rather than over this window.
+ */
+const MAX_ROWS = 150;
+
+/**
  * The backlog: search, filters, sort and the selectable job list.
  *
  * Presentational — it reports every change through `onFiltersChange` and
@@ -40,6 +51,7 @@ export function JobBacklogPanel({
     sequenceNumbers,
     selectedJobId,
     filters,
+    busy,
     onFiltersChange,
     onSelect,
 }: {
@@ -50,9 +62,13 @@ export function JobBacklogPanel({
     sequenceNumbers: ReadonlyMap<string, number>;
     selectedJobId: string | null;
     filters: JobFilters;
+    /** A save is in flight; switching jobs now would be overwritten when it lands. */
+    busy: boolean;
     onFiltersChange: (update: (filters: JobFilters) => JobFilters) => void;
     onSelect: (job: JobDef) => void;
 }) {
+    const rows = visibleJobs.slice(0, MAX_ROWS);
+    const hidden = visibleJobs.length - rows.length;
     const filtersActive =
         filters.query.trim() !== "" ||
         filters.priority !== "All" ||
@@ -191,12 +207,15 @@ export function JobBacklogPanel({
                     aria-label="Job backlog"
                     selectionMode="single"
                     selectionBehavior="replace"
-                    items={visibleJobs}
+                    items={rows}
+                    // A save reopens the editor on the job it wrote, so a switch
+                    // started mid-flight would be silently undone when it lands.
+                    disabledKeys={busy ? rows.map((job) => job.id) : []}
                     selectedKeys={selectedJobId ? new Set([selectedJobId]) : new Set()}
                     onSelectionChange={(keys) => {
                         if (keys === "all") return;
                         const [first] = Array.from(keys);
-                        const job = visibleJobs.find((candidate) => candidate.id === first);
+                        const job = rows.find((candidate) => candidate.id === first);
                         if (job) onSelect(job);
                     }}
                     renderEmptyState={() => (
@@ -241,6 +260,13 @@ export function JobBacklogPanel({
                         );
                     }}
                 </GridList>
+
+                {hidden > 0 && (
+                    <p className="mt-3 text-center text-muted-fg text-xs" role="status">
+                        {hidden} more {hidden === 1 ? "job is" : "jobs are"} not shown. Search or
+                        filter to narrow the backlog.
+                    </p>
+                )}
             </CardContent>
         </Card>
     );
