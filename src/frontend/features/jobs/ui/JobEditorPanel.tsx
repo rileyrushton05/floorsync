@@ -4,13 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { Note } from "@/components/ui/note";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
 import { formatDuration, primaryRoute, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
 import { CheckIcon, CursorArrowRaysIcon, PlusIcon } from "@heroicons/react/24/outline";
-import { graphShape, wouldCreateCycle } from "../model/dependencies";
+import { wouldCreateCycle } from "../model/dependencies";
 import { JOB_PRIORITIES, type JobDraft } from "../model/editor";
 import { JobGraphDiagram } from "./JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
@@ -88,7 +87,6 @@ export function JobEditorPanel({
         draft.operations.flatMap((operation) => operation.routes.map((route) => route.machineId)),
     ).size;
     const nodes = draft.operations.map((operation) => ({ id: operation.id, dependsOn: operation.dependsOn }));
-    const shape = graphShape(nodes);
     const selectedIndex = draft.operations.findIndex((operation) => operation.id === selectedOperationId);
     const selected = selectedIndex >= 0 ? draft.operations[selectedIndex] : null;
     const predecessorOptionsFor = (operationId: string) =>
@@ -187,34 +185,6 @@ export function JobEditorPanel({
                                 onRemove={() => onRemoveOperation(selectedIndex)}
                             />
                         </div>
-                    )}
-
-                    {!shape.isLinear && (
-                        <Note intent="warning" className="mt-3" role="status">
-                            <strong>This blocks schedule generation.</strong>
-                            <p className="mt-1">
-                                The graph saves fine, but a run plans every job at once and will be
-                                refused while this one branches — so no schedule can be generated
-                                for the whole floor until it is a straight chain again. The engine
-                                accepts at most one predecessor and one successor per operation,
-                                and{" "}
-                                {shape.fanOut.length > 0 && (
-                                    <>
-                                        {shape.fanOut.length} {shape.fanOut.length === 1 ? "step has" : "steps have"}{" "}
-                                        more than one step waiting on{" "}
-                                        {shape.fanOut.length === 1 ? "it" : "them"}
-                                    </>
-                                )}
-                                {shape.fanOut.length > 0 && shape.fanIn.length > 0 && ", and "}
-                                {shape.fanIn.length > 0 && (
-                                    <>
-                                        {shape.fanIn.length} {shape.fanIn.length === 1 ? "step waits" : "steps wait"} on
-                                        more than one other step
-                                    </>
-                                )}
-                                .
-                            </p>
-                        </Note>
                     )}
 
                 </div>

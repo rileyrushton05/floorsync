@@ -58,36 +58,6 @@ export function edgesFromNodes(nodes: readonly PrecedenceNode[]): DependencyEdge
     );
 }
 
-export interface GraphShape {
-    /** True when every operation has at most one predecessor and one successor. */
-    isLinear: boolean;
-    /** Operations more than one other operation waits on — ReSched's blocking case. */
-    fanOut: string[];
-    /** Operations waiting on more than one other operation. */
-    fanIn: string[];
-}
-
-/**
- * Whether this graph is a straight chain, and where it is not.
- *
- * This exists to explain a limit, not to enforce one: the scheduling engine
- * accepts at most one predecessor and one successor per operation, so a graph
- * that fans out or in can be saved but not yet planned. Both directions are
- * reported because the two read very differently to someone building a job.
- */
-export function graphShape(nodes: readonly PrecedenceNode[]): GraphShape {
-    const successorCount = new Map<string, number>();
-    const fanIn: string[] = [];
-    for (const node of nodes) {
-        if (node.dependsOn.length > 1) fanIn.push(node.id);
-        for (const before of node.dependsOn) {
-            successorCount.set(before, (successorCount.get(before) ?? 0) + 1);
-        }
-    }
-    const fanOut = nodes.filter((node) => (successorCount.get(node.id) ?? 0) > 1).map((node) => node.id);
-    return { isLinear: fanIn.length === 0 && fanOut.length === 0, fanIn, fanOut };
-}
-
 /** Every operation reachable by following `dependsOn` backwards from `id`. */
 function ancestorsOf(nodes: readonly PrecedenceNode[], id: string): Set<string> {
     const byId = new Map(nodes.map((node) => [node.id, node]));
