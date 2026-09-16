@@ -60,6 +60,7 @@ Every product endpoint requires a bearer token. Manager-only access applies to g
 | --- | --- | --- |
 | `POST /api/v1/schedules` | manager | Queues `{starts_at, job_ids?}` and returns `202`, a generation ID, and `Location`/`status_url`. Omitting `job_ids` plans the whole floor; supplying it scopes the run, and the selection is validated in the worker rather than here (decision 0013). |
 | `GET /api/v1/jobs/dependency-graph` | manager | Every cross-job precedence edge, so a caller can work out what selecting a job implies before scoping a run. |
+| `GET /api/v1/schedules/validation` | manager | `{schedulable: {resched, exact}, issues, warnings, unsupported}` for the whole floor or `?job_ids=...`. Always `200`; writes nothing. Issues stop every strategy and name their record; warnings (empty job, idle machine) stop nothing; unsupported is per strategy. |
 | `GET /api/v1/schedules/generations/{id}` | manager | `pending`, `running`, `completed`, `rejected`, `unavailable`, or `failed`. Completion supplies a schedule link; rejection supplies issues. |
 | `GET /api/v1/schedules` | manager | Every schedule summary, newest first; currently unpaginated. |
 | `GET /api/v1/schedules/{id}` | manager | Metadata plus all entries and dependencies. |
@@ -139,7 +140,7 @@ sequenceDiagram
     end
 ```
 
-The adapter supports conventional flexible job-shop chains only. It validates positive durations, non-negative energy, unique IDs/routes/dependencies, known references, a timezone-aware start, at least one operation, and an active compatible route for each operation. It rejects all downtime windows, dependency cycles, self-dependencies, fan-in/fan-out, and any dependency graph that is not disjoint linear chains. No partial schedule is persisted on rejection.
+Data coherence is checked once, in `scheduling/input_checks.py`, before either engine runs: positive durations, non-negative energy, unique IDs/routes/dependencies, known references, a timezone-aware start, at least one operation, an active compatible route for each operation, and no cycle (each operation in a cycle is named). The ReSched adapter additionally supports conventional flexible job-shop chains only, so it rejects downtime windows, fan-in/fan-out, and any dependency graph that is not disjoint linear chains; the exact solver rejects downtime windows only. Both worker tasks apply their strategy's limits through `validate_for_strategy` before adapting the input, so the exact task refuses downtime windows rather than silently dropping them. No partial schedule is persisted on rejection. `GET /api/v1/schedules/validation` runs the same checks on demand and reports, per strategy, whether a generation would succeed (#133).
 
 ## Required user flow: generate, review, confirm, simulate
 

@@ -2,7 +2,7 @@ from typing import Annotated, Literal, assert_never
 from uuid import UUID
 
 from celery.exceptions import OperationalError
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -17,13 +17,16 @@ from floorsync_api.features.schedules.schemas import (
     ScheduleGenerationStatusResponse,
     ScheduleResponse,
     ScheduleSummaryResponse,
+    ScheduleValidationResponse,
     SchedulingIssueResponse,
+    StrategyLimitResponse,
 )
 from floorsync_api.problems import ProblemDetail, problem_response
 from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
+from floorsync_common.scheduling.contracts import SchedulingIssue
 from floorsync_common.scheduling.lifecycle import (
     ScheduleDeleted,
     ScheduleLifecycleService,
@@ -34,6 +37,7 @@ from floorsync_common.scheduling.task_names import (
     EXACT_SCHEDULE_GENERATION_TASK,
     SCHEDULE_GENERATION_TASK,
 )
+from floorsync_common.scheduling.validation import ValidationService
 from floorsync_common.task_queue import create_task_queue
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
@@ -137,6 +141,40 @@ async def get_schedule_generation(
         return schedule_generation_status(generation_id, task_result.state, task_result.result)
     except OperationalError:
         return queue_unavailable_problem(request)
+
+
+# Declared before `/{schedule_id}`: FastAPI matches routes in declaration order, and the other way
+# round this path is read as a schedule id and refused as a malformed UUID before reaching here.
+@router.get(
+    "/validation",
+    response_model=ScheduleValidationResponse,
+    summary="Check the floor is ready to schedule",
+)
+async def validate_schedule_input(
+    db: DbSession,
+    _: Manager,
+    job_ids: Annotated[list[UUID] | None, Query()] = None,
+) -> ScheduleValidationResponse:
+    """Report what would stop a generation run, before queueing one (#133).
+
+    Reads the floor exactly as `POST /api/v1/schedules` would, selection included, and runs the
+    same data checks every strategy runs. Always `200`: a floor with problems is a successful
+    answer to "what is wrong", and the report says per strategy whether Generate would succeed.
+    Nothing is written.
+    """
+
+    async with db.begin():
+        report = await ValidationService.validate_floor(db, job_ids=job_ids)
+
+    return ScheduleValidationResponse(
+        schedulable=dict(report.schedulable),
+        issues=[_issue_response(issue) for issue in report.issues],
+        warnings=[_issue_response(issue) for issue in report.warnings],
+        unsupported=[
+            StrategyLimitResponse(strategy=limit.strategy, issue=_issue_response(limit.issue))
+            for limit in report.unsupported
+        ],
+    )
 
 
 @router.get(
@@ -318,6 +356,16 @@ def queue_unavailable_problem(request: Request) -> JSONResponse:
             detail="The scheduling queue is not available. Try again later.",
             instance=request.url.path,
         )
+    )
+
+
+def _issue_response(issue: SchedulingIssue) -> SchedulingIssueResponse:
+    return SchedulingIssueResponse(
+        code=issue.code,
+        message=issue.message,
+        operation_id=issue.operation_id,
+        machine_id=issue.machine_id,
+        job_id=issue.job_id,
     )
 
 

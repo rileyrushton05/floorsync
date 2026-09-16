@@ -7,14 +7,12 @@ from uuid import UUID
 
 from gurobipy import GurobiError
 
-from floorsync_common.operations.service import find_dependency_cycle
 from floorsync_common.scheduling import (
     ReSchedEngine,
     ReSchedRuntimeUnavailable,
     ScheduleGenerated,
     SchedulingInput,
     SchedulingInputInvalid,
-    SchedulingIssue,
     SchedulingService,
 )
 from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
@@ -24,6 +22,7 @@ from floorsync_common.scheduling.gurobi_exact_solver import (
     adapt_scheduling_input,
     solve_fajsp,
 )
+from floorsync_common.scheduling.input_checks import validate_for_strategy
 from floorsync_common.scheduling.task_names import (
     EXACT_SCHEDULE_GENERATION_TASK,
     SCHEDULE_GENERATION_TASK,
@@ -74,6 +73,13 @@ def generate_schedule(starts_at: str, job_ids: list[str] | None = None) -> dict[
             pass
         case _:
             assert_never(loaded)
+
+    # Refused here by the same checks the validation endpoint reports, data problems and this
+    # strategy's limits alike, so the endpoint and the worker can never disagree (#133). The engine
+    # re-checks its own limits inside `generate`; that is cheap and keeps it safe to call alone.
+    invalid = validate_for_strategy(problem, "resched")
+    if invalid is not None:
+        return {"outcome": "invalid", "issues": _issues_payload(invalid)}
 
     started_ns = perf_counter_ns()
     result = ReSchedEngine.generate(problem)
@@ -136,24 +142,11 @@ def generate_schedule_exact(starts_at: str, job_ids: list[str] | None = None) ->
         case _:
             assert_never(loaded)
 
-    cycle = find_dependency_cycle(
-        [
-            (dependency.before_operation_id, dependency.after_operation_id)
-            for dependency in problem.dependencies
-        ]
-    )
-    if cycle:
-        cyclic = SchedulingInputInvalid(
-            issues=tuple(
-                SchedulingIssue(
-                    "cyclic_dependencies",
-                    "This operation is part of a dependency cycle and can never be scheduled.",
-                    operation_id,
-                )
-                for operation_id in cycle
-            )
-        )
-        return {"outcome": "invalid", "issues": _issues_payload(cyclic)}
+    # The exact solver has no guard of its own, so this is the only place its limits are enforced:
+    # `adapt_scheduling_input` would otherwise drop downtime windows on the floor without a word.
+    invalid = validate_for_strategy(problem, "exact")
+    if invalid is not None:
+        return {"outcome": "invalid", "issues": _issues_payload(invalid)}
 
     try:
         operations, eligible_machines, operation_data, machine_meta = adapt_scheduling_input(
