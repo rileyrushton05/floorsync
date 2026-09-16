@@ -7,6 +7,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp
 
+from floorsync_api.features.live_updates.redis_client import close_redis_client
 from floorsync_api.middleware import (
     RequestBodyLimitMiddleware,
     RequestContextMiddleware,
@@ -25,6 +26,7 @@ from floorsync_common.settings import Settings, settings
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
     await engine.dispose()
+    await close_redis_client()
 
 
 def create_application(config: Settings) -> FastAPI:

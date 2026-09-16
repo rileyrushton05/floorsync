@@ -10,6 +10,7 @@ unique index) belongs in integration tests once the migration exists.
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -494,6 +495,28 @@ def test_timeline_response_separates_lanes_from_operations() -> None:
 # -- routes --------------------------------------------------------------
 
 
+def _stub_live_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Silence the live-update side effect for a route test that isn't about it.
+
+    `FakeSession` has no `.scalar()`/`.get()` support for the outbox's sequence allocation, and
+    this file's own concern is simulation lifecycle/position, not delivery -- see
+    `tests/backend/test_live_updates.py` for the outbox service itself.
+    """
+    from floorsync_api.features.live_updates.publisher import OutboxPublisher
+    from floorsync_common.live_updates.service import LiveUpdateOutboxService
+
+    async def fake_enqueue(*_: object, **__: object) -> Any:
+        return SimpleNamespace(outbox_id=uuid4())
+
+    async def fake_publish(*_: object, **__: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        LiveUpdateOutboxService, "enqueue_simulation_change", staticmethod(fake_enqueue)
+    )
+    monkeypatch.setattr(OutboxPublisher, "publish_now", staticmethod(fake_publish))
+
+
 def build_client(session: FakeSession, *, role: str = "manager") -> TestClient:
     """Mount the simulation router with the session and current user overridden."""
     app = FastAPI()
@@ -563,7 +586,8 @@ def test_simulation_route_returns_the_derived_position() -> None:
     assert body["speed"] == "1"
 
 
-def test_event_route_records_a_control_action() -> None:
+def test_event_route_records_a_control_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_live_updates(monkeypatch)
     session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation())
     client = build_client(session)
 
@@ -613,7 +637,8 @@ def test_event_route_rejects_unknown_fields() -> None:
     assert response.status_code == 422
 
 
-def test_create_simulation_route_sets_a_location_header() -> None:
+def test_create_simulation_route_sets_a_location_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_live_updates(monkeypatch)
     client = build_client(FakeSession(schedule=FakeSchedule(), simulation=None))
 
     response = client.post("/api/v1/simulations", json={"schedule_id": str(SCHEDULE_ID)})

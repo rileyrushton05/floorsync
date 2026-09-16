@@ -3892,7 +3892,7 @@
     },
     "/api/v1/simulations": {
       "post": {
-        "description": "Create the simulation for a confirmed schedule.\n\nA schedule has at most one simulation; resetting re-initialises that row\nrather than creating another, so a repeat request reports a conflict.",
+        "description": "Create the simulation for a confirmed schedule.\n\nA schedule has at most one simulation; resetting re-initialises that row\nrather than creating another, so a repeat request reports a conflict.\n\nCreating a simulation is a change too (decision 0017), so it is announced on the live channel\nwith cause \"created\" alongside the response -- it appends no `simulation_events` row, which is\nwhy this is enqueued here rather than inside `SimulationService.create_simulation` itself.",
         "operationId": "create_simulation_api_v1_simulations_post",
         "requestBody": {
           "content": {
@@ -3988,7 +3988,7 @@
     },
     "/api/v1/simulations/{simulation_id}/events": {
       "post": {
-        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.",
+        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.\n\nA recorded control is announced on the live channel (decision 0017): the outbox row commits\nin the same transaction as the event, and is published to Redis only once that transaction\nhas committed, so a client never sees a notification for a change that did not happen.",
         "operationId": "create_simulation_event_api_v1_simulations__simulation_id__events_post",
         "parameters": [
           {
