@@ -20,6 +20,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import aliased
 
 from floorsync_common.database.models.dependency import Dependency
+from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 
 type JobEdge = tuple[UUID, UUID]
@@ -27,21 +28,33 @@ type JobEdge = tuple[UUID, UUID]
 
 
 def job_dependency_edges_statement() -> Select[JobEdge]:
-    """Select every distinct cross-job edge, as (before_job_id, after_job_id) pairs.
+    """Select every distinct cross-job edge between open jobs, as (before_job_id, after_job_id).
 
     Edges inside a single job are excluded: they order that job's own steps and say nothing about
-    whether some *other* job has to be scheduled alongside it. Ordered so two calls agree, which
-    matters for a response body a client may diff.
+    whether some *other* job has to be scheduled alongside it. Edges touching an archived job are
+    excluded too: an archived prerequisite has finished or been cancelled and cannot be scheduled,
+    so it is treated as satisfied rather than demanded, and an archived dependant is nobody's
+    concern. Both callers need that same reading, or the backlog would auto-tick a job the
+    scheduler then refuses. Ordered so two calls agree, which matters for a response body a client
+    may diff.
     """
 
     before = aliased(Operation)
     after = aliased(Operation)
+    before_job = aliased(Job)
+    after_job = aliased(Job)
     return (
         select(before.job_id, after.job_id)
         .select_from(Dependency)
         .join(before, before.id == Dependency.before_operation_id)
         .join(after, after.id == Dependency.after_operation_id)
-        .where(before.job_id != after.job_id)
+        .join(before_job, before_job.id == before.job_id)
+        .join(after_job, after_job.id == after.job_id)
+        .where(
+            before.job_id != after.job_id,
+            before_job.archived_at.is_(None),
+            after_job.archived_at.is_(None),
+        )
         .distinct()
         .order_by(before.job_id, after.job_id)
     )

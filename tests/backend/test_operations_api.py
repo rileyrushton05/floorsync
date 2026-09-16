@@ -29,6 +29,7 @@ from floorsync_common.operations.results import (
     OperationUpdated,
 )
 from floorsync_common.operations.service import find_dependency_cycle
+from floorsync_common.scheduling.references import ScheduleReferences
 from floorsync_common.settings import Settings
 
 CREATED_AT = datetime(2026, 9, 11, 8, tzinfo=UTC)
@@ -256,13 +257,25 @@ def test_delete_operation_returns_404_when_absent(monkeypatch: pytest.MonkeyPatc
 def test_delete_operation_refuses_when_it_is_scheduled(monkeypatch: pytest.MonkeyPatch) -> None:
     """A schedule records what was planned; deleting the step would destroy that history."""
 
-    operation_id = uuid4()
-    stub(monkeypatch, "delete_operation", OperationIsScheduled(operation_id=operation_id))
+    operation_id, draft_id = uuid4(), uuid4()
+    stub(
+        monkeypatch,
+        "delete_operation",
+        OperationIsScheduled(
+            operation_id=operation_id,
+            references=ScheduleReferences(
+                draft_schedule_ids=(draft_id,), confirmed_schedule_ids=()
+            ),
+        ),
+    )
 
     response = operation_client().delete(f"/api/v1/operations/{operation_id}")
 
     assert response.status_code == 409
-    assert response.json()["type"] == "urn:floorsync:problem:operation-is-scheduled"
+    body = response.json()
+    assert body["type"] == "urn:floorsync:problem:operation-is-scheduled"
+    assert body["draft_schedule_ids"] == [str(draft_id)]
+    assert body["confirmed_schedule_ids"] == []
 
 
 def test_operations_are_manager_only() -> None:

@@ -11,6 +11,7 @@ from uuid import UUID
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.outcomes import ExpectedOutcome
+from floorsync_common.scheduling.references import ScheduleReferences
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,10 +40,14 @@ class JobIsScheduled(ExpectedOutcome):
     """The job's work appears in a schedule, so removing it would destroy that schedule's history.
 
     `schedule_entries.operation_id` restricts deletion for exactly this reason; refusing here gives
-    the caller a reason instead of an integrity error.
+    the caller a reason instead of an integrity error. `references` says which schedules, split by
+    whether deleting them would clear the way: drafts can be, confirmed schedules cannot (decision
+    0015). A job that must leave the backlog while a confirmed schedule names it is archived, not
+    deleted.
     """
 
     job_id: UUID
+    references: ScheduleReferences
 
 
 type GetJobResult = JobFound | JobNotFound

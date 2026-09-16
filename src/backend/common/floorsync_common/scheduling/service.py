@@ -75,9 +75,19 @@ class SchedulingService:
         selection: frozenset[UUID] | None = None
         if job_ids is not None:
             selection = frozenset(job_ids)
+            known = db.execute(
+                select(Job.id, Job.archived_at).where(Job.id.in_(selection))
+            ).tuples()
+            known_job_ids: set[UUID] = set()
+            archived_job_ids: set[UUID] = set()
+            for known_job_id, archived_at in known:
+                known_job_ids.add(known_job_id)
+                if archived_at is not None:
+                    archived_job_ids.add(known_job_id)
             issues = selection_issues(
                 selection,
-                known_job_ids=set(db.scalars(select(Job.id).where(Job.id.in_(selection))).all()),
+                known_job_ids=known_job_ids,
+                archived_job_ids=archived_job_ids,
                 job_edges=list(db.execute(job_dependency_edges_statement()).tuples()),
             )
             if issues:
@@ -90,27 +100,32 @@ class SchedulingService:
         # thing a machine can do.
         machines = list(db.scalars(select(Machine)).all())
 
+        # An archived job has left the backlog (finished or cancelled), so a whole-floor run skips
+        # it; a scoped run naming one has already been refused above.
         operation_statement = select(Operation)
         if selection is not None:
             operation_statement = operation_statement.where(Operation.job_id.in_(selection))
+        else:
+            operation_statement = operation_statement.join(Job, Job.id == Operation.job_id).where(
+                Job.archived_at.is_(None)
+            )
         operations = list(db.scalars(operation_statement).all())
         operation_ids = {operation.id for operation in operations}
         if selection is not None and not operation_ids:
             return SchedulingInputInvalid(issues=(no_schedulable_work_issue(),))
 
-        route_statement = select(Compatibility)
-        dependency_statement = select(Dependency)
-        if selection is not None:
-            route_statement = route_statement.where(Compatibility.operation_id.in_(operation_ids))
-            # Both endpoints, so an edge leaving the selection is dropped rather than left pointing
-            # at an operation the snapshot does not contain (which the adapter would refuse as
-            # `unknown_dependency_operation`). Only an *outbound* edge can be dropped this way: an
-            # inbound one would mean a prerequisite job was left out, and the selection check above
-            # has already refused that.
-            dependency_statement = dependency_statement.where(
-                Dependency.before_operation_id.in_(operation_ids),
-                Dependency.after_operation_id.in_(operation_ids),
-            )
+        # Routes and edges are always narrowed to the operations in the snapshot, so an edge whose
+        # other end was left out is dropped rather than left pointing at an operation the snapshot
+        # does not contain (which the adapter would refuse as `unknown_dependency_operation`). For
+        # a scoped run only an *outbound* edge can go this way: an inbound one would mean a
+        # prerequisite job was left out, and the selection check above has already refused that.
+        # For a whole-floor run the other end can only be an archived job's operation, and an
+        # archived prerequisite is treated as satisfied, matching `job_dependency_edges_statement`.
+        route_statement = select(Compatibility).where(Compatibility.operation_id.in_(operation_ids))
+        dependency_statement = select(Dependency).where(
+            Dependency.before_operation_id.in_(operation_ids),
+            Dependency.after_operation_id.in_(operation_ids),
+        )
         routes = list(db.scalars(route_statement).all())
         dependencies = list(db.scalars(dependency_statement).all())
         unavailabilities = list(db.scalars(select(Unavailability)).all())

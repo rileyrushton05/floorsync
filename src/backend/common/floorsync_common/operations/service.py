@@ -10,14 +10,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.operations.results import (
     CreateOperationResult,
@@ -38,6 +37,7 @@ from floorsync_common.operations.results import (
     UpdateOperationResult,
 )
 from floorsync_common.partial import UNSET, Unset, is_set
+from floorsync_common.scheduling.references import find_schedule_references
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,11 +194,9 @@ class OperationService:
         if operation is None:
             return OperationNotFound(operation_id=operation_id)
 
-        scheduled = await db.scalar(
-            select(exists().where(ScheduleEntry.operation_id == operation_id))
-        )
-        if scheduled:
-            return OperationIsScheduled(operation_id=operation_id)
+        references = await find_schedule_references(db, operation_ids=(operation_id,))
+        if references:
+            return OperationIsScheduled(operation_id=operation_id, references=references)
 
         job_id, position = operation.job_id, operation.position
         await db.delete(operation)
