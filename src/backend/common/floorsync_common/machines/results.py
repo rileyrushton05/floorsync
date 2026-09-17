@@ -12,9 +12,6 @@ the same name would be two types that no single `case` pattern could catch. Call
 from dataclasses import dataclass
 from uuid import UUID
 
-from floorsync_common.database.models.compatibility import Compatibility
-from floorsync_common.database.models.machine import Machine
-
 from floorsync_common.database.models.category import Category
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.machine import Machine

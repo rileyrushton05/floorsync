@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
-import { reportMutationError } from "@/core/feedback/reportMutationError";
+import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
@@ -98,7 +98,7 @@ export default function MachinesPage() {
     function requestDeactivate() {
         if (!selected || saving) return;
         if (machineInUse && selected.active) {
-            toast.error(
+            reportBackendFailure(
                 `${selected.name} cannot be removed: ${assignedOperationCount} operation${assignedOperationCount === 1 ? " is" : "s are"} still assigned to it. Unassign or re-route those operations first.`,
             );
             return;
@@ -124,13 +124,13 @@ export default function MachinesPage() {
     function requestRemove() {
         if (!selected || saving) return;
         if (machineInUse) {
-            toast.error(
+            reportBackendFailure(
                 `${selected.name} cannot be removed: ${assignedOperationCount} operation${assignedOperationCount === 1 ? " is" : "s are"} still assigned to it. Unassign or re-route those operations first.`,
             );
             return;
         }
         if (selected.active) {
-            toast.error(
+            reportBackendFailure(
                 `${selected.name} is still active. Deactivate it before removing it from the floor.`,
             );
             return;
