@@ -6,6 +6,8 @@ export type { ScheduleTimeline, TimelineLane, TimelineOperation } from "@/domain
 export interface ScheduleSummary {
     id: string; status: "draft" | "confirmed" | "discarded"; strategy: string; makespan: number | null;
     input_operation_count: number | null; created_at: string; confirmed_at: string | null;
+    /** Optional manager-facing label; absent or null when the schedule is unnamed. */
+    name?: string | null;
 }
 export interface SchedulingIssue { code: string; message: string; operation_id?: string | null; machine_id?: string | null; }
 export interface ScheduleGenerationAccepted { id: string; status: "pending"; status_url: string; }
@@ -28,6 +30,20 @@ export function requestSchedule(startsAt: string, token: string, strategy: Sched
     return apiRequest<ScheduleGenerationAccepted>("/api/v1/schedules", token, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ starts_at: startsAt, strategy }),
     });
+}
+export function archiveSchedule(scheduleId: string, token: string) {
+    return apiRequest<ScheduleSummary>(
+        `/api/v1/schedules/${encodeURIComponent(scheduleId)}/archive`,
+        token,
+        { method: "POST" },
+    );
+}
+export function unarchiveSchedule(scheduleId: string, token: string) {
+    return apiRequest<ScheduleSummary>(
+        `/api/v1/schedules/${encodeURIComponent(scheduleId)}/unarchive`,
+        token,
+        { method: "POST" },
+    );
 }
 export function fetchScheduleGeneration(generationId: string, token: string, signal?: AbortSignal) {
     return apiRequest<ScheduleGenerationStatus>(`/api/v1/schedules/generations/${encodeURIComponent(generationId)}`, token, { signal });

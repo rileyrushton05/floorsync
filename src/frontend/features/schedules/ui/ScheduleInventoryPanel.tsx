@@ -65,7 +65,7 @@ export function ScheduleInventoryPanel({
             </CardHeader>
             <CardContent>
                 <TextField aria-label="Search schedules" value={query} onChange={onQueryChange}>
-                    <Input placeholder="Search by ID or strategy…" autoComplete="off" />
+                    <Input placeholder="Search by name, ID or strategy…" autoComplete="off" />
                 </TextField>
 
                 <div className="mt-3 flex items-center justify-between">
@@ -137,7 +137,14 @@ export function ScheduleInventoryPanel({
                                 onPress={() => onSelect(row.id)}
                             >
                                 <span className="min-w-0 flex-1">
-                                    <span className="block truncate font-semibold">{shortScheduleId(row.id)}</span>
+                                    <span className="block truncate font-semibold">
+                                        {row.name?.trim() || shortScheduleId(row.id)}
+                                    </span>
+                                    {row.name?.trim() && (
+                                        <span className="block truncate text-xs opacity-75">
+                                            {shortScheduleId(row.id)}
+                                        </span>
+                                    )}
                                     <span className="block truncate text-xs opacity-75">
                                         {row.strategy} · {formatCreatedAt(row.createdAt)}
                                     </span>

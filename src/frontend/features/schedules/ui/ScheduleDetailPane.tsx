@@ -1,38 +1,42 @@
+import { PencilSquareIcon } from "@heroicons/react/24/outline";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/components/ui/link";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { Separator } from "@/components/ui/separator";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableColumn,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
 import { buildJobColors } from "@/domains/scheduling/colors";
-import { formatDuration, formatOffset } from "@/domains/scheduling/format";
-import { JobDot } from "@/domains/scheduling/ui/JobDot";
+import { formatDuration } from "@/domains/scheduling/format";
 import type { TimelinePlan } from "@/domains/scheduling/timeline";
 import { formatCreatedAt, shortScheduleId, type ScheduleRow } from "../model/archive";
 import { ScheduleStatusBadge } from "./ScheduleStatusBadge";
 
 /**
  * Right column of the Schedules page: everything known about one past run,
- * read-only. The machine-load bars and job-placement table are drawn exactly
- * as the Planner page draws them, from the same `timelineToPlan` translation.
+ * read-only apart from renaming, archiving and deleting. The plan preview and
+ * machine-load bars are drawn exactly as the Planner page draws them, from the
+ * same `timelineToPlan` translation — the Gantt is static here, a record of
+ * the run rather than a thing to scrub.
  */
 export function ScheduleDetailPane({
     schedule,
     plan,
     archiving,
+    deleting,
+    canArchive,
     onToggleArchive,
+    onRename,
+    onDelete,
 }: {
     schedule: ScheduleRow;
     plan: TimelinePlan | null;
     archiving: boolean;
+    deleting: boolean;
+    /** Another Confirmed schedule exists that can take over on the floor. */
+    canArchive: boolean;
     onToggleArchive: () => void;
+    onRename: () => void;
+    onDelete: () => void;
 }) {
     const summary = plan?.schedule ?? null;
     const machineName = (id: string) => plan?.machines.find((machine) => machine.id === id)?.name ?? id;
@@ -40,21 +44,39 @@ export function ScheduleDetailPane({
     const machinesUsed = summary
         ? summary.machineLoad.filter((load) => load.busyMins > 0).length
         : 0;
-    const archived = schedule.status === "archived";
-    // A confirmed schedule is the record of what the floor was told to do, so it
-    // cannot leave the list the way a draft can — the Archive control is dead
-    // for it, and the reason is spelled out rather than implied.
-    const confirmLock = schedule.status === "confirmed";
 
     return (
         <Card className="min-w-0">
             <CardHeader className="gap-1">
-                <p className="text-muted-fg text-xs">
-                    Schedules › {shortScheduleId(schedule.id)}
-                </p>
-                <div className="flex items-center gap-3">
-                    <CardTitle className="text-2xl">{shortScheduleId(schedule.id)}</CardTitle>
-                    <ScheduleStatusBadge status={schedule.status} />
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <p className="text-muted-fg text-xs">
+                            Schedules › {shortScheduleId(schedule.id)}
+                        </p>
+                        <div className="flex items-center gap-3">
+                            <CardTitle className="truncate text-2xl">
+                                {schedule.name?.trim() || shortScheduleId(schedule.id)}
+                            </CardTitle>
+                            <ScheduleStatusBadge status={schedule.status} />
+                            <Button
+                                intent="outline"
+                                size="sm"
+                                aria-label="Rename schedule"
+                                onPress={onRename}
+                            >
+                                <PencilSquareIcon /> Rename
+                            </Button>
+                        </div>
+                        <p className="text-muted-fg text-xs">{shortScheduleId(schedule.id)}</p>
+                    </div>
+                    {summary && (
+                        <Link
+                            href={`/manager/simulation?schedule=${encodeURIComponent(schedule.id)}`}
+                            className={buttonStyles({ intent: "success", size: "sm" })}
+                        >
+                            Open in simulation →
+                        </Link>
+                    )}
                 </div>
                 <p className="text-muted-fg text-sm">
                     {schedule.strategy} · Generated {formatCreatedAt(schedule.createdAt)}
@@ -72,26 +94,38 @@ export function ScheduleDetailPane({
                 {/* ===== METADATA ===== */}
                 <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
                     <Metadata label="Strategy" value={schedule.strategy} />
-                    <Metadata
-                        label="Status"
-                        value={<ScheduleStatusBadge status={schedule.status} />}
-                    />
+                    <Metadata label="Jobs" value={summary ? plan!.jobs.length : "—"} />
+                    <Metadata label="Machines used" value={summary ? machinesUsed : "—"} />
                     <Metadata
                         label="Makespan"
                         value={schedule.makespanMins === null ? "—" : formatDuration(schedule.makespanMins)}
                     />
-                    <Metadata
-                        label="Operations"
-                        value={schedule.opsCount === null ? "—" : schedule.opsCount}
-                    />
-                    <Metadata label="Jobs" value={summary ? plan!.jobs.length : "—"} />
-                    <Metadata label="Machines used" value={summary ? machinesUsed : "—"} />
                     <Metadata label="Generated at" value={formatCreatedAt(schedule.createdAt)} />
                     <Metadata
                         label="Confirmed at"
                         value={schedule.confirmedAt === null ? "—" : formatCreatedAt(schedule.confirmedAt)}
                     />
                 </dl>
+
+                <Separator className="my-4" />
+
+                {/* ===== PLAN PREVIEW (static Gantt) ===== */}
+                <h3 className="font-semibold text-sm">Plan preview</h3>
+                {summary && plan ? (
+                    <div className="mt-2 overflow-x-auto">
+                        <GanttChart
+                            machines={plan.machines}
+                            jobs={plan.jobs}
+                            schedule={summary}
+                            colors={colors}
+                            mode="plan"
+                        />
+                    </div>
+                ) : (
+                    <p className="mt-2 text-muted-fg text-sm">
+                        The timeline for this run could not be read, so the plan cannot be drawn.
+                    </p>
+                )}
 
                 <Separator className="my-4" />
 
@@ -127,49 +161,6 @@ export function ScheduleDetailPane({
 
                 <Separator className="my-4" />
 
-                {/* ===== JOB PLACEMENT ===== */}
-                <h3 className="font-semibold text-sm">Job placement</h3>
-                {summary && plan ? (
-                    <>
-                        <p className="mt-1 text-muted-fg text-xs">
-                            When each job opens and closes, in the lane order the engine reports.
-                        </p>
-                        <Table aria-label="Job placement" className="mt-2">
-                            <TableHeader>
-                                <TableColumn className="w-0">#</TableColumn>
-                                <TableColumn isRowHeader>Job</TableColumn>
-                                <TableColumn>Starts</TableColumn>
-                                <TableColumn>Finishes</TableColumn>
-                            </TableHeader>
-                            <TableBody items={summary.order.map((id, index) => ({ id, index }))}>
-                                {({ id, index }) => (
-                                    <TableRow id={id}>
-                                        <TableCell className="tabular-nums">{index + 1}</TableCell>
-                                        <TableCell>
-                                            <span className="flex items-center gap-2">
-                                                <JobDot colors={colors} jobId={id} />
-                                                <span>
-                                                    {plan.jobs.find((job) => job.id === id)?.name ?? id}
-                                                </span>
-                                            </span>
-                                        </TableCell>
-                                        <TableCell className="tabular-nums">
-                                            {formatOffset(summary.jobStart[id] ?? 0)}
-                                        </TableCell>
-                                        <TableCell className="tabular-nums">
-                                            {formatOffset(summary.jobFinish[id] ?? 0)}
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </>
-                ) : (
-                    <p className="mt-2 text-muted-fg text-sm">No job placement available.</p>
-                )}
-
-                <Separator className="my-4" />
-
                 {/* ===== FOOTER ===== */}
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <span className="text-muted-fg text-sm">
@@ -178,25 +169,51 @@ export function ScheduleDetailPane({
                             : `${schedule.opsCount ?? "—"} operations · makespan ${schedule.makespanMins === null ? "—" : formatDuration(schedule.makespanMins)}`}
                     </span>
                     <span className="flex items-center gap-2">
-                    <span title={confirmLock ? "Confirmed schedules are the record of what the floor ran, so they cannot be archived." : undefined}>
-                        <Button
-                            intent="outline"
-                            size="sm"
-                            isDisabled={confirmLock}
-                            isPending={archiving}
-                            onPress={onToggleArchive}
+                        {/* Two buttons, always present so the footer never
+                            shifts when a schedule's status changes. The first
+                            is one toggle: "Archive" for a Draft or Confirmed
+                            schedule, "Unarchive" for an Archived one — same
+                            slot, same click, opposite action. Only the label
+                            and the enabled state move with the lifecycle:
+                            - Draft: both live.
+                            - Confirmed: Archive needs a successor on the floor,
+                              and the live plan can never be deleted.
+                            - Archived: the toggle restores; Delete opens the
+                              strong type-the-name confirmation. */}
+                        <span
+                            title={
+                                schedule.status === "confirmed" && !canArchive
+                                    ? "Another confirmed schedule is required before this one can be archived."
+                                    : undefined
+                            }
                         >
-                            {archived ? "Unarchive" : "Archive"}
-                        </Button>
-                    </span>
-                        {summary && (
-                            <Link
-                                href={`/manager/simulation?schedule=${encodeURIComponent(schedule.id)}`}
-                                className={buttonStyles({ intent: "success", size: "sm" })}
+                            <Button
+                                intent="outline"
+                                size="sm"
+                                isDisabled={schedule.status === "confirmed" && !canArchive}
+                                isPending={archiving}
+                                onPress={onToggleArchive}
                             >
-                                Open in simulation →
-                            </Link>
-                        )}
+                                {schedule.status === "archived" ? "Unarchive" : "Archive"}
+                            </Button>
+                        </span>
+                        <span
+                            title={
+                                schedule.status === "confirmed"
+                                    ? "The live confirmed schedule cannot be deleted."
+                                    : undefined
+                            }
+                        >
+                            <Button
+                                intent="danger"
+                                size="sm"
+                                isDisabled={schedule.status === "confirmed"}
+                                isPending={deleting}
+                                onPress={onDelete}
+                            >
+                                Delete schedule
+                            </Button>
+                        </span>
                     </span>
                 </div>
             </CardContent>

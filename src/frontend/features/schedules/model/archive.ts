@@ -10,6 +10,8 @@ import type { ScheduleSummary } from "../data/api";
  */
 export interface ScheduleRow {
     id: string;
+    /** Optional manager-facing label; null when the schedule is unnamed. */
+    name: string | null;
     /** Filter key: "archived" stands for the API's "discarded". */
     status: "confirmed" | "draft" | "archived";
     strategy: string;
@@ -22,6 +24,7 @@ export interface ScheduleRow {
 export function toScheduleRow(schedule: ScheduleSummary): ScheduleRow {
     return {
         id: schedule.id,
+        name: schedule.name?.trim() === "" ? null : schedule.name ?? null,
         status: schedule.status === "discarded" ? "archived" : schedule.status,
         strategy: schedule.strategy,
         createdAt: schedule.created_at,
@@ -46,6 +49,12 @@ export function formatCreatedAt(iso: string): string {
 /** The first UUID segment: enough to quote a run, short enough to read. */
 export function shortScheduleId(id: string): string {
     return id.split("-")[0] ?? id;
+}
+
+/** Names are optional and short: trim whitespace, cap at 80 characters. */
+export const SCHEDULE_NAME_MAX = 80;
+export function normalizeScheduleName(raw: string): string {
+    return raw.trim().slice(0, SCHEDULE_NAME_MAX);
 }
 
 /** A filter is "active" when anything other than the defaults is chosen. */
