@@ -7,14 +7,16 @@ docs/backend-conventions.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, exists, select, tuple_
+from sqlalchemy import Select, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
+from floorsync_common.jobs.dependency_graph import JobEdge, job_dependency_edges_statement
 from floorsync_common.jobs.results import (
     DeleteJobResult,
     GetJobResult,
@@ -27,6 +29,7 @@ from floorsync_common.jobs.results import (
 )
 from floorsync_common.pagination import decode_cursor, encode_cursor
 from floorsync_common.partial import UNSET, Unset, is_set
+from floorsync_common.scheduling.references import find_schedule_references
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +38,13 @@ class JobPage:
 
     jobs: tuple[Job, ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class JobDependencyGraph:
+    """Every job-level precedence edge in the backlog, as (before_job_id, after_job_id) pairs."""
+
+    edges: tuple[JobEdge, ...]
 
 
 class JobService:
@@ -75,14 +85,20 @@ class JobService:
         *,
         limit: int = 50,
         cursor: str | None = None,
+        include_archived: bool = False,
     ) -> JobPage:
         """Read one page of jobs ordered by name, with id as the tie-breaker.
 
         The tie-breaker carries real weight here, unlike for machines: job names are not unique, so
         name alone would not be a total order and a page boundary could repeat or skip a row.
+
+        Archived jobs are left out unless asked for: the list is the backlog, and a job that has
+        finished or been cancelled is exactly what the backlog should no longer offer.
         """
 
         statement: Select[tuple[Job]] = select(Job).order_by(Job.name, Job.id)
+        if not include_archived:
+            statement = statement.where(Job.archived_at.is_(None))
         position = decode_cursor(cursor)
         if position is not None:
             statement = statement.where(tuple_(Job.name, Job.id) > position)
@@ -95,13 +111,33 @@ class JobService:
         return JobPage(jobs=page, next_cursor=next_cursor)
 
     @staticmethod
+    async def list_dependency_graph(db: AsyncSession) -> JobDependencyGraph:
+        """Read which jobs wait on which, derived from the operation-level edges (#231).
+
+        Unpaginated on purpose: a job's prerequisites are not confined to any one page of
+        `list_jobs`, and the result is one row per cross-job edge, of which there are usually none.
+        No expected failure -- an empty backlog is an empty graph, not an error.
+        """
+
+        rows = (await db.execute(job_dependency_edges_statement())).tuples().all()
+        return JobDependencyGraph(edges=tuple(rows))
+
+    @staticmethod
     async def update_job(
         db: AsyncSession,
         job_id: UUID,
         *,
         name: str | Unset = UNSET,
+        archived: bool | Unset = UNSET,
     ) -> UpdateJobResult:
-        """Apply a partial update, leaving omitted fields untouched."""
+        """Apply a partial update, leaving omitted fields untouched.
+
+        `archived` is the manager's way to retire a job by hand: a finished job the simulation
+        never ran, or a cancelled one. `True` stamps `archived_at` now, and leaves an earlier stamp
+        alone so the original leaving time survives a repeated request; `False` clears it and the
+        job rejoins the backlog. Archiving never touches schedules, and never makes a job
+        deletable (decision 0015).
+        """
 
         job = await db.get(Job, job_id)
         if job is None:
@@ -109,6 +145,11 @@ class JobService:
 
         if is_set(name):
             job.name = name.strip()
+        if is_set(archived):
+            if archived and job.archived_at is None:
+                job.archived_at = datetime.now(UTC)
+            elif not archived:
+                job.archived_at = None
 
         await db.flush()
         # `updated_at` is database-computed through `onupdate`, so an UPDATE expires it and reading
@@ -117,28 +158,48 @@ class JobService:
         return JobUpdated(job=job)
 
     @staticmethod
+    async def archive_scheduled_jobs(
+        db: AsyncSession, *, schedule_id: UUID, archived_at: datetime
+    ) -> int:
+        """Retire every still-open job a schedule planned, once that schedule has run.
+
+        Called when a simulation completes: the floor has done the work, so the jobs leave the
+        backlog. A job archived earlier keeps its own stamp, and a job the manager later brings
+        back is not touched again by a replay of the same simulation, because a reset does not
+        undo this. Returns how many jobs were archived, for the caller's log.
+        """
+
+        planned_job_ids = (
+            select(Operation.job_id)
+            .join(ScheduleEntry, ScheduleEntry.operation_id == Operation.id)
+            .where(ScheduleEntry.schedule_id == schedule_id)
+        )
+        result = await db.execute(
+            update(Job)
+            .where(Job.id.in_(planned_job_ids), Job.archived_at.is_(None))
+            .values(archived_at=archived_at)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    @staticmethod
     async def delete_job(db: AsyncSession, job_id: UUID) -> DeleteJobResult:
         """Remove a job and its operations, unless its work already appears in a schedule.
 
         Operations, their compatibilities and their dependencies cascade from the job. Schedule
         entries do not: they record what was actually planned, so the database restricts the delete
-        and this checks first to give a reason rather than an integrity error.
+        and this checks first to give a reason rather than an integrity error. The refusal names
+        the schedules, because what the caller can do next depends on them: a draft can be deleted
+        and the job removed afterwards; a confirmed schedule cannot, and the job is archived
+        instead (decision 0015).
         """
 
         job = await db.get(Job, job_id)
         if job is None:
             return JobNotFound(job_id=job_id)
 
-        scheduled = await db.scalar(
-            select(
-                exists().where(
-                    ScheduleEntry.operation_id == Operation.id,
-                    Operation.job_id == job_id,
-                )
-            )
-        )
-        if scheduled:
-            return JobIsScheduled(job_id=job_id)
+        references = await find_schedule_references(db, job_id=job_id)
+        if references:
+            return JobIsScheduled(job_id=job_id, references=references)
 
         await db.delete(job)
         await db.flush()

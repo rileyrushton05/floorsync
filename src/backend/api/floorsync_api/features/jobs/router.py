@@ -8,12 +8,19 @@ from floorsync_api.dependencies.authentication import require_roles
 from floorsync_api.dependencies.database import DbSession
 from floorsync_api.features.jobs.schemas import (
     JobCreateRequest,
+    JobDependencyEdgeResponse,
+    JobDependencyGraphResponse,
     JobDetailResponse,
     JobOperationResponse,
     JobResponse,
     JobUpdateRequest,
 )
-from floorsync_api.problems import ProblemDetail, problem_response
+from floorsync_api.problems import (
+    ProblemDetail,
+    problem_response,
+    schedule_references_hint,
+    schedule_references_members,
+)
 from floorsync_api.schemas import CursorPage
 from floorsync_common.database.models.user import User
 from floorsync_common.jobs.results import (
@@ -60,15 +67,53 @@ async def list_jobs(
     _: Manager,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
+    include_archived: bool = False,
 ) -> CursorPage[JobResponse]:
-    """List jobs by name, a page at a time."""
+    """List the backlog by name, a page at a time.
+
+    Archived jobs are left out unless `include_archived` is set: they have finished or been
+    cancelled and are no longer offered for scheduling, but they still exist because the schedules
+    that planned them do.
+    """
 
     async with db.begin():
-        page = await JobService.list_jobs(db, limit=limit, cursor=cursor)
+        page = await JobService.list_jobs(
+            db, limit=limit, cursor=cursor, include_archived=include_archived
+        )
 
     return CursorPage[JobResponse](
         items=[JobResponse.model_validate(job) for job in page.jobs],
         next_cursor=page.next_cursor,
+    )
+
+
+# Declared before `/{job_id}`: FastAPI matches routes in declaration order, and the other way round
+# this path is read as a job id and refused as a malformed UUID before ever reaching here.
+@router.get(
+    "/dependency-graph",
+    response_model=JobDependencyGraphResponse,
+    summary="Get which jobs wait on which",
+)
+async def get_job_dependency_graph(db: DbSession, _: Manager) -> JobDependencyGraphResponse:
+    """Read every cross-job precedence edge, so a caller can tell what selecting a job implies.
+
+    Scoped schedule generation refuses a selection that leaves out a job a selected job waits on
+    (#231). This is how a caller works that out before sending one: take the jobs the manager
+    ticked, follow these edges backwards, and tick whatever they land on. Following them forwards
+    would pull in jobs that merely wait on the selection, which do not have to be scheduled with it.
+
+    The whole graph, unpaginated, because it is one row per cross-job edge and a job's prerequisites
+    are not confined to any one page of `GET /api/v1/jobs`.
+    """
+
+    async with db.begin():
+        graph = await JobService.list_dependency_graph(db)
+
+    return JobDependencyGraphResponse(
+        edges=[
+            JobDependencyEdgeResponse(before_job_id=before, after_job_id=after)
+            for before, after in graph.edges
+        ]
     )
 
 
@@ -108,12 +153,22 @@ async def update_job(
     db: DbSession,
     _: Manager,
 ) -> JobResponse:
-    """Apply a partial update, so a later schedule is generated from the corrected job."""
+    """Apply a partial update, so a later schedule is generated from the corrected job.
+
+    `archived: true` retires the job from the backlog by hand, for a job that finished without a
+    simulation running or one that was cancelled; `archived: false` brings it back. Neither touches
+    any schedule, and neither makes the job deletable.
+    """
 
     changes = command.model_dump(exclude_unset=True)
 
     async with db.begin():
-        result = await JobService.update_job(db, job_id, name=changes.get("name", UNSET))
+        result = await JobService.update_job(
+            db,
+            job_id,
+            name=changes.get("name", UNSET),
+            archived=changes.get("archived", UNSET),
+        )
 
         match result:
             case JobUpdated(job=job):
@@ -132,7 +187,12 @@ async def update_job(
     summary="Remove a job",
     responses={
         204: {"description": "The job and its operations were removed"},
-        409: {"description": "The job's work already appears in a schedule"},
+        409: {
+            "description": (
+                "The job's work appears in a schedule; the body names the draft and confirmed "
+                "schedules involved"
+            )
+        },
     },
 )
 async def delete_job(
@@ -143,9 +203,10 @@ async def delete_job(
 ) -> Response | JSONResponse:
     """Remove a job entered by mistake, together with its operations.
 
-    A job whose operations already appear in a schedule cannot be removed: the schedule records what
-    was planned, and deleting the job would destroy that history. See the deletion policy in
-    docs/database-schema.md.
+    A job whose operations appear in a schedule cannot be removed: the schedule records what was
+    planned, and deleting the job would destroy that history. The 409 names the schedules in the
+    way. Drafts among them can be deleted first; a confirmed schedule cannot, and the job is
+    archived instead (`PATCH` with `archived: true`). See decision 0015.
     """
 
     async with db.begin():
@@ -156,7 +217,7 @@ async def delete_job(
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
             case JobNotFound():
                 raise _job_not_found()
-            case JobIsScheduled():
+            case JobIsScheduled(references=references):
                 return problem_response(
                     ProblemDetail(
                         type="urn:floorsync:problem:job-is-scheduled",
@@ -164,10 +225,12 @@ async def delete_job(
                         status=status.HTTP_409_CONFLICT,
                         detail=(
                             "This job's operations appear in a generated schedule, so removing it "
-                            "would destroy that schedule's record of what was planned."
+                            "would destroy that schedule's record of what was planned. "
+                            + schedule_references_hint(references)
                         ),
                         instance=request.url.path,
-                    )
+                    ),
+                    extensions=schedule_references_members(references),
                 )
             case _:
                 assert_never(result)

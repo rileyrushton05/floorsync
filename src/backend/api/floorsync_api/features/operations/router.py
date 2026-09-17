@@ -17,7 +17,12 @@ from floorsync_api.features.operations.schemas import (
     OperationResponse,
     OperationUpdateRequest,
 )
-from floorsync_api.problems import ProblemDetail, problem_response
+from floorsync_api.problems import (
+    ProblemDetail,
+    problem_response,
+    schedule_references_hint,
+    schedule_references_members,
+)
 from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.user import User
 from floorsync_common.jobs.results import JobNotFound
@@ -255,7 +260,7 @@ async def delete_operation(
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
             case OperationNotFound():
                 raise _operation_not_found()
-            case OperationIsScheduled():
+            case OperationIsScheduled(references=references):
                 return problem_response(
                     ProblemDetail(
                         type="urn:floorsync:problem:operation-is-scheduled",
@@ -263,10 +268,12 @@ async def delete_operation(
                         status=status.HTTP_409_CONFLICT,
                         detail=(
                             "This operation appears in a generated schedule, so removing it would "
-                            "destroy that schedule's record of what was planned."
+                            "destroy that schedule's record of what was planned. "
+                            + schedule_references_hint(references)
                         ),
                         instance=request.url.path,
-                    )
+                    ),
+                    extensions=schedule_references_members(references),
                 )
             case _:
                 assert_never(result)

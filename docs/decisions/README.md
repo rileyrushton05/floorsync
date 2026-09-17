@@ -20,6 +20,10 @@ Decision records help explain why the team made particular design, technical, sc
 | [0010](0010-event-sourced-simulated-time.md) | Accepted | Simulated time derived by replaying the event log |
 | [0011](0011-store-floorsync-start-times.md) | Accepted | Store the scheduler's own start times on schedule entries |
 | [0012](0012-query-managed-frontend-server-state.md) | Accepted | TanStack Query-managed frontend server state |
+| [0013](0013-scoped-schedule-generation.md) | Accepted | Scoped schedule generation refuses an incomplete job selection |
+| [0014](0014-fajsp_milp_formulation.md) | Accepted | Single-shot MILP as a second, general-DAG-capable schedule generation strategy |
+| [0015](0015-schedule-lifecycle-and-job-archival.md) | Accepted | Drafts are disposable, confirmed schedules are history, finished jobs are archived |
+| [0016](0016-shared-input-validation.md) | Accepted | Validate production data once, apart from what each scheduler can take |
 
 ## Suggested Decision Record Format
 

@@ -43,7 +43,8 @@ flowchart LR
 
 | Resource | Important fields | Invariant |
 | --- | --- | --- |
-| `schedules` | status, strategy, metrics, confirmation audit fields | A successful worker run creates a new `draft`; it does not overwrite older schedules. |
+| `schedules` | status, strategy, metrics, confirmation audit fields | A successful worker run creates a new `draft`; it does not overwrite older schedules. A draft can be deleted; a confirmed schedule cannot, and blocks removal of the jobs it planned (decision 0015). |
+| `jobs` | name, priority, `archived_at` | Archived jobs are hidden from the backlog and skipped by a whole-floor run. Every job in a schedule is archived when that schedule's simulation completes. |
 | `schedule_entries` | operation, chosen machine, duration, energy, machine salary | One entry per operation per schedule; route/cost data are generation-time snapshots. |
 | `schedule_dependencies` | waiting entry, prerequisite entry, `job_order` / `machine_queue` | The graph used to calculate the timeline. References must belong to the same schedule. |
 | `simulations` | unique schedule, status, speed, timestamps | At most one simulation for each schedule. Status/speed are a projection, not the clock authority. |
@@ -57,10 +58,13 @@ Every product endpoint requires a bearer token. Manager-only access applies to g
 
 | Endpoint | Role | Current response |
 | --- | --- | --- |
-| `POST /api/v1/schedules` | manager | Queues `{starts_at}` and returns `202`, a generation ID, and `Location`/`status_url`. |
+| `POST /api/v1/schedules` | manager | Queues `{starts_at, job_ids?}` and returns `202`, a generation ID, and `Location`/`status_url`. Omitting `job_ids` plans the whole floor; supplying it scopes the run, and the selection is validated in the worker rather than here (decision 0013). |
+| `GET /api/v1/jobs/dependency-graph` | manager | Every cross-job precedence edge, so a caller can work out what selecting a job implies before scoping a run. |
+| `GET /api/v1/schedules/validation` | manager | `{schedulable: {resched, exact}, issues, warnings, unsupported}` for the whole floor or `?job_ids=...`. Always `200`; writes nothing. Issues stop every strategy and name their record; warnings (empty job, idle machine) stop nothing; unsupported is per strategy. |
 | `GET /api/v1/schedules/generations/{id}` | manager | `pending`, `running`, `completed`, `rejected`, `unavailable`, or `failed`. Completion supplies a schedule link; rejection supplies issues. |
 | `GET /api/v1/schedules` | manager | Every schedule summary, newest first; currently unpaginated. |
 | `GET /api/v1/schedules/{id}` | manager | Metadata plus all entries and dependencies. |
+| `DELETE /api/v1/schedules/{id}` | manager | Removes a draft and everything under it, `204`. A confirmed or discarded schedule answers `409 schedule-is-not-draft`. |
 | `GET /api/v1/schedules/{id}/timeline` | signed-in user | Gantt-ready, derived timeline. It currently permits drafts as well as confirmed schedules. |
 | `POST /api/v1/simulations` | manager | Creates one simulation for a confirmed schedule; `201` with `Location`. |
 | `GET /api/v1/simulations/{id}` | signed-in user | Authoritative position, replayed at server time. |
@@ -107,10 +111,10 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant Engine as ReSched adapter
 
-    Manager->>UI: Generate at starts_at
+    Manager->>UI: Generate at starts_at, optionally for chosen jobs
     UI->>API: POST /api/v1/schedules
     API->>API: Validate body and require manager
-    API->>Redis: enqueue floorsync.schedules.generate(starts_at)
+    API->>Redis: enqueue floorsync.schedules.generate(starts_at, job_ids)
     API-->>UI: 202 generation ID + status URL
     loop Until terminal
         UI->>API: GET /schedules/generations/{id}
@@ -136,11 +140,13 @@ sequenceDiagram
     end
 ```
 
-The adapter supports conventional flexible job-shop chains only. It validates positive durations, non-negative energy, unique IDs/routes/dependencies, known references, a timezone-aware start, at least one operation, and an active compatible route for each operation. It rejects all downtime windows, dependency cycles, self-dependencies, fan-in/fan-out, and any dependency graph that is not disjoint linear chains. No partial schedule is persisted on rejection.
+Data coherence is checked once, in `scheduling/input_checks.py`, before either engine runs: positive durations, non-negative energy, unique IDs/routes/dependencies, known references, a timezone-aware start, at least one operation, an active compatible route for each operation, and no cycle (each operation in a cycle is named). The ReSched adapter additionally supports conventional flexible job-shop chains only, so it rejects downtime windows, fan-in/fan-out, and any dependency graph that is not disjoint linear chains; the exact solver rejects downtime windows only. Both worker tasks apply their strategy's limits through `validate_for_strategy` before adapting the input, so the exact task refuses downtime windows rather than silently dropping them. No partial schedule is persisted on rejection. `GET /api/v1/schedules/validation` runs the same checks on demand and reports, per strategy, whether a generation would succeed (#133).
 
 ## Required user flow: generate, review, confirm, simulate
 
-The required product flow needs an explicit confirmation boundary. Generation produces a draft—not authority to start a persistent simulation. The confirmation/discard command below is not implemented yet, and is why user-generated schedules cannot reach `POST /simulations` today.
+The required product flow needs an explicit confirmation boundary. Generation produces a draft, not authority to start a persistent simulation. Discarding a draft is implemented as `DELETE /api/v1/schedules/{id}` (decision 0015); the confirmation command below is not implemented yet (#246), and is why user-generated schedules cannot reach `POST /simulations` today.
+
+Refusals that a schedule causes elsewhere name it: `DELETE /jobs/{id}`, `DELETE /operations/{id}` and a definition save that removes a scheduled step all answer `409` with `draft_schedule_ids` (delete those and retry) and `confirmed_schedule_ids` (history; archive the job instead with `PATCH /jobs/{id}` `{"archived": true}`).
 
 ```mermaid
 sequenceDiagram

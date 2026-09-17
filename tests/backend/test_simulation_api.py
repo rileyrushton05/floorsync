@@ -389,6 +389,56 @@ def test_record_control_reset_clears_the_projection() -> None:
     assert simulation.started_at is None
 
 
+def test_record_control_completion_archives_the_schedules_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The floor has done the work, so its jobs leave the backlog in the same transaction."""
+
+    from floorsync_common.jobs.service import JobService
+
+    archived: list[tuple[UUID, datetime]] = []
+
+    async def fake(_: object, *, schedule_id: UUID, archived_at: datetime) -> int:
+        archived.append((schedule_id, archived_at))
+        return 1
+
+    monkeypatch.setattr(JobService, "archive_scheduled_jobs", staticmethod(fake))
+    simulation = FakeSimulation(status="running")
+    session = FakeSession(schedule=FakeSchedule(), simulation=simulation)
+
+    result = run(
+        SimulationService.record_control(
+            session, simulation_id=SIMULATION_ID, event_type=SimulationEventType.COMPLETED, at=NOW
+        )
+    )
+
+    assert isinstance(result, ControlRecorded)
+    assert simulation.status == "complete"
+    assert archived == [(SCHEDULE_ID, NOW)]
+
+
+def test_record_control_reset_leaves_archived_jobs_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reset replays the simulation; it does not un-finish the jobs (decision 0015)."""
+
+    from floorsync_common.jobs.service import JobService
+
+    async def fake(_: object, **__: object) -> int:
+        raise AssertionError("reset must not touch job archival")
+
+    monkeypatch.setattr(JobService, "archive_scheduled_jobs", staticmethod(fake))
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="complete"))
+
+    result = run(
+        SimulationService.record_control(
+            session, simulation_id=SIMULATION_ID, event_type=SimulationEventType.RESET, at=NOW
+        )
+    )
+
+    assert isinstance(result, ControlRecorded)
+
+
 # -- schema mapping ------------------------------------------------------
 
 

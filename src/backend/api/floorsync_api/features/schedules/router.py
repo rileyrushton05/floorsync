@@ -1,8 +1,8 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, assert_never
 from uuid import UUID
 
 from celery.exceptions import OperationalError
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -17,19 +17,37 @@ from floorsync_api.features.schedules.schemas import (
     ScheduleGenerationStatusResponse,
     ScheduleResponse,
     ScheduleSummaryResponse,
+    ScheduleValidationResponse,
     SchedulingIssueResponse,
+    StrategyLimitResponse,
 )
 from floorsync_api.problems import ProblemDetail, problem_response
 from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
-from floorsync_common.scheduling.task_names import SCHEDULE_GENERATION_TASK
+from floorsync_common.scheduling.contracts import SchedulingIssue
+from floorsync_common.scheduling.lifecycle import (
+    ScheduleDeleted,
+    ScheduleLifecycleService,
+    ScheduleNotDraft,
+    ScheduleNotFound,
+)
+from floorsync_common.scheduling.task_names import (
+    EXACT_SCHEDULE_GENERATION_TASK,
+    SCHEDULE_GENERATION_TASK,
+)
+from floorsync_common.scheduling.validation import ValidationService
 from floorsync_common.task_queue import create_task_queue
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 Manager = Annotated[User, Depends(require_roles("manager"))]
 task_queue = create_task_queue()
+
+_GENERATION_TASK_BY_STRATEGY = {
+    "resched": SCHEDULE_GENERATION_TASK,
+    "exact": EXACT_SCHEDULE_GENERATION_TASK,
+}
 
 SCHEDULING_ENGINE_UNAVAILABLE_DETAIL = (
     "The scheduling engine is unavailable for this run. "
@@ -56,10 +74,17 @@ async def create_schedule(
 ) -> ScheduleGenerationAcceptedResponse | JSONResponse:
     """Queue draft generation without running the scheduling policy in the API process."""
 
+    # The selection travels as strings because a Celery argument has to survive JSON, and is sent
+    # unvalidated: checking it needs the dependency graph, and this endpoint reads no database at
+    # all. Both tasks load through the same `SchedulingService.load_input`, so the worker refuses a
+    # bad selection and the status resource reports it identically regardless of strategy.
     try:
         task = task_queue.send_task(
-            SCHEDULE_GENERATION_TASK,
-            args=(command.starts_at.isoformat(),),
+            _GENERATION_TASK_BY_STRATEGY[command.strategy],
+            args=(
+                command.starts_at.isoformat(),
+                None if command.job_ids is None else [str(job_id) for job_id in command.job_ids],
+            ),
             queue="scheduling",
         )
     except OperationalError:
@@ -118,6 +143,40 @@ async def get_schedule_generation(
         return queue_unavailable_problem(request)
 
 
+# Declared before `/{schedule_id}`: FastAPI matches routes in declaration order, and the other way
+# round this path is read as a schedule id and refused as a malformed UUID before reaching here.
+@router.get(
+    "/validation",
+    response_model=ScheduleValidationResponse,
+    summary="Check the floor is ready to schedule",
+)
+async def validate_schedule_input(
+    db: DbSession,
+    _: Manager,
+    job_ids: Annotated[list[UUID] | None, Query()] = None,
+) -> ScheduleValidationResponse:
+    """Report what would stop a generation run, before queueing one (#133).
+
+    Reads the floor exactly as `POST /api/v1/schedules` would, selection included, and runs the
+    same data checks every strategy runs. Always `200`: a floor with problems is a successful
+    answer to "what is wrong", and the report says per strategy whether Generate would succeed.
+    Nothing is written.
+    """
+
+    async with db.begin():
+        report = await ValidationService.validate_floor(db, job_ids=job_ids)
+
+    return ScheduleValidationResponse(
+        schedulable=dict(report.schedulable),
+        issues=[_issue_response(issue) for issue in report.issues],
+        warnings=[_issue_response(issue) for issue in report.warnings],
+        unsupported=[
+            StrategyLimitResponse(strategy=limit.strategy, issue=_issue_response(limit.issue))
+            for limit in report.unsupported
+        ],
+    )
+
+
 @router.get(
     "/{schedule_id}",
     response_model=ScheduleResponse,
@@ -153,6 +212,59 @@ async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> Schedule
             ).all()
         )
         return schedule_response(schedule, entries, dependencies)
+
+
+@router.delete(
+    "/{schedule_id}",
+    # 204 on success and 409 when the schedule is no longer a draft, so the route returns a
+    # Response itself rather than letting FastAPI infer one body shape for both.
+    response_model=None,
+    summary="Delete a draft schedule",
+    responses={
+        204: {"description": "The draft and everything recorded under it were removed"},
+        409: {"description": "The schedule is confirmed or discarded, so it is history"},
+    },
+)
+async def delete_schedule(
+    schedule_id: UUID,
+    request: Request,
+    db: DbSession,
+    _: Manager,
+) -> Response | JSONResponse:
+    """Throw away a draft nobody confirmed.
+
+    A draft blocks removal of the jobs and operations it planned until it is gone, which is the
+    usual reason to delete one: the manager generated it to look, then wants to change the job.
+    Only drafts can be deleted; a confirmed schedule is what the floor was told to do and stays,
+    together with any simulation of it (decision 0015).
+    """
+
+    async with db.begin():
+        result = await ScheduleLifecycleService.delete_draft(db, schedule_id)
+
+        match result:
+            case ScheduleDeleted():
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            case ScheduleNotFound():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found."
+                )
+            case ScheduleNotDraft(status=schedule_status):
+                return problem_response(
+                    ProblemDetail(
+                        type="urn:floorsync:problem:schedule-is-not-draft",
+                        title="Schedule is no longer a draft",
+                        status=status.HTTP_409_CONFLICT,
+                        detail=(
+                            f"This schedule is {schedule_status}, so it records what the floor "
+                            "was told to do and cannot be deleted. Only drafts can be."
+                        ),
+                        instance=request.url.path,
+                    ),
+                    extensions={"schedule_status": schedule_status},
+                )
+            case _:
+                assert_never(result)
 
 
 def schedule_response(
@@ -244,6 +356,16 @@ def queue_unavailable_problem(request: Request) -> JSONResponse:
             detail="The scheduling queue is not available. Try again later.",
             instance=request.url.path,
         )
+    )
+
+
+def _issue_response(issue: SchedulingIssue) -> SchedulingIssueResponse:
+    return SchedulingIssueResponse(
+        code=issue.code,
+        message=issue.message,
+        operation_id=issue.operation_id,
+        machine_id=issue.machine_id,
+        job_id=issue.job_id,
     )
 
 
