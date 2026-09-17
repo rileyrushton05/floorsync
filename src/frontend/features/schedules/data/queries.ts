@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { scheduleKeys } from "./keys";
+import type { ScheduleSummary } from "./api";
 
 const GENERATION_POLL_MS = 1_000;
 
@@ -78,6 +79,50 @@ export function useRequestSchedule() {
     return useMutation({
         mutationFn: ({ startsAt, strategy }: { startsAt: string; strategy: ScheduleStrategy }) =>
             requestSchedule(startsAt, requireToken(token), strategy),
+    });
+}
+
+/**
+ * Archive (or restore) a schedule.
+ *
+ * TODO(backend): wire to the real API once it lands —
+ *   archive:   `POST /api/v1/schedules/{id}/archive`
+ *   unarchive: `POST /api/v1/schedules/{id}/unarchive`
+ * Until then the mutation resolves immediately and optimistically patches the
+ * summaries cache, so the UI behaviour is complete and only the HTTP call is
+ * missing.
+ */
+export function useArchiveSchedule() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, archived }: { id: string; archived: boolean }) => {
+            void token; // TODO(backend): `apiRequest(..., requireToken(token), ...)`
+            void id;
+            void archived;
+            return { id, archived };
+        },
+        onMutate: async ({ id, archived }) => {
+            await queryClient.cancelQueries({ queryKey: scheduleKeys.all });
+            const previous = queryClient.getQueryData<ScheduleSummary[]>(scheduleKeys.all);
+            queryClient.setQueryData<ScheduleSummary[]>(scheduleKeys.all, (current) =>
+                (current ?? []).map((schedule) =>
+                    schedule.id === id
+                        ? // Archiving marks the schedule discarded. Restoring puts back
+                          // whatever it was before it was archived — a draft stays a
+                          // draft — rather than promoting everything to confirmed.
+                          { ...schedule, status: archived ? "discarded" : schedule.status === "discarded" ? "draft" : schedule.status }
+                        : schedule,
+                ),
+            );
+            return { previous };
+        },
+        onError: (_error, _variables, context) => {
+            if (context?.previous) queryClient.setQueryData(scheduleKeys.all, context.previous);
+        },
+        // NOTE: no `onSettled` refetch while the stub resolves locally — a
+        // refetch would revert the optimistic patch before the real endpoint
+        // exists. Add invalidation here when the TODO above is wired up.
     });
 }
 

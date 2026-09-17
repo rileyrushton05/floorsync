@@ -7,7 +7,8 @@ const TABS = [
     { href: "/manager", label: "Overview" },
     { href: "/manager/jobs", label: "Jobs" },
     { href: "/manager/machines", label: "Machines" },
-    { href: "/manager/scheduler", label: "Schedule" },
+    { href: "/manager/schedules", label: "Schedules" },
+    { href: "/manager/planner", label: "Planner" },
     { href: "/manager/simulation", label: "Simulation" },
 ];
 

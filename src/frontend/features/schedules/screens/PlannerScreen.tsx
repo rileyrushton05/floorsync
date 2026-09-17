@@ -40,6 +40,7 @@ import {
 } from "@/features/schedules/data/queries";
 import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
     type ScheduleStrategy,
     type ScheduleTimeline,
@@ -47,7 +48,7 @@ import {
 } from "../data/api";
 
 /**
- * Schedule builder.
+ * Planner (schedule builder).
  *
  * This page answers "what would the plan look like?" — the simulation answers
  * "what does the shop look like N minutes in?". It has no playback controls and
@@ -267,7 +268,7 @@ function GenerationState({ generation }: { generation: Generation }) {
     }
 }
 
-export default function SchedulerPage() {
+export default function PlannerPage() {
     const { user } = useAuth();
     const jobsQuery = useJobSummaries();
     const machinesQuery = useMachines();
@@ -389,6 +390,23 @@ export default function SchedulerPage() {
         reportedGenerationFailure.current = reportKey;
         reportBackendFailure(outcome.detail);
     }, [generationQuery.data]);
+
+    // Every completed run is persisted by the backend before it reports success,
+    // so once a plan drawn in this session resolves, tell the manager where to
+    // find it again. Keyed to the schedule id so a re-render never repeats it.
+    const savedToastFor = useRef<string | null>(null);
+    useEffect(() => {
+        if (generation.status !== "ready" || generation.createdAt !== null) return;
+        if (savedToastFor.current === generation.scheduleId) return;
+        savedToastFor.current = generation.scheduleId;
+        toast.success(
+            `Schedule ${shortId(generation.scheduleId)} was generated and automatically saved to Schedules.`,
+            {
+                description:
+                    "Open the Schedules page to view its details or run it in the simulation.",
+            },
+        );
+    }, [generation]);
 
     function toggleHighlight(jobId: string) {
         setHighlightedJobId((previous) => (previous === jobId ? null : jobId));

@@ -34,6 +34,7 @@ import { toScheduleOption } from "@/features/schedules/model/schedule";
 import { ScheduleBar } from "@/features/schedules/ui/ScheduleBar";
 import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 /**
  * Simulation.
@@ -126,9 +127,14 @@ export default function SimulationPage() {
 
     const { user } = useAuth();
     const schedulesQuery = useScheduleSummaries();
-    const [selectedOverrideId, setSelectedOverrideId] = useState<string | null>(null);
+    // A schedule linked from the Schedules archive arrives as `?schedule=<id>`
+    // and is honoured until the manager picks one themselves.
+    const searchParams = useSearchParams();
+    const linkedScheduleId = searchParams.get("schedule");
+    const [userChoiceId, setUserChoiceId] = useState<string | null>(null);
     const schedules = useMemo(() => schedulesQuery.data ?? [], [schedulesQuery.data]);
     const defaultScheduleId = schedules.find((schedule) => schedule.status === "confirmed")?.id ?? schedules[0]?.id ?? null;
+    const selectedOverrideId = userChoiceId ?? linkedScheduleId;
     const selectedId = schedules.some((schedule) => schedule.id === selectedOverrideId)
         ? selectedOverrideId
         : defaultScheduleId;
@@ -231,7 +237,7 @@ export default function SimulationPage() {
         <ScheduleBar
             schedules={scheduleOptions}
             selectedId={selectedId}
-            onSelect={setSelectedOverrideId}
+            onSelect={setUserChoiceId}
             timelineSummary={timeline
                 ? {
                     jobs: timeline.jobs.length,

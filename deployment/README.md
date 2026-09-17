@@ -120,7 +120,7 @@ With the stack up, `abz5` seeded and a manager account created:
    resolved. Use play/pause, the speed selector (shop-minutes per real second) and the scrubber.
 4. Lane labels come from the database, so a seeded benchmark reads `abz5/J03` and `abz5/M07`.
 
-`/manager/jobs`, `/manager/scheduler`, `/manager` and `/operator` still run on in-browser fixtures
+`/manager/jobs`, `/manager/planner`, `/manager` and `/operator` still run on in-browser fixtures
 and do not read the API — see the [frontend README](../src/frontend/README.md) for exactly which.
 
 To show authorization rather than the UI, sign in as an operator and request a manager-only route:
