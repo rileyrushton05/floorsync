@@ -1,6 +1,6 @@
 import { stableJobOrder } from "@/domains/scheduling/colors";
 import type { DependencyEdge } from "../data/api";
-import { chainDependsOn, dependsOnFromEdges } from "./dependencies";
+import { chainDependsOn, dependsOnFromEdges, foreignEdgesFor } from "./dependencies";
 import { totalWorkMins } from "@/domains/scheduling/format";
 import type { JobDef, OperationDef, Priority } from "@/domains/scheduling/types";
 
@@ -22,9 +22,24 @@ export interface JobDraft {
     name: string;
     priority: Priority;
     operations: DraftOperation[];
+    /**
+     * Edges into this job from an operation in another job.
+     *
+     * Not editable and not drawn — the diagram only knows this job's steps — but
+     * carried on the draft so a save can write them back. The ordering endpoint
+     * replaces every edge pointing into the job, so a draft that dropped these
+     * would delete them.
+     */
+    foreignEdges: DependencyEdge[];
 }
 
-export const EMPTY_JOB_DRAFT: JobDraft = { id: null, name: "", priority: "Med", operations: [] };
+export const EMPTY_JOB_DRAFT: JobDraft = {
+    id: null,
+    name: "",
+    priority: "Med",
+    operations: [],
+    foreignEdges: [],
+};
 export const JOB_PRIORITIES: { id: Priority }[] = [{ id: "High" }, { id: "Med" }, { id: "Low" }];
 export const DURATION_FILTERS = [
     { id: "All", label: "Any duration" },
@@ -66,6 +81,7 @@ export function draftFromJob(job: JobDef): JobDraft {
     const chain = chainDependsOn(job.operations.map((operation) => operation.id));
     return {
         ...job,
+        foreignEdges: [],
         operations: job.operations.map((operation) => ({
             ...operation,
             routes: operation.routes.map((route) => ({ ...route })),
@@ -76,9 +92,11 @@ export function draftFromJob(job: JobDef): JobDraft {
 
 /** Replace the draft's precedence with the graph the API actually holds. */
 export function applyDependencies(draft: JobDraft, edges: readonly DependencyEdge[]): JobDraft {
-    const dependsOn = dependsOnFromEdges(draft.operations.map((operation) => operation.id), edges);
+    const operationIds = draft.operations.map((operation) => operation.id);
+    const dependsOn = dependsOnFromEdges(operationIds, edges);
     return {
         ...draft,
+        foreignEdges: foreignEdgesFor(operationIds, edges),
         operations: draft.operations.map((operation) => ({
             ...operation,
             dependsOn: dependsOn.get(operation.id) ?? [],
@@ -96,6 +114,9 @@ export function applyDependencies(draft: JobDraft, edges: readonly DependencyEdg
  *
  * Predecessors are sorted because the order they were clicked in is not part of
  * the job: picking A then B and picking B then A submit the same graph.
+ *
+ * Cross-job edges are left out: nothing on this screen can change them, so they
+ * could only ever produce a draft that reads as dirty without an edit.
  */
 export function draftFingerprint(draft: JobDraft): string {
     return JSON.stringify({
@@ -128,6 +149,76 @@ export function draftFingerprint(draft: JobDraft): string {
  */
 export function jobSequenceNumbers(jobs: readonly JobDef[]): ReadonlyMap<string, number> {
     return new Map(stableJobOrder(jobs).map((job, index) => [job.id, index + 1]));
+}
+
+/**
+ * Why this draft cannot be saved yet, or null when it can.
+ *
+ * The API remains the authority on whether a job is acceptable — this only
+ * covers the handful of cases where the answer is knowable without asking, and
+ * where a round trip could only come back with a message the manager already
+ * had the information to avoid. Everything else is still reported by the API.
+ */
+export function draftProblem(draft: JobDraft): string | null {
+    if (draft.name.trim() === "") return "Give the job a name before saving.";
+    if (draft.operations.length === 0) return "A job needs at least one operation.";
+    const unnamed = draft.operations.findIndex((operation) => operation.name.trim() === "");
+    if (unnamed >= 0) return `Step ${unnamed + 1} needs a name.`;
+    const routeless = draft.operations.find((operation) => operation.routes.length === 0);
+    if (routeless) return `“${routeless.name.trim()}” needs at least one machine.`;
+    const undurated = draft.operations.find((operation) =>
+        operation.routes.some((route) => !Number.isFinite(route.durationMins) || route.durationMins < 1),
+    );
+    if (undurated) return `“${undurated.name.trim()}” has a machine with no duration.`;
+    return null;
+}
+
+/** Whether a draft can be written, and what to say when it cannot. */
+export interface SaveGate {
+    canSave: boolean;
+    /** Shown beside the save button, and raised if a save is asked for anyway. */
+    reason: string | null;
+    /** True when there is work to write but something is standing in the way. */
+    held: boolean;
+}
+
+/**
+ * The one answer to "can this be saved yet", shared by the button and Ctrl+S.
+ *
+ * Two places can ask for a save, and a shortcut that saves what a disabled
+ * button refuses — or refuses what the button offers — is worse than having no
+ * shortcut at all. So the condition lives here and neither of them owns it.
+ *
+ * `held` separates "nothing to do" from "something is in the way": pressing
+ * Ctrl+S on an unchanged job should do nothing quietly, while pressing it on a
+ * draft that cannot be written yet has to say why.
+ */
+export function saveGate(input: {
+    isNew: boolean;
+    dirty: boolean;
+    problem: string | null;
+    graphReady: boolean;
+    graphFailed: boolean;
+    loading: boolean;
+    hasLoadError: boolean;
+}): SaveGate {
+    if (input.loading || input.hasLoadError) {
+        return { canSave: false, reason: null, held: input.dirty };
+    }
+    if (!input.graphReady) {
+        return {
+            canSave: false,
+            reason: input.graphFailed
+                ? "This job's step order could not be loaded, so saving would overwrite it."
+                : "Loading this job's step order…",
+            held: true,
+        };
+    }
+    if (input.problem !== null) return { canSave: false, reason: input.problem, held: true };
+    if (!input.dirty) {
+        return { canSave: false, reason: input.isNew ? null : "No unsaved changes.", held: false };
+    }
+    return { canSave: true, reason: null, held: false };
 }
 
 export interface JobFilters {

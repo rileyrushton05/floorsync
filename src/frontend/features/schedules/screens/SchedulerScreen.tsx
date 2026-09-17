@@ -213,7 +213,8 @@ function GenerationState({ generation }: { generation: Generation }) {
                             <Link href="/manager/jobs" className="underline">
                                 Open the job backlog
                             </Link>{" "}
-                            to find it: any job with a branching graph is flagged in its editor.
+                            and look for a job whose graph splits or merges rather than running as
+                            one line.
                         </p>
                     )}
                 </Note>

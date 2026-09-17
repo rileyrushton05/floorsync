@@ -19,7 +19,20 @@ import type { JobDef, OperationDef } from "./types";
  * selects the actual route when it generates a schedule.
  */
 export function totalWorkMins(job: Pick<JobDef, "operations">): number {
-    return job.operations.reduce((total, operation) => total + (primaryRoute(operation)?.durationMins ?? 0), 0);
+    return job.operations.reduce((total, operation) => total + routeMins(primaryRoute(operation)), 0);
+}
+
+/**
+ * A route's duration, or zero when it does not have one yet.
+ *
+ * Clearing a `NumberField` leaves `NaN` — React Aria's empty value — and a
+ * single `NaN` anywhere in a sum poisons the whole total, which is how a job
+ * summary ends up reading "NaNh NaNm". An unset duration contributes nothing
+ * until it is typed; `formatDuration` is what says the total is incomplete.
+ */
+export function routeMins(route: { durationMins: number } | undefined): number {
+    const mins = route?.durationMins;
+    return mins === undefined || !Number.isFinite(mins) ? 0 : mins;
 }
 
 export function primaryRoute(operation: OperationDef) {
@@ -28,27 +41,14 @@ export function primaryRoute(operation: OperationDef) {
 
 /** 135 -> "2h 15m". Durations and offsets are always shown relative to T+0. */
 export function formatDuration(mins: number): string {
+    // A cleared duration field reads back as NaN. An em dash says "not set",
+    // where "NaNh NaNm" only says the page is broken.
+    if (!Number.isFinite(mins)) return "—";
     const hours = Math.floor(mins / 60);
     const minutes = Math.round(mins % 60);
     if (hours === 0) return `${minutes}m`;
     if (minutes === 0) return `${hours}h`;
     return `${hours}h ${minutes}m`;
-}
-
-/**
- * Energy for display, in kWh. `null` is **not recorded**, never zero.
- *
- * The database is explicit that a null energy means the source this pairing
- * came from did not record one (an academic job-shop benchmark records duration
- * and nothing else), so cost reporting has to exclude it rather than count it
- * as drawing no power. Rendering it as "0 kWh" would quietly assert the one
- * thing the column says it does not know.
- */
-export function formatEnergy(energy: string | null): string {
-    if (energy === null || energy.trim() === "") return "Not recorded";
-    const value = Number(energy);
-    if (Number.isNaN(value)) return energy;
-    return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`;
 }
 
 /** 135 -> "T+2:15" */

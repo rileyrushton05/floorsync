@@ -10,8 +10,12 @@ import type { DependencyEdge } from "../data/api";
  * the scheduling engine owns whether it can plan one.
  *
  * Scope is deliberately within-job: the database allows an edge from an
- * operation in another job, but this editor neither shows nor writes those, so
- * a foreign predecessor is dropped on read rather than silently rewritten.
+ * operation in another job, but this editor cannot draw one, so a foreign
+ * predecessor is kept out of the picture. It is *not* discarded — the ordering
+ * endpoint replaces every edge pointing into this job, so a save that forgot
+ * them would delete precedence the manager never saw and never asked to change.
+ * `foreignEdgesFor` carries them through a save untouched; the editor says how
+ * many there are without pretending it can lay them out.
  */
 export interface PrecedenceNode {
     id: string;
@@ -27,9 +31,9 @@ export function chainDependsOn(operationIds: readonly string[]): Map<string, str
 /**
  * Read a job's edges into per-operation predecessors.
  *
- * Edges naming an operation outside this job are ignored: the editor has no way
- * to show one, and carrying it invisibly would mean writing it back on the next
- * save without the manager ever having seen it.
+ * Only edges between two of this job's own operations become `dependsOn`; the
+ * graph is the one thing the diagram can draw. See `foreignEdgesFor` for what
+ * happens to the rest.
  */
 export function dependsOnFromEdges(
     operationIds: readonly string[],
@@ -48,6 +52,23 @@ export function dependsOnFromEdges(
     return result;
 }
 
+/**
+ * The job's edges that the diagram cannot draw: a predecessor in another job.
+ *
+ * Returned so a save can send them back exactly as they were. Anything whose
+ * `after` side is no longer one of `operationIds` is left out — that operation
+ * is being deleted, and the database would cascade the edge away regardless.
+ */
+export function foreignEdgesFor(
+    operationIds: readonly string[],
+    edges: readonly DependencyEdge[],
+): DependencyEdge[] {
+    const own = new Set(operationIds);
+    return edges.filter(
+        (edge) => own.has(edge.after_operation_id) && !own.has(edge.before_operation_id),
+    );
+}
+
 /** Flatten back into the edge list the API accepts. */
 export function edgesFromNodes(nodes: readonly PrecedenceNode[]): DependencyEdge[] {
     return nodes.flatMap((node) =>
@@ -56,36 +77,6 @@ export function edgesFromNodes(nodes: readonly PrecedenceNode[]): DependencyEdge
             after_operation_id: node.id,
         })),
     );
-}
-
-export interface GraphShape {
-    /** True when every operation has at most one predecessor and one successor. */
-    isLinear: boolean;
-    /** Operations more than one other operation waits on — ReSched's blocking case. */
-    fanOut: string[];
-    /** Operations waiting on more than one other operation. */
-    fanIn: string[];
-}
-
-/**
- * Whether this graph is a straight chain, and where it is not.
- *
- * This exists to explain a limit, not to enforce one: the scheduling engine
- * accepts at most one predecessor and one successor per operation, so a graph
- * that fans out or in can be saved but not yet planned. Both directions are
- * reported because the two read very differently to someone building a job.
- */
-export function graphShape(nodes: readonly PrecedenceNode[]): GraphShape {
-    const successorCount = new Map<string, number>();
-    const fanIn: string[] = [];
-    for (const node of nodes) {
-        if (node.dependsOn.length > 1) fanIn.push(node.id);
-        for (const before of node.dependsOn) {
-            successorCount.set(before, (successorCount.get(before) ?? 0) + 1);
-        }
-    }
-    const fanOut = nodes.filter((node) => (successorCount.get(node.id) ?? 0) > 1).map((node) => node.id);
-    return { isLinear: fanIn.length === 0 && fanOut.length === 0, fanIn, fanOut };
 }
 
 /** Every operation reachable by following `dependsOn` backwards from `id`. */
@@ -160,6 +151,41 @@ export function levelGroups(nodes: readonly PrecedenceNode[]): PrecedenceNode[][
         (groups[level] ??= []).push(node);
     }
     return groups.map((group) => group ?? []);
+}
+
+/**
+ * How long the job takes if every independent step runs at once.
+ *
+ * The longest path through the graph, weighted by each step's own duration —
+ * which is the figure a branching job's "how long is this" question actually
+ * has. It is still not a schedule: it assumes a free machine whenever a step is
+ * ready, where the real answer depends on contention the engine resolves.
+ *
+ * Shares `levelsOf`'s cycle guard: a draft mid-edit is never allowed to loop,
+ * and a visited node contributes nothing rather than recursing forever.
+ */
+export function criticalPathMins(
+    nodes: readonly PrecedenceNode[],
+    minsOf: (id: string) => number,
+): number {
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const finishes = new Map<string, number>();
+    const visiting = new Set<string>();
+
+    function finish(id: string): number {
+        const cached = finishes.get(id);
+        if (cached !== undefined) return cached;
+        if (visiting.has(id)) return 0;
+        visiting.add(id);
+        const predecessors = byId.get(id)?.dependsOn ?? [];
+        const ready = predecessors.length === 0 ? 0 : Math.max(...predecessors.map(finish));
+        const value = ready + minsOf(id);
+        visiting.delete(id);
+        finishes.set(id, value);
+        return value;
+    }
+
+    return nodes.length === 0 ? 0 : Math.max(...nodes.map((node) => finish(node.id)));
 }
 
 /**
