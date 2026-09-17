@@ -168,7 +168,7 @@ export default function SchedulesPage() {
         } catch (error) {
             // The dialog stays open so the manager can retry; the optimistic
             // removal of the row is rolled back by the mutation's onError.
-            toast.error(errorMessage(error));
+            reportMutationError(error);
         }
     }
 
