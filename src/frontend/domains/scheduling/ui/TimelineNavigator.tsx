@@ -338,15 +338,18 @@ export function TimelineNavigator({
 }) {
     // The slider is a fraction 0-100 mapped logarithmically between the
     // fit-everything minimum and the 5-minute-interval maximum, so equal drags
-    // feel like equal zooms across the whole range.
+    // feel like equal zooms across the whole range. A guard rather than trust:
+    // a NaN control value would otherwise reach the thumb input as an invalid
+    // `value` attribute (React warns, and the track collapses).
     const span = Math.log(MAX_HOUR_PX / controls.minHourPx);
-    const level =
+    const rawLevel =
         span > 0
             ? Math.min(
                 Math.max((100 * Math.log(controls.hourPx / controls.minHourPx)) / span, 0),
                 100,
             )
             : 100;
+    const level = Number.isFinite(rawLevel) ? rawLevel : 0;
     const setLevel = (fraction: number) =>
         controls.setZoomLevel(
             controls.minHourPx * Math.pow(MAX_HOUR_PX / controls.minHourPx, fraction / 100),
