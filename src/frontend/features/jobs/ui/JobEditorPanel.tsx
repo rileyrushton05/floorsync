@@ -18,6 +18,7 @@ import {
     ArrowUturnLeftIcon,
     CheckIcon,
     CursorArrowRaysIcon,
+    DocumentDuplicateIcon,
     PlusIcon,
 } from "@heroicons/react/24/outline";
 import { criticalPathMins, wouldCreateCycle } from "../model/dependencies";
@@ -56,6 +57,12 @@ function Stat({ value, label, hint }: { value: string; label: string; hint?: str
  * Presentational. Every edit leaves through a callback and the authoritative
  * answer to whether a draft is valid comes back from the API, so nothing here
  * blocks a save.
+ *
+ * An archived job is shown read-only, with "Duplicate" as the way to act on it.
+ * That is a UI position, not an enforced one: the API still accepts edits to an
+ * archived job by design (decision 0015 point 7), so this is an affordance that
+ * keeps a finished job's record intact by default, not a guarantee. Tightening
+ * the API to match is tracked separately.
  */
 export function JobEditorPanel({
     draft,
@@ -84,6 +91,8 @@ export function JobEditorPanel({
     focusOperationId,
     onSelectOperation,
     onSave,
+    canDuplicate,
+    onDuplicate,
     onRequestDelete,
 }: {
     draft: JobDraft;
@@ -120,9 +129,20 @@ export function JobEditorPanel({
     focusOperationId: string | null;
     onSelectOperation: (operationId: string | null) => void;
     onSave: () => void;
+    /**
+     * Whether a copy would be faithful to the job as stored.
+     *
+     * False until the job's real precedence graph has arrived: `draftFromJob`
+     * opens on a straight chain, so copying before then would quietly turn a
+     * branching job into a linear one.
+     */
+    canDuplicate: boolean;
+    /** Open an unsaved copy of this job. The only action an archived job offers. */
+    onDuplicate: () => void;
     onRequestDelete: () => void;
 }) {
     const shortcut = useSyncExternalStore(NEVER_CHANGES, readShortcut, noShortcutOnServer);
+    const archived = draft.archivedAt !== null;
     const workMins = totalWorkMins(draft);
     const durationOf = new Map(
         draft.operations.map((operation) => [operation.id, routeMins(primaryRoute(operation))]),
@@ -156,9 +176,14 @@ export function JobEditorPanel({
         <Card>
             <CardHeader className="flex-row items-center gap-3">
                 <span className="flex items-center gap-2.5">
-                    <CardTitle>{draft.id ? "Edit job" : "New job"}</CardTitle>
+                    <CardTitle>{archived ? "Archived job" : draft.id ? "Edit job" : "New job"}</CardTitle>
                     {draft.id && sequenceNumber !== undefined && (
                         <Badge intent="secondary">#{sequenceNumber}</Badge>
+                    )}
+                    {archived && (
+                        <Badge intent="secondary" role="status">
+                            Archived
+                        </Badge>
                     )}
                     {/* Unsaved work is otherwise invisible until something tries
                         to navigate away and a dialog appears out of nowhere. */}
@@ -172,6 +197,22 @@ export function JobEditorPanel({
 
             <CardContent className="space-y-5">
                 {notes}
+
+                {/* Every control below is inert for an archived job, and a
+                    screen of dead inputs with no explanation is a bug report
+                    waiting to happen. The note says why and points at the one
+                    action that does work; the button itself stays in the action
+                    row with every other action rather than being repeated here. */}
+                {archived && (
+                    <Note intent="info" role="status">
+                        <strong>This job has been archived.</strong>
+                        <div className="mt-1">
+                            It has finished or been cancelled, so it is no longer offered for
+                            scheduling and is shown here as a record. Duplicate it to start a new
+                            job from the same steps, machines and ordering.
+                        </div>
+                    </Note>
+                )}
 
                 {/* Without this the editor would quietly present the straight
                     chain `draftFromJob` opens on as though it were the job. */}
@@ -190,7 +231,12 @@ export function JobEditorPanel({
                 )}
 
                 <div className="flex flex-col gap-4 sm:flex-row">
-                    <TextField className="flex-2" value={draft.name} onChange={onNameChange}>
+                    <TextField
+                        className="flex-2"
+                        value={draft.name}
+                        isReadOnly={archived}
+                        onChange={onNameChange}
+                    >
                         <Label>Job name</Label>
                         <Input placeholder="e.g. Dryer not working" autoComplete="off" />
                     </TextField>
@@ -198,6 +244,7 @@ export function JobEditorPanel({
                     <Select
                         className="flex-1"
                         value={draft.priority}
+                        isDisabled={archived}
                         onChange={(priority) => onPriorityChange(priority as JobDraft["priority"])}
                     >
                         <Label>Priority</Label>
@@ -215,23 +262,29 @@ export function JobEditorPanel({
                 <div>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="font-semibold text-sm">Operations</h3>
-                        <Button
-                            intent="primary"
-                            size="sm"
-                            onPress={onAddOperation}
-                            isDisabled={saving || loading || hasLoadError || activeMachines.length === 0}
-                        >
-                            <PlusIcon /> Add operation
-                        </Button>
+                        {!archived && (
+                            <Button
+                                intent="primary"
+                                size="sm"
+                                onPress={onAddOperation}
+                                isDisabled={saving || loading || hasLoadError || activeMachines.length === 0}
+                            >
+                                <PlusIcon /> Add operation
+                            </Button>
+                        )}
                     </div>
                     <p className="mt-1 flex items-center gap-1 text-muted-fg text-xs">
                         <CursorArrowRaysIcon className="size-3.5" />
-                        Click a step to edit it: &ldquo;Runs after&rdquo; decides what waits for what
+                        {archived
+                            ? "Click a step to see the machines it ran on and what it waited for"
+                            : "Click a step to edit it: “Runs after” decides what waits for what"}
                     </p>
 
                     {draft.operations.length === 0 ? (
                         <div className="mt-3 rounded-xl border border-dashed p-6 text-center text-muted-fg text-sm">
-                            No operations yet — a job needs at least one.
+                            {archived
+                                ? "This job has no operations recorded."
+                                : "No operations yet — a job needs at least one."}
                         </div>
                     ) : (
                         <div className="mt-3 grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)]">
@@ -254,6 +307,7 @@ export function JobEditorPanel({
                                 machines={machines}
                                 activeMachines={activeMachines}
                                 saving={saving}
+                                readOnly={archived}
                                 predecessorOptions={selected ? predecessorOptionsFor(selected.id) : []}
                                 onPatch={(patch) => onPatchOperation(selectedIndex, patch)}
                                 onDependenciesChange={(ids) => onDependenciesChange(selectedIndex, ids)}
@@ -306,7 +360,25 @@ export function JobEditorPanel({
                             {gate.reason}
                         </span>
                     )}
+                    {/* Copying is offered for any saved job, not only an
+                        archived one: "start from this one" is the same wish
+                        whether or not the original has been retired. For an
+                        archived job it is simply the only thing on offer. */}
                     {draft.id && (
+                        <Button
+                            intent={archived ? "primary" : "outline"}
+                            onPress={onDuplicate}
+                            isDisabled={!canDuplicate || saving || loading || hasLoadError}
+                        >
+                            <DocumentDuplicateIcon /> Duplicate
+                        </Button>
+                    )}
+                    {/* Deleting an archived job is not merely disabled but gone.
+                        The API refuses it outright once a confirmed schedule has
+                        planned the work, and archiving is what a finished job
+                        gets *instead* of deletion — so offering the button would
+                        only ever lead to a refusal. */}
+                    {draft.id && !archived && (
                         <Button
                             intent="danger"
                             onPress={onRequestDelete}
@@ -319,34 +391,41 @@ export function JobEditorPanel({
                         rather than up in the title row. Always rendered, merely
                         disabled while there is nothing to discard: appearing
                         only when the draft is dirty would shift Save sideways
-                        under the pointer at the moment of the first keystroke. */}
-                    <Button
-                        intent="outline"
-                        onPress={onDiscard}
-                        isDisabled={!dirty || saving || loading || hasLoadError}
-                    >
-                        <ArrowUturnLeftIcon /> Discard changes
-                    </Button>
-                    <Button
-                        onPress={onSave}
-                        isPending={saving}
-                        isDisabled={!gate.canSave}
-                        aria-keyshortcuts="Control+S Meta+S"
-                    >
-                        <CheckIcon /> {draft.id ? "Save changes" : "Create job"}
-                        {/* A shortcut nobody is told about is a shortcut nobody
-                            uses. Rendered only after mount, so the server and
-                            the first client render agree on nothing rather than
-                            on a guess about which platform this is. */}
-                        {shortcut !== null && (
-                            <kbd
-                                aria-hidden
-                                className="ms-1 font-sans text-[0.75em] opacity-70"
-                            >
-                                {shortcut}
-                            </kbd>
-                        )}
-                    </Button>
+                        under the pointer at the moment of the first keystroke.
+                        Both go entirely for an archived job, which has nothing
+                        to save and so nothing to discard either. */}
+                    {!archived && (
+                        <Button
+                            intent="outline"
+                            onPress={onDiscard}
+                            isDisabled={!dirty || saving || loading || hasLoadError}
+                        >
+                            <ArrowUturnLeftIcon /> Discard changes
+                        </Button>
+                    )}
+                    {!archived && (
+                        <Button
+                            onPress={onSave}
+                            isPending={saving}
+                            isDisabled={!gate.canSave}
+                            aria-keyshortcuts="Control+S Meta+S"
+                        >
+                            <CheckIcon /> {draft.id ? "Save changes" : "Create job"}
+                            {/* A shortcut nobody is told about is a shortcut
+                                nobody uses. Rendered only after mount, so the
+                                server and the first client render agree on
+                                nothing rather than on a guess about which
+                                platform this is. */}
+                            {shortcut !== null && (
+                                <kbd
+                                    aria-hidden
+                                    className="ms-1 font-sans text-[0.75em] opacity-70"
+                                >
+                                    {shortcut}
+                                </kbd>
+                            )}
+                        </Button>
+                    )}
                 </div>
             </CardContent>
         </Card>

@@ -33,6 +33,7 @@ import {
     draftFingerprint,
     draftFromJob,
     draftProblem,
+    duplicateDraft,
     filterJobs,
     jobSequenceNumbers,
     saveGate,
@@ -45,6 +46,9 @@ const CLOSE_MS = 150;
 
 const INITIAL_FILTERS: JobFilters = {
     query: "",
+    // The backlog is the work that is left, so the list opens on open jobs.
+    // Archived ones are fetched all the same and are one filter change away.
+    status: "Active",
     priority: "All",
     machineId: "All",
     duration: "All",
@@ -94,7 +98,9 @@ function JobsPageInner() {
     );
     const [isCreating, setIsCreating] = useState(false);
     /** A job switch or a new job, held back until unsaved work is dealt with. */
-    const [pendingOpen, setPendingOpen] = useState<{ kind: "job"; job: JobDef } | { kind: "new" } | null>(null);
+    const [pendingOpen, setPendingOpen] = useState<
+        { kind: "job"; job: JobDef } | { kind: "new" } | { kind: "duplicate" } | null
+    >(null);
     // Operations are only ever created by a click, so a plain counter is a safe
     // key source — no ids are generated during render.
     const opCounter = useRef(0);
@@ -117,8 +123,14 @@ function JobsPageInner() {
     // only while the editor is pristine, so a delayed API response never
     // overwrites a new draft a manager has already started. This guarded render
     // update settles immediately, without a transient blank draft after load.
-    if (jobs.length > 0 && !isCreating && draft.id === null && draft.name === "") {
-        openDraft(draftFromJob(jobs[0]));
+    //
+    // An open job is preferred over an archived one: the list now carries both,
+    // and landing on a read-only editor would read as the page being broken.
+    // Falling back to the first job at all is deliberate — on a floor where
+    // everything is archived, showing one is better than showing nothing.
+    const firstJobToOpen = jobs.find((job) => job.archivedAt == null) ?? jobs[0];
+    if (firstJobToOpen && !isCreating && draft.id === null && draft.name === "") {
+        openDraft(draftFromJob(firstJobToOpen));
     }
 
     function dismissDelete() {
@@ -179,6 +191,7 @@ function JobsPageInner() {
     const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
     const visibleJobs = useMemo(() => filterJobs(jobs, filters), [jobs, filters]);
 
+    const archived = draft.archivedAt !== null;
     const dirty = draftFingerprint(draft) !== draftFingerprint(baselineDraft);
     const gate = saveGate({
         isNew: draft.id === null,
@@ -188,7 +201,12 @@ function JobsPageInner() {
         graphFailed: graphError !== null && graphError !== undefined,
         loading,
         hasLoadError: Boolean(loadError),
+        archived,
     });
+    // A copy is only faithful once the real graph has arrived: `draftFromJob`
+    // opens on the straight chain, so duplicating before then would silently
+    // flatten a branching job into a linear one.
+    const canDuplicate = draft.id !== null && graphReady;
     // Holds in-app links and warns on tab close / reload while work is unsaved.
     useNavigationGuard(dirty, {
         title: "Leave without saving?",
@@ -265,6 +283,23 @@ function JobsPageInner() {
         setFocusOperationId(null);
     }
 
+    /**
+     * Open an unsaved copy of the job currently in the editor.
+     *
+     * Deliberately not `openDraft`: that makes the draft its own baseline, and a
+     * copy that reads as already-saved would leave "Create job" disabled on a
+     * draft that has everything it needs, and let a navigation away discard it
+     * without a word. Against an empty baseline the copy is what it actually is
+     * — a complete new job nobody has written yet.
+     */
+    function openDuplicate() {
+        setIsCreating(true);
+        setDraft(duplicateDraft(draft));
+        setBaselineDraft(EMPTY_JOB_DRAFT);
+        setSelectedOperationId(null);
+        setFocusOperationId(null);
+    }
+
     // Switching jobs replaces the draft outright, so it is the same loss as
     // navigating away and gets the same question first. The backlog's selection
     // follows `draft.id`, so a held-back switch leaves the list where it was.
@@ -277,6 +312,14 @@ function JobsPageInner() {
         if (job.id === draft.id) return;
         if (dirty) setPendingOpen({ kind: "job", job });
         else openJob(job);
+    }
+
+    // Copying replaces the draft, so it is the same loss as switching jobs and
+    // asks the same question first.
+    function duplicateJob() {
+        if (!canDuplicate) return;
+        if (dirty) setPendingOpen({ kind: "duplicate" });
+        else openDuplicate();
     }
 
     function addOperation() {
@@ -554,24 +597,41 @@ function JobsPageInner() {
                         setFocusOperationId(null);
                     }}
                     onSave={saveDraft}
+                    canDuplicate={canDuplicate}
+                    onDuplicate={duplicateJob}
                     onRequestDelete={() => setConfirmingDelete(true)}
                 />
             </main>
 
             {pendingOpen !== null && (
                 <ConfirmDialog
-                    title="Discard unsaved changes?"
+                    // Duplicating is the one case here that loses nothing: the
+                    // edits move into the copy rather than being thrown away. It
+                    // still asks, because the original goes back to how it was
+                    // saved — but it asks in its own words, since a "discard"
+                    // warning over an action that discards nothing teaches
+                    // people to click through the ones that do.
+                    title={
+                        pendingOpen.kind === "duplicate"
+                            ? "Duplicate with unsaved changes?"
+                            : "Discard unsaved changes?"
+                    }
                     description={
                         pendingOpen.kind === "new"
                             ? `“${draft.name.trim() || "This job"}” has changes that have not been saved. Starting a new job discards them.`
-                            : `“${draft.name.trim() || "This job"}” has changes that have not been saved. Opening “${pendingOpen.job.name}” discards them.`
+                            : pendingOpen.kind === "duplicate"
+                                ? `The copy is made from what is on screen, unsaved changes included. “${draft.name.trim() || "This job"}” itself stays as it was last saved.`
+                                : `“${draft.name.trim() || "This job"}” has changes that have not been saved. Opening “${pendingOpen.job.name}” discards them.`
                     }
-                    confirmLabel="Discard changes"
+                    confirmLabel={
+                        pendingOpen.kind === "duplicate" ? "Duplicate job" : "Discard changes"
+                    }
                     cancelLabel="Keep editing"
-                    danger
+                    danger={pendingOpen.kind !== "duplicate"}
                     onCancel={() => setPendingOpen(null)}
                     onConfirm={() => {
                         if (pendingOpen.kind === "new") openNewJob();
+                        else if (pendingOpen.kind === "duplicate") openDuplicate();
                         else openJob(pendingOpen.job);
                         setPendingOpen(null);
                     }}

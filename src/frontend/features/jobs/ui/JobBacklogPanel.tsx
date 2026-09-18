@@ -23,6 +23,7 @@ import {
     DURATION_FILTERS,
     JOB_PRIORITIES,
     SORT_OPTIONS,
+    STATUS_FILTERS,
     type JobFilters,
 } from "../model/editor";
 
@@ -69,16 +70,23 @@ export function JobBacklogPanel({
 }) {
     const rows = visibleJobs.slice(0, MAX_ROWS);
     const hidden = visibleJobs.length - rows.length;
+    // The list now carries archived jobs too, so they can be found and copied.
+    // "Backlog" still means the work that is left, which is the open count.
+    const openCount = jobs.filter((job) => job.archivedAt == null).length;
     const filtersActive =
         filters.query.trim() !== "" ||
+        filters.status !== "Active" ||
         filters.priority !== "All" ||
         filters.machineId !== "All" ||
         filters.duration !== "All";
 
+    // Clearing returns the status filter to Active rather than to "show
+    // everything": the backlog is the default view, not an applied narrowing.
     function clearFilters() {
         onFiltersChange((current) => ({
             ...current,
             query: "",
+            status: "Active",
             priority: "All",
             machineId: "All",
             duration: "All",
@@ -89,7 +97,7 @@ export function JobBacklogPanel({
         <Card>
             <CardHeader className="flex-row items-center justify-between gap-2.5">
                 <CardTitle>Job backlog</CardTitle>
-                <Badge intent="outline">{jobs.length} {jobs.length === 1 ? "job" : "jobs"}</Badge>
+                <Badge intent="outline">{openCount} open {openCount === 1 ? "job" : "jobs"}</Badge>
             </CardHeader>
             <CardContent>
                 <TextField
@@ -115,6 +123,27 @@ export function JobBacklogPanel({
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Select
+                        aria-label="Filter by archived state"
+                        className="w-40"
+                        value={filters.status}
+                        onChange={(value) =>
+                            onFiltersChange((current) => ({
+                                ...current,
+                                status: value as JobFilters["status"],
+                            }))
+                        }
+                    >
+                        <SelectTrigger />
+                        <SelectContent>
+                            {STATUS_FILTERS.map((option) => (
+                                <SelectItem key={option.id} id={option.id} textValue={option.label}>
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
                     <Select
                         aria-label="Filter by priority"
                         className="w-36"
@@ -228,10 +257,11 @@ export function JobBacklogPanel({
                 >
                     {(job) => {
                         const sequence = sequenceNumbers.get(job.id);
+                        const archived = job.archivedAt != null;
                         return (
                             <GridListItem
                                 id={job.id}
-                                textValue={`Job ${sequence ?? ""} ${job.name}`}
+                                textValue={`Job ${sequence ?? ""} ${job.name}${archived ? " (archived)" : ""}`}
                                 className="items-start"
                             >
                                 <JobDot colors={colors} jobId={job.id} className="mt-1" />
@@ -244,6 +274,11 @@ export function JobBacklogPanel({
                                         )}
                                         <GridListLabel className="truncate text-sm">{job.name}</GridListLabel>
                                         <Badge intent={priorityIntent(job.priority)}>{job.priority}</Badge>
+                                        {/* The row is otherwise identical to an
+                                            open job's, and opening one leads to
+                                            a read-only editor — so the reason
+                                            has to be legible before the click. */}
+                                        {archived && <Badge intent="secondary">Archived</Badge>}
                                     </span>
                                     <GridListDescription className="text-xs">
                                         {job.operations.length}{" "}

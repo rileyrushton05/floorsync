@@ -25,6 +25,15 @@ function requireToken(token: string | null): string {
     return token;
 }
 
+/**
+ * Every job definition the builder can open, archived ones included.
+ *
+ * The API hides archived jobs by default, which is what the schedulable backlog
+ * wants — `useJobSummaries`, which feeds the scheduler's job picker, keeps that
+ * default deliberately. The builder is the one screen that needs both: an
+ * archived job is still readable, and copying one is how a finished job's setup
+ * gets reused. Which of the two is on screen is a filter, not a second fetch.
+ */
 export function useJobDefinitions() {
     const { token } = useAuth();
     return useQuery({
@@ -32,7 +41,8 @@ export function useJobDefinitions() {
         enabled: token !== null,
         queryFn: async ({ signal }) =>
             (await fetchEveryPage(
-                (cursor, pageSignal) => fetchJobDefinitions(requireToken(token), 100, cursor, pageSignal),
+                (cursor, pageSignal) =>
+                    fetchJobDefinitions(requireToken(token), 100, cursor, pageSignal, true),
                 signal,
             )).map(toJobDefinition),
         refetchOnMount: "always",
