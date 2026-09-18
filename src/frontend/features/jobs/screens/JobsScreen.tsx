@@ -326,9 +326,12 @@ function JobsPageInner() {
         opCounter.current += 1;
         const id = `new-op-${opCounter.current}`;
         setDraft((previous) => {
-            // A new step joins the end of the chain by default, which is what
-            // adding one used to mean. Anything else is an explicit edit.
-            const last = previous.operations.at(-1);
+            // A new step runs after the step open in the graph, so branching
+            // off it is one click. With nothing open it joins the end of the
+            // chain, which is what adding one used to mean.
+            const after =
+                previous.operations.find((op) => op.id === selectedOperationId) ??
+                previous.operations.at(-1);
             return {
                 ...previous,
                 operations: [
@@ -336,7 +339,7 @@ function JobsPageInner() {
                     {
                         id,
                         name: "",
-                        dependsOn: last ? [last.id] : [],
+                        dependsOn: after ? [after.id] : [],
                         routes: activeMachines[0]
                             ? [{ machineId: activeMachines[0].id, durationMins: 30, energy: null }]
                             : [],

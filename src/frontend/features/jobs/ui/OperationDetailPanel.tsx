@@ -96,7 +96,13 @@ export function OperationDetailPanel({
                     {operation.name.trim() || <span className="text-muted-fg italic">Untitled step</span>}
                 </span>
                 {!readOnly && (
-                    <Button intent="plain" size="sq-xs" onPress={onRemove} aria-label={`Remove ${label}`}>
+                    <Button
+                        intent="danger"
+                        size="sq-xs"
+                        onPress={onRemove}
+                        aria-label={`Remove ${label}`}
+                        className="[--btn-icon-active:var(--color-white)] [--btn-icon:var(--color-white)]"
+                    >
                         <TrashIcon />
                     </Button>
                 )}
