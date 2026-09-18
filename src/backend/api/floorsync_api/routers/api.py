@@ -6,6 +6,7 @@ from floorsync_api.features.jobs.definitions_router import (
     job_definitions_router,
 )
 from floorsync_api.features.jobs.router import router as jobs_router
+from floorsync_api.features.live_updates.router import router as live_update_tickets_router
 from floorsync_api.features.machines.router import categories_router
 from floorsync_api.features.machines.router import router as machines_router
 from floorsync_api.features.operations.router import job_operations_router
@@ -20,6 +21,7 @@ router.include_router(job_definition_router)
 router.include_router(job_definitions_router)
 router.include_router(job_operations_router)
 router.include_router(jobs_router)
+router.include_router(live_update_tickets_router)
 router.include_router(machines_router)
 router.include_router(operations_router)
 router.include_router(schedules_router)

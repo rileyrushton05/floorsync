@@ -907,6 +907,26 @@
         "title": "JobUpdateRequest",
         "type": "object"
       },
+      "LiveUpdateTicketResponse": {
+        "description": "A one-time ticket to authenticate the `/ws` connection this account is about to open.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_at"
+        ],
+        "title": "LiveUpdateTicketResponse",
+        "type": "object"
+      },
       "MachineCreateRequest": {
         "additionalProperties": false,
         "description": "A machine a manager is adding to the floor.\n\ncategory_id and salary are optional: nothing in the scheduler reads a machine's category, and a\nmachine with no recorded salary is excluded from a schedule's labour total rather than counted\nas free. Requiring either would block entering a machine whose details are not settled yet.",
@@ -3012,6 +3032,33 @@
         "summary": "Add an operation to a job",
         "tags": [
           "operations"
+        ]
+      }
+    },
+    "/api/v1/live-updates/tickets": {
+      "post": {
+        "description": "Issue a short-lived, single-use ticket bound to the caller's account.\n\nAny signed-in account may request one -- the socket's own subscription check is what limits\nwhat that ticket can then see. Never cached: a ticket is single-use, so a cached response\nwould hand out one that already looks valid but can never actually be redeemed twice.",
+        "operationId": "create_ticket_api_v1_live_updates_tickets_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveUpdateTicketResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Issue a one-time ticket to authenticate a live-update WebSocket",
+        "tags": [
+          "live-updates"
         ]
       }
     },
