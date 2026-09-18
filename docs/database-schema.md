@@ -147,6 +147,8 @@ generation skip archived jobs, and a precedence edge touching one is treated as 
 timestamp rather than a flag because *when* a job left the backlog is the fact worth keeping, and
 the flag is derivable from it. Archiving never unlocks deletion: a job a confirmed schedule planned
 stays undeletable, which is the whole reason archiving exists.
+An archived job is read-only: every write that changes what it is answers 409 until it is brought
+back with `archived: false` (decision 0018).
 
 ## operations
 

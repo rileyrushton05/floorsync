@@ -24,6 +24,7 @@ from floorsync_api.features.jobs.definitions_schemas import (
 )
 from floorsync_api.problems import (
     ProblemDetail,
+    job_is_archived_problem,
     problem_response,
     schedule_references_hint,
     schedule_references_members,
@@ -51,7 +52,7 @@ from floorsync_common.jobs.definitions import (
     JobDefinitionReplaceCommand,
     JobDefinitionService,
 )
-from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.jobs.results import JobIsArchived, JobNotFound
 from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.scheduling.references import ScheduleReferences
 
@@ -154,8 +155,8 @@ async def get_definition(
         404: {"description": "The job does not exist"},
         409: {
             "description": (
-                "The save would remove an operation that appears in a schedule; the body names "
-                "the draft and confirmed schedules involved"
+                "The job is archived and read-only, or the save would remove an operation that "
+                "appears in a schedule; the body names the draft and confirmed schedules involved"
             )
         },
         422: {
@@ -180,10 +181,10 @@ async def replace_definition(
     index becomes each operation's 1-based position. Only this job's own `builder_sequence`
     ordering edges are rebuilt; externally owned edges are never touched.
 
-    Refused with a conflict only when the save would remove an operation a generated schedule
-    already recorded; every other edit is covered by the schedule's own snapshot, so a scheduled
-    job stays editable. The conflict names the schedules in the way. An archived job is editable
-    too: archiving takes a job out of the backlog, it does not freeze it (decision 0015).
+    Refused with a conflict when the job is archived (decision 0018: unarchive it or duplicate
+    it) or when the save would remove an operation a generated schedule already recorded; every
+    other edit is covered by the schedule's own snapshot, so a scheduled job stays editable. The
+    scheduled conflict names the schedules in the way.
     """
 
     async with db.begin():
@@ -196,6 +197,8 @@ async def replace_definition(
                 return _definition_response(definition)
             case JobNotFound():
                 return _job_not_found(request, job_id)
+            case JobIsArchived(archived_at=archived_at):
+                return job_is_archived_problem(request, job_id, archived_at)
             case JobDefinitionIsScheduled(references=references):
                 return _job_definition_is_scheduled(request, job_id, references)
             case OperationDoesNotBelongToJob(operation_id=operation_id, job_id=owning_job_id):

@@ -22,6 +22,7 @@ from floorsync_common.jobs.results import (
     GetJobResult,
     JobDeleted,
     JobFound,
+    JobIsArchived,
     JobIsScheduled,
     JobNotFound,
     JobUpdated,
@@ -137,11 +138,19 @@ class JobService:
         alone so the original leaving time survives a repeated request; `False` clears it and the
         job rejoins the backlog. Archiving never touches schedules, and never makes a job
         deletable (decision 0015).
+
+        An archived job is read-only (decision 0018): the only field it accepts is `archived`,
+        so a repeated archive request stays idempotent and `archived: false` brings it back, with
+        or without other fields in the same request.
         """
 
         job = await db.get(Job, job_id)
         if job is None:
             return JobNotFound(job_id=job_id)
+
+        unarchiving = is_set(archived) and not archived
+        if job.archived_at is not None and not unarchiving and is_set(name):
+            return JobIsArchived(job_id=job_id, archived_at=job.archived_at)
 
         if is_set(name):
             job.name = name.strip()
