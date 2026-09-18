@@ -7,6 +7,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp
 
+from floorsync_api.features.live_updates.outbox_relay import OutboxRelay
 from floorsync_api.features.live_updates.redis_client import close_redis_client
 from floorsync_api.features.live_updates.subscriber import RedisLiveUpdateSubscriber
 from floorsync_api.features.live_updates.websocket import hub as live_update_hub
@@ -27,8 +28,11 @@ from floorsync_common.settings import Settings, settings
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     subscriber = RedisLiveUpdateSubscriber(live_update_hub)
+    relay = OutboxRelay()
     subscriber.start()
+    relay.start()
     yield
+    await relay.stop()
     await subscriber.stop()
     await engine.dispose()
     await close_redis_client()
