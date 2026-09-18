@@ -8,6 +8,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp
 
 from floorsync_api.features.live_updates.redis_client import close_redis_client
+from floorsync_api.features.live_updates.websocket import router as live_updates_router
 from floorsync_api.middleware import (
     RequestBodyLimitMiddleware,
     RequestContextMiddleware,
@@ -16,7 +17,6 @@ from floorsync_api.middleware import (
 from floorsync_api.problems import install_problem_handlers
 from floorsync_api.routers.api import router as api_router
 from floorsync_api.routers.health import router as health_router
-from floorsync_api.routers.live_updates import router as live_updates_router
 from floorsync_common.database.session import engine
 from floorsync_common.observability import configure_logging
 from floorsync_common.settings import Settings, settings

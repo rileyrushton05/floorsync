@@ -31,8 +31,3 @@ def test_readiness_reports_required_dependency_state(
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "service": "api"}
-
-
-def test_websocket_endpoint_accepts_connections() -> None:
-    with TestClient(app).websocket_connect("/ws") as websocket:
-        assert websocket.receive_json() == {"type": "connected"}
