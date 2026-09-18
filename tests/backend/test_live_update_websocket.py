@@ -57,6 +57,17 @@ def _fast_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(websocket_module, "IDLE_TIMEOUT_SECONDS", 0.05)
 
 
+@pytest.fixture(autouse=True)
+def _allow_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rate limiting has its own tests; every other test here needs it out of the way."""
+
+    async def allow(*_: object, **__: object) -> bool:
+        return True
+
+    monkeypatch.setattr(websocket_module, "check_ip", allow)
+    monkeypatch.setattr(websocket_module, "check_account", allow)
+
+
 def _stub_consume(monkeypatch: pytest.MonkeyPatch, outcome: UUID | None) -> None:
     async def fake(_ticket: str) -> UUID | None:
         return outcome
@@ -164,6 +175,40 @@ def test_the_wrong_protocol_version_closes_4400(monkeypatch: pytest.MonkeyPatch)
             ws.receive_json()
 
     assert exc_info.value.code == CLOSE_MALFORMED_FRAME
+
+
+# -- connection rate limiting -------------------------------------------------------------------
+
+
+def test_an_ip_over_its_limit_closes_4408_before_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def deny(_client_ip: str) -> bool:
+        return False
+
+    monkeypatch.setattr(websocket_module, "check_ip", deny)
+
+    with ws_client().websocket_connect("/ws") as ws, pytest.raises(WebSocketDisconnect) as exc_info:
+        ws.receive_json()
+
+    assert exc_info.value.code == CLOSE_TIMEOUT_OR_LIMIT
+
+
+def test_an_account_over_its_limit_closes_4408_after_a_valid_ticket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def deny(_user_id: UUID) -> bool:
+        return False
+
+    monkeypatch.setattr(websocket_module, "check_account", deny)
+    _stub_consume(monkeypatch, USER_ID)
+
+    with ws_client().websocket_connect("/ws") as ws:
+        ws.send_json({"v": 1, "type": "authenticate", "ticket": "good-ticket"})
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            ws.receive_json()
+
+    assert exc_info.value.code == CLOSE_TIMEOUT_OR_LIMIT
 
 
 # -- post-authentication frames ----------------------------------------------------------------

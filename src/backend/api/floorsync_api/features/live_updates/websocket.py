@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub, SubscriptionKey
+from floorsync_api.features.live_updates.rate_limit import check_account, check_ip
 from floorsync_api.features.live_updates.snapshots import (
     LiveUpdateSnapshotService,
     SnapshotUnavailable,
@@ -72,6 +73,9 @@ async def live_updates(websocket: WebSocket) -> None:
     await websocket.accept()
     state = _ConnectionState()
     try:
+        if not await check_ip(_client_ip(websocket)):
+            await websocket.close(code=CLOSE_TIMEOUT_OR_LIMIT)
+            raise _Closed
         await _authenticate(websocket, state)
         while True:
             frame = await _receive_frame(websocket)
@@ -104,6 +108,10 @@ async def _authenticate(websocket: WebSocket, state: _ConnectionState) -> None:
     user_id = await LiveUpdateTicketService.consume(ticket)
     if user_id is None:
         await websocket.close(code=CLOSE_INVALID_TICKET)
+        raise _Closed
+
+    if not await check_account(user_id):
+        await websocket.close(code=CLOSE_TIMEOUT_OR_LIMIT)
         raise _Closed
 
     state.user_id = user_id
@@ -223,6 +231,12 @@ def _parse_simulation_id(frame: dict[str, Any]) -> UUID | None:
         return UUID(raw)
     except ValueError:
         return None
+
+
+def _client_ip(websocket: WebSocket) -> str:
+    """The ASGI peer address. Nothing in this codebase trusts a forwarded-for header today, so a
+    caller behind an untrusted proxy is rate-limited by the proxy's address, not its own."""
+    return websocket.client.host if websocket.client is not None else "unknown"
 
 
 def _now_iso() -> str:
