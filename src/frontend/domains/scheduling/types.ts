@@ -46,6 +46,14 @@ export interface JobDef {
      * Optional because the schedule timeline contract does not carry it.
      */
     createdAt?: string;
+    /**
+     * When the job left the backlog, or null while it is still open.
+     *
+     * An archived job has finished or been cancelled: it is no longer offered
+     * for scheduling, and the builder shows it read-only. Optional for the same
+     * reason as `createdAt` — the schedule timeline contract does not carry it.
+     */
+    archivedAt?: string | null;
     /** Ordered chain — operation n+1 cannot start until operation n finishes. */
     operations: OperationDef[];
 }

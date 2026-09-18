@@ -21,6 +21,14 @@ export interface JobDraft {
     id: string | null;
     name: string;
     priority: Priority;
+    /**
+     * When the job left the backlog, or null while it is still open.
+     *
+     * Read-only on the draft: nothing in this editor sets it, and no save sends
+     * it. It is carried because an archived job is shown read-only — the way
+     * back to an editable job is `duplicateDraft`, not an edit.
+     */
+    archivedAt: string | null;
     operations: DraftOperation[];
     /**
      * Edges into this job from an operation in another job.
@@ -37,6 +45,7 @@ export const EMPTY_JOB_DRAFT: JobDraft = {
     id: null,
     name: "",
     priority: "Med",
+    archivedAt: null,
     operations: [],
     foreignEdges: [],
 };
@@ -46,6 +55,20 @@ export const DURATION_FILTERS = [
     { id: "Short", label: "Short (< 1 hr)" },
     { id: "Medium", label: "Medium (1–4 hrs)" },
     { id: "Long", label: "Long (> 4 hrs)" },
+] as const;
+
+/**
+ * Whether the list shows open jobs, retired ones, or both.
+ *
+ * Defaults to `Active` because that is the backlog — the work still to be done.
+ * Archived jobs are fetched all the same (`include_archived`), so switching is
+ * a filter rather than a refetch, and a manager looking for a finished job to
+ * copy can find it without leaving the screen.
+ */
+export const STATUS_FILTERS = [
+    { id: "Active", label: "Active jobs" },
+    { id: "Archived", label: "Archived jobs" },
+    { id: "All", label: "Active + archived" },
 ] as const;
 
 /**
@@ -81,6 +104,7 @@ export function draftFromJob(job: JobDef): JobDraft {
     const chain = chainDependsOn(job.operations.map((operation) => operation.id));
     return {
         ...job,
+        archivedAt: job.archivedAt ?? null,
         foreignEdges: [],
         operations: job.operations.map((operation) => ({
             ...operation,
@@ -100,6 +124,44 @@ export function applyDependencies(draft: JobDraft, edges: readonly DependencyEdg
         operations: draft.operations.map((operation) => ({
             ...operation,
             dependsOn: dependsOn.get(operation.id) ?? [],
+        })),
+    };
+}
+
+/**
+ * An unsaved copy of a job, ready to be edited and created as a new one.
+ *
+ * This is the way back from an archived job: archived work is shown read-only,
+ * so "change it" means "make a new job that starts where this one left off".
+ * The copy is deliberately *not* written yet — it opens in the editor as a new
+ * job with unsaved changes, so a manager renames and adjusts it before anything
+ * reaches the API, exactly as if they had built it by hand.
+ *
+ * Every operation gets a fresh placeholder id and the precedence is rewritten
+ * onto those ids, so the copy's graph matches the original's shape without
+ * naming any of its rows. `foreignEdges` are dropped rather than carried: they
+ * point *into* the original's operations from another job, and nothing about
+ * copying this job says another job should now wait on the copy as well.
+ */
+export function duplicateDraft(draft: JobDraft): JobDraft {
+    const copiedId = (index: number) => `new-op-copy-${index + 1}`;
+    const copiedIdFor = new Map(
+        draft.operations.map((operation, index) => [operation.id, copiedId(index)]),
+    );
+    return {
+        id: null,
+        name: `${draft.name.trim()} (copy)`.trim(),
+        priority: draft.priority,
+        archivedAt: null,
+        foreignEdges: [],
+        operations: draft.operations.map((operation, index) => ({
+            id: copiedId(index),
+            name: operation.name,
+            routes: operation.routes.map((route) => ({ ...route })),
+            dependsOn: operation.dependsOn.flatMap((id) => {
+                const copied = copiedIdFor.get(id);
+                return copied === undefined ? [] : [copied];
+            }),
         })),
     };
 }
@@ -201,9 +263,24 @@ export function saveGate(input: {
     graphFailed: boolean;
     loading: boolean;
     hasLoadError: boolean;
+    /** The open job has been retired, so the editor is showing it read-only. */
+    archived: boolean;
 }): SaveGate {
     if (input.loading || input.hasLoadError) {
         return { canSave: false, reason: null, held: input.dirty };
+    }
+    // Ahead of everything else, including the graph: an archived job is not
+    // being saved whatever else is true of it, and saying why is more use than
+    // reporting a load state for a write that is not on offer.
+    if (input.archived) {
+        return {
+            canSave: false,
+            reason: "This job is archived. Duplicate it to make changes.",
+            // `held`, so an explicit Ctrl+S answers rather than doing nothing
+            // quietly: the editor looks editable enough to try saving, and
+            // silence would read as the shortcut being broken.
+            held: true,
+        };
     }
     if (!input.graphReady) {
         return {
@@ -223,6 +300,7 @@ export function saveGate(input: {
 
 export interface JobFilters {
     query: string;
+    status: (typeof STATUS_FILTERS)[number]["id"];
     priority: Priority | "All";
     machineId: string;
     duration: (typeof DURATION_FILTERS)[number]["id"];
@@ -236,6 +314,9 @@ export function filterJobs(jobs: JobDef[], filters: JobFilters): JobDef[] {
         // so matching against it could only ever produce results they cannot
         // explain from what is on screen.
         if (needle && !job.name.toLowerCase().includes(needle)) return false;
+        const archived = job.archivedAt != null;
+        if (filters.status === "Active" && archived) return false;
+        if (filters.status === "Archived" && !archived) return false;
         if (filters.priority !== "All" && job.priority !== filters.priority) return false;
         if (filters.machineId !== "All" && !job.operations.some((operation) => operation.routes.some((route) => route.machineId === filters.machineId))) return false;
         const work = totalWorkMins(job);

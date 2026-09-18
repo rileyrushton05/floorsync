@@ -43,6 +43,7 @@ export function OperationDetailPanel({
     machines,
     activeMachines,
     saving,
+    readOnly = false,
     predecessorOptions,
     onPatch,
     onDependenciesChange,
@@ -61,6 +62,8 @@ export function OperationDetailPanel({
     machines: Machine[];
     activeMachines: Machine[];
     saving: boolean;
+    /** The job is archived: this panel reads it out rather than editing it. */
+    readOnly?: boolean;
     predecessorOptions: PredecessorOption[];
     onPatch: (patch: Partial<Pick<OperationDef, "name">>) => void;
     onDependenciesChange: (predecessorIds: string[]) => void;
@@ -79,7 +82,7 @@ export function OperationDetailPanel({
     if (operation === null) {
         return (
             <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed p-5 text-center text-muted-fg text-sm">
-                Select a step in the graph to edit it here.
+                Select a step in the graph to {readOnly ? "see its details" : "edit it"} here.
             </div>
         );
     }
@@ -92,12 +95,24 @@ export function OperationDetailPanel({
                 <span className="truncate font-semibold text-sm">
                     {operation.name.trim() || <span className="text-muted-fg italic">Untitled step</span>}
                 </span>
-                <Button intent="plain" size="sq-xs" onPress={onRemove} aria-label={`Remove ${label}`}>
-                    <TrashIcon />
-                </Button>
+                {!readOnly && (
+                    <Button
+                        intent="danger"
+                        size="sq-xs"
+                        onPress={onRemove}
+                        aria-label={`Remove ${label}`}
+                        className="[--btn-icon-active:var(--color-white)] [--btn-icon:var(--color-white)]"
+                    >
+                        <TrashIcon />
+                    </Button>
+                )}
             </div>
 
-            <TextField value={operation.name} onChange={(name) => onPatch({ name })}>
+            <TextField
+                value={operation.name}
+                isReadOnly={readOnly}
+                onChange={(name) => onPatch({ name })}
+            >
                 <Label className="text-muted-fg text-xs">Step name</Label>
                 <Input ref={nameRef} placeholder="Operation name" autoComplete="off" />
             </TextField>
@@ -107,6 +122,7 @@ export function OperationDetailPanel({
                 options={predecessorOptions}
                 selected={operation.dependsOn}
                 foreignPredecessors={foreignPredecessors}
+                readOnly={readOnly}
                 onChange={onDependenciesChange}
             />
 
@@ -117,6 +133,7 @@ export function OperationDetailPanel({
                 saving={saving}
                 label={label}
                 stacked
+                readOnly={readOnly}
                 onPatchRoute={onPatchRoute}
                 onAddRoute={onAddRoute}
                 onRemoveRoute={onRemoveRoute}

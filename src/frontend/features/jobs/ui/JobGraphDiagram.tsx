@@ -166,7 +166,14 @@ export function JobGraphDiagram({
 
     return (
         <div
-            className="scroll-rail flex max-h-[32rem] min-h-40 flex-col justify-center overflow-auto rounded-xl border bg-muted p-4"
+            // Safe centring, not plain `justify-center`/`items-center`: a centred
+            // flex item that outgrows its container overflows by equal amounts at
+            // both ends, and a scroll container can never reach what sits past its
+            // start edge. A graph taller than the viewport therefore lost its first
+            // rows, and a wider one its leftmost columns, with no way to scroll
+            // back. `safe` drops to start alignment the moment the canvas would
+            // overflow, so small graphs stay centred and large ones stay reachable.
+            className="scroll-rail flex max-h-[32rem] min-h-40 flex-col items-center-safe justify-center-safe overflow-auto rounded-xl border bg-muted p-4"
             // Clicking the canvas rather than a node clears the selection. The
             // nodes stop the event, so this only ever fires on empty space.
             onClick={() => onSelect(null)}
@@ -174,7 +181,7 @@ export function JobGraphDiagram({
                 if (event.key === "Escape") onSelect(null);
             }}
         >
-            <div className="relative mx-auto shrink-0" style={{ width, height }}>
+            <div className="relative shrink-0" style={{ width, height }}>
                 <svg
                     width={width}
                     height={height}

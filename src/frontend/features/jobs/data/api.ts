@@ -6,6 +6,8 @@ export type { CursorPage } from "@/core/http/contracts";
 export interface Job {
     id: string;
     name: string;
+    /** When the job left the backlog, or null while it is still open. */
+    archived_at: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -29,6 +31,8 @@ export interface JobDefinition {
     id: string;
     name: string;
     priority: JobPriority;
+    /** When the job left the backlog, or null while it is still open. */
+    archived_at: string | null;
     created_at: string;
     updated_at: string;
     operations: JobDefinitionOperation[];
@@ -112,9 +116,25 @@ export function replaceJobDependencies(
     );
 }
 
-export function fetchJobDefinitions(token: string, limit = 100, cursor?: string, signal?: AbortSignal) {
+/**
+ * Page through job definitions.
+ *
+ * `includeArchived` is what the builder uses: the API hides archived jobs by
+ * default, which is right for the schedulable backlog but wrong for a screen
+ * whose job is to show a manager what a finished job contained and offer them a
+ * copy of it. The archived/active split is then a filter on this screen rather
+ * than a second fetch.
+ */
+export function fetchJobDefinitions(
+    token: string,
+    limit = 100,
+    cursor?: string,
+    signal?: AbortSignal,
+    includeArchived = false,
+) {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
+    if (includeArchived) query.set("include_archived", "true");
     return apiRequest<CursorPage<JobDefinition>>(`/api/v1/job-definitions?${query.toString()}`, token, { signal });
 }
 

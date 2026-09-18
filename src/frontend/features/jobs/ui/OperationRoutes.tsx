@@ -14,6 +14,11 @@ import { PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
  *
  * `stacked` lays the fields out in a column for the narrow side panel; the card
  * has room for a single row.
+ *
+ * `readOnly` is for an archived job: the routes still have to be legible — that
+ * is most of what a manager opens a finished job to see — so the text fields
+ * stay focusable and selectable rather than greying out. Only the controls that
+ * would write are taken away.
  */
 export function OperationRoutes({
     routes,
@@ -22,6 +27,7 @@ export function OperationRoutes({
     saving,
     label,
     stacked = false,
+    readOnly = false,
     onPatchRoute,
     onAddRoute,
     onRemoveRoute,
@@ -32,6 +38,8 @@ export function OperationRoutes({
     saving: boolean;
     label: string;
     stacked?: boolean;
+    /** The job is archived: show the routes, offer no way to change them. */
+    readOnly?: boolean;
     onPatchRoute: (routeIndex: number, patch: Partial<OperationDef["routes"][number]>) => void;
     onAddRoute: () => void;
     onRemoveRoute: (routeIndex: number) => void;
@@ -46,9 +54,11 @@ export function OperationRoutes({
                 <span className="font-semibold text-muted-fg text-xs uppercase tracking-[0.05em]">
                     Machines that can run this
                 </span>
-                <Button intent="outline" size="sm" onPress={onAddRoute} isDisabled={saving || !canAddRoute}>
-                    <PlusIcon /> Add machine
-                </Button>
+                {!readOnly && (
+                    <Button intent="outline" size="sm" onPress={onAddRoute} isDisabled={saving || !canAddRoute}>
+                        <PlusIcon /> Add machine
+                    </Button>
+                )}
             </div>
 
             <ul className={stacked ? "space-y-3" : "space-y-2.5"}>
@@ -67,6 +77,7 @@ export function OperationRoutes({
                                 <Select
                                     className="min-w-0 flex-1"
                                     value={route.machineId}
+                                    isDisabled={readOnly}
                                     onChange={(machineId) =>
                                         onPatchRoute(routeIndex, { machineId: String(machineId) })
                                     }
@@ -100,7 +111,7 @@ export function OperationRoutes({
                                     </SelectContent>
                                 </Select>
 
-                                {stacked && (
+                                {stacked && !readOnly && (
                                     <Button
                                         intent="plain"
                                         size="sq-xs"
@@ -118,6 +129,7 @@ export function OperationRoutes({
                                 <NumberField
                                     minValue={1}
                                     step={1}
+                                    isReadOnly={readOnly}
                                     formatOptions={{ maximumFractionDigits: 0 }}
                                     value={route.durationMins}
                                     onChange={(durationMins) =>
@@ -141,6 +153,7 @@ export function OperationRoutes({
                                 <NumberField
                                     minValue={0}
                                     step={0.1}
+                                    isReadOnly={readOnly}
                                     value={route.energy === null ? Number.NaN : Number(route.energy)}
                                     onChange={(energy) =>
                                         onPatchRoute(routeIndex, {
@@ -153,7 +166,7 @@ export function OperationRoutes({
                                 </NumberField>
                             </div>
 
-                            {!stacked && (
+                            {!stacked && !readOnly && (
                                 <Button
                                     intent="plain"
                                     size="sq-xs"

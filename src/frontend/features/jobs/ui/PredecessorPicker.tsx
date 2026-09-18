@@ -34,6 +34,7 @@ export function PredecessorPicker({
     options,
     selected,
     foreignPredecessors = 0,
+    readOnly = false,
     onChange,
 }: {
     /** How this step is named in the control's accessible label. */
@@ -42,23 +43,32 @@ export function PredecessorPicker({
     selected: string[];
     /** Steps in other jobs this one waits on: shown, never editable here. */
     foreignPredecessors?: number;
+    /** The job is archived: the chips still say what waits on what, unclickably. */
+    readOnly?: boolean;
     onChange: (predecessorIds: string[]) => void;
 }) {
     const [query, setQuery] = useState("");
     const needle = query.trim().toLowerCase();
     const searchable = options.length >= SEARCHABLE_FROM;
+    // Read-only shows only the steps actually waited on. An unselected chip is an
+    // offer, and there is nothing on offer here — listing every other step would
+    // read as a set of choices that quietly do nothing when clicked.
+    const selectable = readOnly ? options.filter((option) => selected.includes(option.id)) : options;
     // A selected step always stays on screen. Filtering one out of view would
     // hide a choice that is in force, and un-picking it would mean remembering
     // what to search for to find it again.
     const shown =
         needle === ""
-            ? options
-            : options.filter(
+            ? selectable
+            : selectable.filter(
                 (option) =>
                     selected.includes(option.id) ||
                     (option.name || "untitled step").toLowerCase().includes(needle),
             );
 
+    // Keyed off `options`, not `selectable`: a read-only step that waits on
+    // nothing still has "can start immediately" worth saying, and the empty
+    // toggle group below it renders as nothing at all.
     if (options.length === 0 && foreignPredecessors === 0) return null;
 
     return (
@@ -71,7 +81,7 @@ export function PredecessorPicker({
                     ? "Nothing — this step can start immediately."
                     : "Every step selected here must finish first."}
             </p>
-            {searchable && (
+            {searchable && !readOnly && (
                 <TextField
                     aria-label={`Search the steps ${label} could run after`}
                     className="mt-2"
@@ -89,6 +99,7 @@ export function PredecessorPicker({
                 aria-label={`Steps ${label} runs after`}
                 className="mt-2 flex-wrap"
                 size="xs"
+                isDisabled={readOnly}
                 selectionMode="multiple"
                 selectedKeys={new Set(selected)}
                 onSelectionChange={(keys) => onChange(Array.from(keys).map(String))}
@@ -116,7 +127,7 @@ export function PredecessorPicker({
                 ))}
             </ToggleGroup>
 
-            {searchable && shown.length === 0 && (
+            {searchable && !readOnly && shown.length === 0 && (
                 <p className="mt-2 text-muted-fg text-xs">No step matches “{query.trim()}”.</p>
             )}
 
