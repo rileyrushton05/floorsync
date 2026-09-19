@@ -17,12 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.jobs.dependency_graph import JobEdge, job_dependency_edges_statement
+from floorsync_common.jobs.guards import refuse_unless_open
 from floorsync_common.jobs.results import (
     DeleteJobResult,
     GetJobResult,
     JobDeleted,
     JobFound,
-    JobIsArchived,
     JobIsScheduled,
     JobNotFound,
     JobUpdated,
@@ -138,18 +138,20 @@ class JobService:
         stamp alone, so the original leaving time survives a repeated request. Archiving never
         touches schedules, and never makes a job deletable (decision 0015).
 
-        Archiving is one way (decision 0018). An archived job is read-only: the only thing it
-        accepts is a repeated `archived: true`, so a stale form cannot rename it. A job that a
-        withdrawn plan had claimed comes back when that plan is discarded, not through this
-        endpoint.
+        Only an open job can be changed (decisions 0018, 0019). A planned, done or archived job
+        accepts nothing but `archived: true`: archiving a planned job is how a manager cancels it,
+        and repeating it on an archived one is a harmless no-op, so a stale form cannot rename
+        either. Archiving is one way; a planned job comes back when its schedule is discarded.
         """
 
         job = await db.get(Job, job_id)
         if job is None:
             return JobNotFound(job_id=job_id)
 
-        if job.archived_at is not None and is_set(name):
-            return JobIsArchived(job_id=job_id, archived_at=job.archived_at)
+        if is_set(name):
+            refused = await refuse_unless_open(db, job)
+            if refused is not None:
+                return refused
 
         if is_set(name):
             job.name = name.strip()

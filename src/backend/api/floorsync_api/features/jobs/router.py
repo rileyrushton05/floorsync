@@ -16,7 +16,7 @@ from floorsync_api.features.jobs.schemas import (
 )
 from floorsync_api.problems import (
     ProblemDetail,
-    job_is_archived_problem,
+    job_has_left_backlog_problem,
     problem_response,
     schedule_references_hint,
     schedule_references_members,
@@ -27,7 +27,7 @@ from floorsync_common.jobs.backlog import OPEN, BacklogService
 from floorsync_common.jobs.results import (
     JobDeleted,
     JobFound,
-    JobIsArchived,
+    JobHasLeftBacklog,
     JobIsScheduled,
     JobNotFound,
     JobUpdated,
@@ -147,7 +147,7 @@ async def get_job(job_id: UUID, db: DbSession, _: Manager) -> JobDetailResponse:
     response_model=JobResponse,
     summary="Update a job",
     responses={
-        409: {"description": "The job is archived and read-only"},
+        409: {"description": "The job has left the backlog and is read-only"},
     },
 )
 async def update_job(
@@ -159,10 +159,10 @@ async def update_job(
 ) -> JobResponse | JSONResponse:
     """Apply a partial update, so a later schedule is generated from the corrected job.
 
-    `archived: true` retires an unplanned job from the backlog by hand, for one that was cancelled
-    or finished without a plan. It touches no schedule and does not make the job deletable. An
-    archived job is read-only and archiving is one way (decision 0018): a job a plan claimed comes
-    back when that plan is discarded, not here.
+    `archived: true` retires a job by hand: an open one that was cancelled, or a planned one the
+    manager is pulling from its plan. It touches no schedule and does not make the job deletable.
+    Only an open job can be renamed (decisions 0018, 0019); a planned job comes back when its
+    schedule is discarded, and archiving is one way.
     """
 
     changes = command.model_dump(exclude_unset=True)
@@ -181,8 +181,8 @@ async def update_job(
                 return JobResponse.from_job(job, backlog[job.id])
             case JobNotFound():
                 raise _job_not_found()
-            case JobIsArchived(job_id=job_id, archived_at=archived_at):
-                return job_is_archived_problem(request, job_id, archived_at)
+            case JobHasLeftBacklog(job_id=job_id, backlog=backlog, archived_at=archived_at):
+                return job_has_left_backlog_problem(request, job_id, backlog, archived_at)
             case _:
                 assert_never(result)
 

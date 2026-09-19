@@ -17,7 +17,8 @@ from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.jobs.results import JobIsArchived, JobNotFound
+from floorsync_common.jobs.guards import refuse_unless_open
+from floorsync_common.jobs.results import JobHasLeftBacklog, JobNotFound
 from floorsync_common.operations.graph import find_dependency_cycle
 from floorsync_common.operations.results import (
     CreateOperationResult,
@@ -73,8 +74,9 @@ class OperationService:
         job = await db.get(Job, job_id)
         if job is None:
             return JobNotFound(job_id=job_id)
-        if job.archived_at is not None:
-            return JobIsArchived(job_id=job_id, archived_at=job.archived_at)
+        refused = await refuse_unless_open(db, job)
+        if refused is not None:
+            return refused
 
         # A step added on its own goes to the end of the job. The unique constraint on
         # (job_id, position) is what holds under two such adds racing for the same slot.
@@ -140,9 +142,9 @@ class OperationService:
         operation = await db.get(Operation, operation_id)
         if operation is None:
             return OperationNotFound(operation_id=operation_id)
-        archived = await OperationService._archived(db, operation)
-        if archived is not None:
-            return archived
+        refused = await OperationService._left_backlog(db, operation)
+        if refused is not None:
+            return refused
 
         if is_set(name):
             operation.name = name.strip()
@@ -154,17 +156,17 @@ class OperationService:
         return OperationUpdated(operation=operation)
 
     @staticmethod
-    async def _archived(db: AsyncSession, operation: Operation) -> JobIsArchived | None:
-        """The refusal an archived job gives every edit to its steps (decision 0018), or None.
+    async def _left_backlog(db: AsyncSession, operation: Operation) -> JobHasLeftBacklog | None:
+        """The refusal a job that is not open gives every edit to its steps, or None.
 
         A separate read rather than `operation.job`: the relationship is lazy and async code
         cannot await it during attribute access.
         """
 
         job = await db.get(Job, operation.job_id)
-        if job is None or job.archived_at is None:
+        if job is None:
             return None
-        return JobIsArchived(job_id=job.id, archived_at=job.archived_at)
+        return await refuse_unless_open(db, job)
 
     @staticmethod
     async def delete_operation(db: AsyncSession, operation_id: UUID) -> DeleteOperationResult:
@@ -179,9 +181,9 @@ class OperationService:
         operation = await db.get(Operation, operation_id)
         if operation is None:
             return OperationNotFound(operation_id=operation_id)
-        archived = await OperationService._archived(db, operation)
-        if archived is not None:
-            return archived
+        refused = await OperationService._left_backlog(db, operation)
+        if refused is not None:
+            return refused
 
         references = await find_schedule_references(db, operation_ids=(operation_id,))
         if references:
@@ -246,8 +248,9 @@ class DependencyService:
         job = await db.get(Job, job_id)
         if job is None:
             return JobNotFound(job_id=job_id)
-        if job.archived_at is not None:
-            return JobIsArchived(job_id=job_id, archived_at=job.archived_at)
+        refused = await refuse_unless_open(db, job)
+        if refused is not None:
+            return refused
 
         owned = set(
             (await db.scalars(select(Operation.id).where(Operation.job_id == job_id))).all()
