@@ -6,6 +6,7 @@ one.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from floorsync_common.database.models.job import Job
@@ -50,6 +51,21 @@ class JobIsScheduled(ExpectedOutcome):
     references: ScheduleReferences
 
 
+@dataclass(frozen=True, slots=True)
+class JobIsArchived(ExpectedOutcome):
+    """The job has left the backlog, and an archived job is read-only.
+
+    Every path that changes what a job is (its fields, its operations, its routes, its ordering)
+    refuses while `archived_at` is set, so the "read it, duplicate it, edit the copy" flow the jobs
+    page offers is a rule the API enforces rather than a courtesy the browser extends (decision
+    0018). Archiving is one way: nothing on the job itself brings it back. A job a plan claimed
+    returns to the backlog when that plan is discarded.
+    """
+
+    job_id: UUID
+    archived_at: datetime
+
+
 type GetJobResult = JobFound | JobNotFound
-type UpdateJobResult = JobUpdated | JobNotFound
+type UpdateJobResult = JobUpdated | JobNotFound | JobIsArchived
 type DeleteJobResult = JobDeleted | JobNotFound | JobIsScheduled

@@ -6,8 +6,9 @@
 
 ## Status
 
-Accepted. Points 5 and 6 are amended by decision 0019: nothing but a manager sets `archived_at`,
-and a job's place in the backlog is derived from its schedules.
+Accepted. Point 7 is superseded by decision 0018: a job that has left the backlog is read-only and
+archiving is one way. Points 5 and 6 are amended by decision 0019: nothing but a manager sets
+`archived_at`, and a job's place in the backlog is derived from its schedules.
 
 ## Context
 
@@ -55,7 +56,7 @@ have to be repointed at the copies. The only thing a schedule reads live is a di
    *(Extended by decision 0019 to planned and done jobs.)* Both the job dependency graph the
    backlog reads and the input the scheduler loads drop such edges, so the backlog never
    auto-ticks a job the scheduler would then refuse.
-7. **Archiving takes a job out of the backlog; it does not freeze it.** An archived job can still
+7. *(Superseded by decision 0018.)* **Archiving takes a job out of the backlog; it does not freeze it.** An archived job can still
    be read and edited through every job, operation and definition endpoint. Blocking edits would
    add a refusal to four write paths for no user story: a cancelled job that comes back gets fixed
    and unarchived in whichever order the manager likes, and a finished job's record is protected

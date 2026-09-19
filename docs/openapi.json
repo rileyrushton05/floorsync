@@ -929,11 +929,12 @@
       },
       "JobUpdateRequest": {
         "additionalProperties": false,
-        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.\n\n`archived` retires the job from the backlog (`true`) or brings it back (`false`). It is a\nboolean here rather than the timestamp the row stores, because the caller decides *whether* the\njob is archived and the server records *when*.",
+        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.\n\n`archived: true` retires the job from the backlog. Only `true` is accepted: archiving is one\nway (decision 0018), and a job a plan claimed comes back when that plan is discarded. It is a\nflag here rather than the timestamp the row stores, because the caller decides *whether* the\njob is archived and the server records *when*.",
         "properties": {
           "archived": {
             "anyOf": [
               {
+                "const": true,
                 "type": "boolean"
               },
               {
@@ -2783,7 +2784,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires the job from the backlog by hand, for a job that finished without a\nsimulation running or one that was cancelled; `archived: false` brings it back. Neither touches\nany schedule, and neither makes the job deletable.",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires an unplanned job from the backlog by hand, for one that was cancelled\nor finished without a plan. It touches no schedule and does not make the job deletable. An\narchived job is read-only and archiving is one way (decision 0018): a job a plan claimed comes\nback when that plan is discarded, not here.",
         "operationId": "update_job_api_v1_jobs__job_id__patch",
         "parameters": [
           {
@@ -2817,6 +2818,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "The job is archived and read-only"
           },
           "422": {
             "content": {
@@ -2889,7 +2893,7 @@
         ]
       },
       "put": {
-        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict only when the save would remove an operation a generated schedule\nalready recorded; every other edit is covered by the schedule's own snapshot, so a scheduled\njob stays editable. The conflict names the schedules in the way. An archived job is editable\ntoo: archiving takes a job out of the backlog, it does not freeze it (decision 0015).",
+        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when the job is archived (decision 0018: duplicate it instead) or\nwhen the save would remove an operation a generated schedule already recorded; every\nother edit is covered by the schedule's own snapshot, so a scheduled job stays editable. The\nscheduled conflict names the schedules in the way.",
         "operationId": "replace_definition_api_v1_jobs__job_id__definition_put",
         "parameters": [
           {
@@ -2928,7 +2932,7 @@
             "description": "The job does not exist"
           },
           "409": {
-            "description": "The save would remove an operation that appears in a schedule; the body names the draft and confirmed schedules involved"
+            "description": "The job is archived and read-only, or the save would remove an operation that appears in a schedule; the body names the draft and confirmed schedules involved"
           },
           "422": {
             "description": "A route names an unknown or inactive machine, an operation id does not belong to this job, removing an operation would delete another job's edge to it, or the new ordering would form a cycle"
@@ -3029,6 +3033,9 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "description": "The job is archived and read-only"
+          },
           "422": {
             "description": "An edge names an unknown operation, orders an operation belonging to another job, or the ordering would form a cycle"
           }
@@ -3046,7 +3053,7 @@
     },
     "/api/v1/jobs/{job_id}/operations": {
       "post": {
-        "description": "Add a step to a job. Its durations and its ordering are recorded separately.",
+        "description": "Add a step to a job. Its durations and its ordering are recorded separately.\n\nRefused while the job is archived (decision 0018).",
         "operationId": "create_operation_api_v1_jobs__job_id__operations_post",
         "parameters": [
           {
@@ -3080,6 +3087,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "The job is archived and read-only"
           },
           "422": {
             "content": {
@@ -3514,7 +3524,7 @@
             "description": "The operation, its capabilities and its ordering were removed"
           },
           "409": {
-            "description": "The operation already appears in a schedule"
+            "description": "The operation already appears in a schedule, or its job is archived and read-only"
           },
           "422": {
             "content": {
@@ -3585,7 +3595,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected step.",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected step.\n\nRefused while the operation's job is archived (decision 0018).",
         "operationId": "update_operation_api_v1_operations__operation_id__patch",
         "parameters": [
           {
@@ -3619,6 +3629,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "The operation's job is archived and read-only"
           },
           "422": {
             "content": {

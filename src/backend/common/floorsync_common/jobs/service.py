@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import Select, select, tuple_
@@ -21,6 +22,7 @@ from floorsync_common.jobs.results import (
     GetJobResult,
     JobDeleted,
     JobFound,
+    JobIsArchived,
     JobIsScheduled,
     JobNotFound,
     JobUpdated,
@@ -127,28 +129,32 @@ class JobService:
         job_id: UUID,
         *,
         name: str | Unset = UNSET,
-        archived: bool | Unset = UNSET,
+        archived: Literal[True] | Unset = UNSET,
     ) -> UpdateJobResult:
         """Apply a partial update, leaving omitted fields untouched.
 
-        `archived` is the manager's way to retire a job by hand: a finished job the simulation
-        never ran, or a cancelled one. `True` stamps `archived_at` now, and leaves an earlier stamp
-        alone so the original leaving time survives a repeated request; `False` clears it and the
-        job rejoins the backlog. Archiving never touches schedules, and never makes a job
-        deletable (decision 0015).
+        `archived: true` is the manager's way to retire an unplanned job by hand, a cancelled one
+        or one that finished without a plan. It stamps `archived_at` now and leaves an earlier
+        stamp alone, so the original leaving time survives a repeated request. Archiving never
+        touches schedules, and never makes a job deletable (decision 0015).
+
+        Archiving is one way (decision 0018). An archived job is read-only: the only thing it
+        accepts is a repeated `archived: true`, so a stale form cannot rename it. A job that a
+        withdrawn plan had claimed comes back when that plan is discarded, not through this
+        endpoint.
         """
 
         job = await db.get(Job, job_id)
         if job is None:
             return JobNotFound(job_id=job_id)
 
+        if job.archived_at is not None and is_set(name):
+            return JobIsArchived(job_id=job_id, archived_at=job.archived_at)
+
         if is_set(name):
             job.name = name.strip()
-        if is_set(archived):
-            if archived and job.archived_at is None:
-                job.archived_at = datetime.now(UTC)
-            elif not archived:
-                job.archived_at = None
+        if is_set(archived) and job.archived_at is None:
+            job.archived_at = datetime.now(UTC)
 
         await db.flush()
         # `updated_at` is database-computed through `onupdate`, so an UPDATE expires it and reading

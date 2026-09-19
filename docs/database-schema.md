@@ -150,6 +150,8 @@ planned and done jobs, and a precedence edge touching any of them is treated as 
 timestamp rather than a flag because *when* a job left the backlog is the fact worth keeping, and
 the flag is derivable from it. Archiving never unlocks deletion: a job a confirmed schedule planned
 stays undeletable, which is the whole reason archiving exists.
+An archived job is read-only and archiving is one way: every write that changes what it is
+answers 409, and there is no `archived: false` (decision 0018). Duplicate is the way to continue.
 
 ## operations
 

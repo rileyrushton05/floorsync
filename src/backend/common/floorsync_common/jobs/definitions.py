@@ -40,7 +40,7 @@ from floorsync_common.jobs.definition_results import (
     ReplaceDefinitionResult,
     UnknownMachine,
 )
-from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.jobs.results import JobIsArchived, JobNotFound
 from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.operations.service import find_dependency_cycle
 from floorsync_common.pagination import decode_cursor, encode_cursor
@@ -193,7 +193,8 @@ class JobDefinitionService:
         """Replace a job's name, priority, operations and routes wholesale, atomically.
 
         Every check below runs, and can fail, before anything is written -- a failed save must
-        leave every table exactly as it was. Refuses the whole save when: a supplied operation id
+        leave every table exactly as it was. Refuses the whole save when: the job is archived
+        (`JobIsArchived`, decision 0018: duplicate it instead); a supplied operation id
         belongs to another job; a route names an unknown or inactive machine; the save would
         remove an operation a generated schedule already recorded (every other edit is covered by
         the schedule's own snapshot, so a job that has been scheduled stays editable; see
@@ -214,6 +215,8 @@ class JobDefinitionService:
         job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if job is None:
             return JobNotFound(job_id=job_id)
+        if job.archived_at is not None:
+            return JobIsArchived(job_id=job_id, archived_at=job.archived_at)
 
         existing_operations = (
             await db.scalars(select(Operation).where(Operation.job_id == job_id))
