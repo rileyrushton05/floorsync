@@ -91,7 +91,19 @@ class ScheduleSummaryResponse(ResponseSchema):
     makespan: int | None
     input_operation_count: int | None
     created_at: datetime
+    confirmed_by_user_id: UUID | None
     confirmed_at: datetime | None
+
+
+class ScheduleUpdateRequest(RequestSchema):
+    """A lifecycle transition (decision 0015).
+
+    `confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a
+    confirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that
+    is not wanted is deleted. Repeating the schedule's current status is a harmless no-op.
+    """
+
+    status: Literal["confirmed", "discarded"]
 
 
 class ScheduleResponse(ResponseSchema):

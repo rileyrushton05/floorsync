@@ -236,7 +236,9 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 migration to add later. A draft is deleted outright when abandoned, entries and all, because a draft
 nobody confirmed records nothing and the FK on its entries would otherwise keep blocking edits to
 the jobs it named; `discarded` is reserved for a confirmed schedule that is later withdrawn
-(decision 0015, see Deletion policy below). `confirmed_by_user_id` / `confirmed_at` are the audit trail for
+(decision 0015, see Deletion policy below). Both transitions are `PATCH /api/v1/schedules/{id}`
+with `status`; a discarded schedule can be confirmed again, and a confirmed one cannot be
+discarded once its simulation has recorded a control (#268). `confirmed_by_user_id` / `confirmed_at` are the audit trail for
 who actually handed a schedule off to simulation and when; `ondelete SET NULL` so a later change to
 the confirming user's account never threatens the schedule record itself. `total_energy` /
 `total_labour_cost` are written once at generation, summed from `schedule_entries` below — the same
