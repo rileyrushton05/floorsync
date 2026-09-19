@@ -397,6 +397,10 @@ everything else a save can change is already snapshotted on the schedule's own r
 - **Data explicitly designed to be disposable** — `schedule_dependencies` (rebuilt from scratch every
   generation, per #125) and `simulation_events` (meaningless detached from its simulation). Cascading
   these isn't a loophole, it's the documented design.
+- **A simulation nobody has controlled.** Withdrawing a confirmed schedule (`PATCH` with
+  `status: discarded`) removes a simulation that was created for it but has no events, because
+  such a row records nothing; one with any event is the floor acting on the plan and blocks the
+  withdrawal instead (#268).
 
 The practical effect: a `Machine`, `Job`, `Operation`, `Schedule`, or `Simulation` that has ever been
 used for anything real cannot be hard-deleted at all — the FK graph refuses it. That's intentional.

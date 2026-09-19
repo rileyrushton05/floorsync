@@ -252,60 +252,68 @@ async def update_schedule(
     async with db.begin():
         match command.status:
             case "confirmed":
-                confirmed = await ScheduleLifecycleService.confirm(
-                    db, schedule_id, confirmed_by=manager.id
-                )
-                match confirmed:
-                    case ScheduleConfirmed(schedule=schedule):
-                        return ScheduleSummaryResponse.model_validate(schedule)
-                    case ScheduleNotFound():
-                        raise _schedule_not_found()
-                    case _:
-                        assert_never(confirmed)
+                return await _confirm(db, schedule_id, manager)
             case "discarded":
-                discarded = await ScheduleLifecycleService.discard(db, schedule_id)
-                match discarded:
-                    case ScheduleDiscarded(schedule=schedule):
-                        return ScheduleSummaryResponse.model_validate(schedule)
-                    case ScheduleNotFound():
-                        raise _schedule_not_found()
-                    case ScheduleIsDraft():
-                        return problem_response(
-                            ProblemDetail(
-                                type="urn:floorsync:problem:schedule-is-draft",
-                                title="Schedule is a draft",
-                                status=status.HTTP_409_CONFLICT,
-                                detail=(
-                                    "A draft was never the plan, so it cannot be discarded. "
-                                    "Delete it with DELETE /api/v1/schedules/{schedule_id} "
-                                    "instead."
-                                ),
-                                instance=request.url.path,
-                            ),
-                        )
-                    case ScheduleSimulationStarted(
-                        simulation_id=simulation_id, simulation_status=simulation_status
-                    ):
-                        return problem_response(
-                            ProblemDetail(
-                                type="urn:floorsync:problem:schedule-simulation-started",
-                                title="Schedule has been simulated",
-                                status=status.HTTP_409_CONFLICT,
-                                detail=(
-                                    "The floor has started acting on this schedule, so it "
-                                    "cannot be withdrawn."
-                                ),
-                                instance=request.url.path,
-                            ),
-                            extensions={
-                                "simulation_id": str(simulation_id),
-                                "simulation_status": simulation_status,
-                            },
-                        )
-                    case _:
-                        assert_never(discarded)
+                return await _discard(db, schedule_id, request)
             case _:
                 assert_never(command.status)
+
+
+async def _confirm(
+    db: DbSession, schedule_id: UUID, manager: User
+) -> ScheduleSummaryResponse | JSONResponse:
+    result = await ScheduleLifecycleService.confirm(db, schedule_id, confirmed_by=manager.id)
+    match result:
+        case ScheduleConfirmed(schedule=schedule):
+            return ScheduleSummaryResponse.model_validate(schedule)
+        case ScheduleNotFound():
+            raise _schedule_not_found()
+        case _:
+            assert_never(result)
+
+
+async def _discard(
+    db: DbSession, schedule_id: UUID, request: Request
+) -> ScheduleSummaryResponse | JSONResponse:
+    result = await ScheduleLifecycleService.discard(db, schedule_id)
+    match result:
+        case ScheduleDiscarded(schedule=schedule):
+            return ScheduleSummaryResponse.model_validate(schedule)
+        case ScheduleNotFound():
+            raise _schedule_not_found()
+        case ScheduleIsDraft():
+            return problem_response(
+                ProblemDetail(
+                    type="urn:floorsync:problem:schedule-is-draft",
+                    title="Schedule is a draft",
+                    status=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "A draft was never the plan, so it cannot be discarded. Delete it with "
+                        "DELETE /api/v1/schedules/{schedule_id} instead."
+                    ),
+                    instance=request.url.path,
+                ),
+            )
+        case ScheduleSimulationStarted(
+            simulation_id=simulation_id, simulation_status=simulation_status
+        ):
+            return problem_response(
+                ProblemDetail(
+                    type="urn:floorsync:problem:schedule-simulation-started",
+                    title="Schedule has been simulated",
+                    status=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "The floor has started acting on this schedule, so it cannot be withdrawn."
+                    ),
+                    instance=request.url.path,
+                ),
+                extensions={
+                    "simulation_id": str(simulation_id),
+                    "simulation_status": simulation_status,
+                },
+            )
+        case _:
+            assert_never(result)
 
 
 def _schedule_not_found() -> HTTPException:
