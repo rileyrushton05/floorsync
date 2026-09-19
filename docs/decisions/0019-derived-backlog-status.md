@@ -49,6 +49,13 @@ the first option is exactly this query, run at write time to cache it in a colum
 6. **One read, in bulk.** `BacklogService.load` answers any number of jobs with one statement.
    Routes call it after the job service inside the same transaction; a job created a moment ago
    is reported `open` without a read, since nothing can have planned it yet.
+7. **Only an open job can be changed.** Decision 0018 made archived jobs read-only; this widens
+   it to planned and done jobs, since editing a job after a plan has committed to it makes the
+   job and its plan disagree, and the edit could never be scheduled anyway (the job is refused
+   as `planned_job` until the plan is discarded). Every write path calls `refuse_unless_open`
+   (`jobs/guards.py`) first and returns `JobHasLeftBacklog`; the one write a non-open job still
+   takes is `archived: true`, which is how a manager cancels a planned job. A job in a draft is
+   still open, so generating a schedule to look at it locks nothing.
 
 ## Rationale
 
@@ -78,6 +85,10 @@ un-archive rule. Requiring `job_ids` removes a whole code path (`load_input`, `s
   statement builders and the service; imports models only.
 - `JobResponse`, `JobDetailResponse` and `JobDefinitionResponse` gain `backlog_status` and
   `planned_by_schedule_ids`. `SchedulingIssue` and its response gain `schedule_id`.
+- `JobIsArchived` (decision 0018) becomes `JobHasLeftBacklog(job_id, backlog, archived_at)`, and
+  the problem type `job-is-archived` becomes `job-has-left-backlog` with `backlog_status` and
+  `planned_by_schedule_ids` as extension members. The frontend keys read-only on
+  `backlog_status !== "open"`.
 - `JobService.archive_scheduled_jobs` is removed, along with the completion write in
   `SimulationService.record_control`.
 - `SchedulingService.load_input`, `store_draft`, `ValidationService.validate_floor` and the two

@@ -1,4 +1,4 @@
-# Decision: An archived job is read-only, and archiving is one way
+# Decision: A job that has left the backlog is read-only, and archiving is one way
 
 ## Date
 
@@ -6,7 +6,9 @@
 
 ## Status
 
-Accepted. Supersedes point 7 of decision 0015.
+Accepted. Supersedes point 7 of decision 0015. Extended by decision 0019 from archived jobs to
+every job that has left the backlog (planned and done as well); the outcome is `JobHasLeftBacklog`
+and the problem type `job-has-left-backlog`.
 
 ## Context
 
@@ -25,19 +27,22 @@ API did not have: anything that could reach the API could edit an archived job.
 
 ## Decision
 
-1. **Every write that changes what a job is refuses while `archived_at` is set.** The paths are
-   `PATCH /api/v1/jobs/{id}` for any field other than `archived`, `PUT /api/v1/jobs/{id}/definition`,
-   `POST /api/v1/jobs/{id}/operations`, `PATCH` and `DELETE /api/v1/operations/{id}`, and
-   `PUT /api/v1/jobs/{id}/dependencies`. Each service returns `JobIsArchived(job_id, archived_at)`
-   before reading anything else or writing anything, and each route renders it as the one
-   problem type `urn:floorsync:problem:job-is-archived` (409) with `job_id` and `archived_at` as
-   extension members.
+1. **Every write that changes what a job is refuses unless the job is open.** *(As first
+   written this said "while `archived_at` is set"; decision 0019 widened it to any
+   `backlog_status` other than `open`.)* The paths are `PATCH /api/v1/jobs/{id}` for any field
+   other than `archived`, `PUT /api/v1/jobs/{id}/definition`, `POST /api/v1/jobs/{id}/operations`,
+   `PATCH` and `DELETE /api/v1/operations/{id}`, and `PUT /api/v1/jobs/{id}/dependencies`. Each
+   service returns `JobHasLeftBacklog(job_id, backlog, archived_at)` from `jobs/guards.py` before
+   reading anything else or writing anything, and each route renders it as the one problem type
+   `urn:floorsync:problem:job-has-left-backlog` (409) with `job_id`, `backlog_status`,
+   `planned_by_schedule_ids` and `archived_at` as extension members.
 2. **Archiving is one way.** `PATCH` accepts only `archived: true`; there is no `archived: false`.
-   A repeated `archived: true` on an archived job stays an idempotent no-op rather than a
-   refusal, so a stale form does not error. `archived_at` therefore means one thing: a manager
-   retired this job by hand. A job that a plan has claimed is not archived at all; its place in
-   the backlog is derived from the schedules that reference it (#269), and it returns to the
-   backlog when that plan is discarded, not through this endpoint.
+   It is the one write a job that has left the backlog still takes: on a planned job it is how a
+   manager cancels the job, and repeated on an archived one it is an idempotent no-op, so a stale
+   form does not error. `archived_at` therefore means one thing: a manager retired this job by
+   hand. A job that a plan has claimed is not archived at all; its place in the backlog is derived
+   from the schedules that reference it (decision 0019), and it returns to the backlog when that
+   plan is discarded, not through this endpoint.
 3. **Reading, deleting and scheduling are unchanged.** An archived job can still be read through
    every endpoint that exposes it. Deletion keeps 0015's rules: a job a schedule planned cannot
    be deleted, archived or not, and a hand-archived job no schedule ever touched still can be.
@@ -76,12 +81,13 @@ keeps the archived job's record exactly as it was.
 
 ## Consequences
 
-- `JobIsArchived` in `floorsync_common.jobs.results`, carried by `UpdateJobResult`,
+- `JobHasLeftBacklog` in `floorsync_common.jobs.results`, carried by `UpdateJobResult`,
   `ReplaceDefinitionResult`, `CreateOperationResult`, `UpdateOperationResult`,
-  `DeleteOperationResult` and `ReplaceJobDependenciesResult`. `job_is_archived_problem` in
-  `floorsync_api.problems` renders it.
-- The jobs page can keep its read-only rendering as an affordance and report the 409 if a stale
-  tab tries anyway.
+  `DeleteOperationResult` and `ReplaceJobDependenciesResult`; `refuse_unless_open` in
+  `jobs/guards.py` produces it, `job_has_left_backlog_problem` in `floorsync_api.problems`
+  renders it.
+- The jobs page can keep its read-only rendering as an affordance, keyed on
+  `backlog_status !== "open"`, and report the 409 if a stale tab tries anyway.
 - A mis-archived job cannot be un-archived through the API; the recovery is Duplicate. Adding
   `archived: false` back later is a small change if that ever proves wrong.
 - Point 7 of decision 0015 is superseded; the rest of 0015 stands.

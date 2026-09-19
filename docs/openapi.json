@@ -2784,7 +2784,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires an unplanned job from the backlog by hand, for one that was cancelled\nor finished without a plan. It touches no schedule and does not make the job deletable. An\narchived job is read-only and archiving is one way (decision 0018): a job a plan claimed comes\nback when that plan is discarded, not here.",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires a job by hand: an open one that was cancelled, or a planned one the\nmanager is pulling from its plan. It touches no schedule and does not make the job deletable.\nOnly an open job can be renamed (decisions 0018, 0019); a planned job comes back when its\nschedule is discarded, and archiving is one way.",
         "operationId": "update_job_api_v1_jobs__job_id__patch",
         "parameters": [
           {
@@ -2820,7 +2820,7 @@
             "description": "Successful Response"
           },
           "409": {
-            "description": "The job is archived and read-only"
+            "description": "The job has left the backlog and is read-only"
           },
           "422": {
             "content": {
@@ -2893,7 +2893,7 @@
         ]
       },
       "put": {
-        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when the job is archived (decision 0018: duplicate it instead) or\nwhen the save would remove an operation a generated schedule already recorded; every\nother edit is covered by the schedule's own snapshot, so a scheduled job stays editable. The\nscheduled conflict names the schedules in the way.",
+        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when the job is not open (planned, done or archived: duplicate it\ninstead, decisions 0018 and 0019) or when the save would remove an operation a draft\nschedule already recorded; every other edit is covered by the draft's own snapshot. The\nscheduled conflict names the schedules in the way.",
         "operationId": "replace_definition_api_v1_jobs__job_id__definition_put",
         "parameters": [
           {
@@ -2932,7 +2932,7 @@
             "description": "The job does not exist"
           },
           "409": {
-            "description": "The job is archived and read-only, or the save would remove an operation that appears in a schedule; the body names the draft and confirmed schedules involved"
+            "description": "The job has left the backlog and is read-only, or the save would remove an operation that appears in a schedule; the body names the schedules involved"
           },
           "422": {
             "description": "A route names an unknown or inactive machine, an operation id does not belong to this job, removing an operation would delete another job's edge to it, or the new ordering would form a cycle"
@@ -3034,7 +3034,7 @@
             "description": "Successful Response"
           },
           "409": {
-            "description": "The job is archived and read-only"
+            "description": "The job has left the backlog and is read-only"
           },
           "422": {
             "description": "An edge names an unknown operation, orders an operation belonging to another job, or the ordering would form a cycle"
@@ -3053,7 +3053,7 @@
     },
     "/api/v1/jobs/{job_id}/operations": {
       "post": {
-        "description": "Add a step to a job. Its durations and its ordering are recorded separately.\n\nRefused while the job is archived (decision 0018).",
+        "description": "Add a step to a job. Its durations and its ordering are recorded separately.\n\nRefused unless the job is open (decisions 0018, 0019).",
         "operationId": "create_operation_api_v1_jobs__job_id__operations_post",
         "parameters": [
           {
@@ -3089,7 +3089,7 @@
             "description": "Successful Response"
           },
           "409": {
-            "description": "The job is archived and read-only"
+            "description": "The job has left the backlog and is read-only"
           },
           "422": {
             "content": {
@@ -3524,7 +3524,7 @@
             "description": "The operation, its capabilities and its ordering were removed"
           },
           "409": {
-            "description": "The operation already appears in a schedule, or its job is archived and read-only"
+            "description": "The operation already appears in a schedule, or its job has left the backlog and is read-only"
           },
           "422": {
             "content": {
@@ -3595,7 +3595,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected step.\n\nRefused while the operation's job is archived (decision 0018).",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected step.\n\nRefused unless the operation's job is open (decisions 0018, 0019).",
         "operationId": "update_operation_api_v1_operations__operation_id__patch",
         "parameters": [
           {
@@ -3631,7 +3631,7 @@
             "description": "Successful Response"
           },
           "409": {
-            "description": "The operation's job is archived and read-only"
+            "description": "The operation's job has left the backlog and is read-only"
           },
           "422": {
             "content": {

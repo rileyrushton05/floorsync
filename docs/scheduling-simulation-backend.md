@@ -44,7 +44,7 @@ flowchart LR
 | Resource | Important fields | Invariant |
 | --- | --- | --- |
 | `schedules` | status, strategy, metrics, confirmation audit fields | A successful worker run creates a new `draft`; it does not overwrite older schedules. A draft can be deleted; a confirmed schedule cannot, and blocks removal of the jobs it planned (decision 0015). |
-| `jobs` | name, priority, `archived_at` | `archived_at` is set only by a manager. A job's `backlog_status` (`open`, `planned`, `done`, `archived`) is derived from the confirmed schedules that plan it and their simulations, never stored (decision 0019). Archived, planned and done jobs are refused by generation. |
+| `jobs` | name, priority, `archived_at` | `archived_at` is set only by a manager. A job's `backlog_status` (`open`, `planned`, `done`, `archived`) is derived from the confirmed schedules that plan it and their simulations, never stored (decision 0019). Archived, planned and done jobs are refused by generation and are read-only (`409 job-has-left-backlog`); only an open job can be edited. |
 | `schedule_entries` | operation, chosen machine, duration, energy, machine salary | One entry per operation per schedule; route/cost data are generation-time snapshots. |
 | `schedule_dependencies` | waiting entry, prerequisite entry, `job_order` / `machine_queue` | The graph used to calculate the timeline. References must belong to the same schedule. |
 | `simulations` | unique schedule, status, speed, timestamps | At most one simulation for each schedule. Status/speed are a projection, not the clock authority. |
