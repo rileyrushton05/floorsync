@@ -34,6 +34,11 @@ MACHINE_ID = uuid4()
 OPERATION_ID = uuid4()
 
 
+JOB_ID = UUID("00000000-0000-0000-0000-00000000a0b1")
+SELECTION = [str(JOB_ID)]
+"""The selection every run in this module is queued with; a run always names its jobs (#270)."""
+
+
 def _loaded_input() -> SchedulingInput:
     """The smallest thing `load_input` can hand back that the worker will pass on to the engine.
 
@@ -69,9 +74,7 @@ def test_worker_closes_the_read_transaction_before_running_resched(monkeypatch: 
         finally:
             transaction_open = False
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         assert starts_at == datetime(2026, 9, 6, 8, tzinfo=UTC)
         return _loaded_input()
 
@@ -83,7 +86,7 @@ def test_worker_closes_the_read_transaction_before_running_resched(monkeypatch: 
     monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
     monkeypatch.setattr(schedules.ReSchedEngine, "generate", staticmethod(generate))
 
-    result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00")
+    result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00", SELECTION)
 
     assert result == {
         "outcome": "invalid",
@@ -104,9 +107,7 @@ def test_exact_worker_closes_the_read_transaction_before_solving(monkeypatch: An
         finally:
             transaction_open = False
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         assert transaction_open
         return _loaded_input()
 
@@ -136,14 +137,14 @@ def test_exact_worker_closes_the_read_transaction_before_solving(monkeypatch: An
         runtime_ms: int,
         input_operation_count: int,
         strategy: str | None = None,
-        job_ids: Collection[UUID] | None = None,
+        job_ids: Collection[UUID],
     ) -> ScheduleStored:
         assert transaction_open
         assert plan == "plan"
         assert runtime_ms == 1234
         assert input_operation_count == len("operation_data")
         assert strategy == EXACT_SOLVER_STRATEGY
-        assert job_ids is None
+        assert list(job_ids) == [JOB_ID]
 
         class _Schedule:
             id = stored_schedule_id
@@ -156,7 +157,7 @@ def test_exact_worker_closes_the_read_transaction_before_solving(monkeypatch: An
     monkeypatch.setattr(schedules, "solve_fajsp", solve_fajsp)
     monkeypatch.setattr(schedules.SchedulingService, "store_draft", staticmethod(store_draft))
 
-    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00", SELECTION)
 
     assert result == {
         "outcome": "stored",
@@ -177,9 +178,7 @@ def test_exact_worker_rejects_a_dependency_cycle_before_building_the_model(
 
     first, second = uuid4(), uuid4()
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         return SchedulingInput(
             starts_at=datetime(2026, 9, 6, 8, tzinfo=UTC),
             machines=(MachineSpec(id=MACHINE_ID, active=True, salary_per_minute=None),),
@@ -209,7 +208,7 @@ def test_exact_worker_rejects_a_dependency_cycle_before_building_the_model(
     monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
     monkeypatch.setattr(schedules, "solve_fajsp", solve_fajsp)
 
-    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00", SELECTION)
 
     assert not solved
     assert result["outcome"] == "invalid"
@@ -222,9 +221,7 @@ def test_exact_worker_rejects_a_dependency_cycle_before_building_the_model(
 def test_exact_worker_reports_an_infeasible_instance_as_invalid(monkeypatch: Any) -> None:
     """Gurobi finding no feasible schedule within the time budget rejects the run, not the task."""
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         return _loaded_input()
 
     def adapt_scheduling_input(problem: SchedulingInput) -> tuple[object, ...]:
@@ -238,7 +235,7 @@ def test_exact_worker_reports_an_infeasible_instance_as_invalid(monkeypatch: Any
     monkeypatch.setattr(schedules, "adapt_scheduling_input", adapt_scheduling_input)
     monkeypatch.setattr(schedules, "solve_fajsp", solve_fajsp)
 
-    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00", SELECTION)
 
     assert result == {
         "outcome": "invalid",
@@ -254,9 +251,7 @@ def test_exact_worker_reports_an_infeasible_instance_as_invalid(monkeypatch: Any
 def test_exact_worker_reports_a_gurobi_license_failure_as_unavailable(monkeypatch: Any) -> None:
     """A missing or rejected license is the engine being down, not the input being unsolvable."""
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         return _loaded_input()
 
     def adapt_scheduling_input(problem: SchedulingInput) -> tuple[object, ...]:
@@ -270,7 +265,7 @@ def test_exact_worker_reports_a_gurobi_license_failure_as_unavailable(monkeypatc
     monkeypatch.setattr(schedules, "adapt_scheduling_input", adapt_scheduling_input)
     monkeypatch.setattr(schedules, "solve_fajsp", solve_fajsp)
 
-    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00", SELECTION)
 
     assert result == {"outcome": "unavailable"}
 
@@ -279,12 +274,10 @@ def test_exact_worker_passes_the_selection_to_load_input_and_store_draft(monkeyp
     """The exact solver scopes to a selection exactly like `generate_schedule` does (#231)."""
 
     job_id = uuid4()
-    seen_by_load_input: list[Collection[UUID] | None] = []
-    seen_by_store_draft: list[Collection[UUID] | None] = []
+    seen_by_load_input: list[Collection[UUID]] = []
+    seen_by_store_draft: list[Collection[UUID]] = []
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         seen_by_load_input.append(job_ids)
         return _loaded_input()
 
@@ -301,7 +294,7 @@ def test_exact_worker_passes_the_selection_to_load_input_and_store_draft(monkeyp
         runtime_ms: int,
         input_operation_count: int,
         strategy: str | None = None,
-        job_ids: Collection[UUID] | None = None,
+        job_ids: Collection[UUID],
     ) -> ScheduleStored:
         seen_by_store_draft.append(job_ids)
 
@@ -322,39 +315,22 @@ def test_exact_worker_passes_the_selection_to_load_input_and_store_draft(monkeyp
     assert seen_by_store_draft == [[job_id]]
 
 
-def test_a_task_queued_without_a_selection_still_plans_the_whole_floor(monkeypatch: Any) -> None:
-    """`job_ids` defaults to None, so a message queued before #231 survives the deploy."""
-
-    seen: list[Collection[UUID] | None] = []
-
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
-        seen.append(job_ids)
-        return _loaded_input()
+def test_a_task_needs_a_selection(monkeypatch: Any) -> None:
+    """`job_ids` is required (#270): there is no whole-floor run for a missing argument to mean."""
 
     monkeypatch.setattr(schedules, "worker_session_scope", _fake_session_scope)
-    monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
-    monkeypatch.setattr(
-        schedules.ReSchedEngine,
-        "generate",
-        staticmethod(lambda _: SchedulingInputInvalid(issues=(SchedulingIssue("x", "y"),))),
-    )
 
-    schedules.generate_schedule.run("2026-09-06T08:00:00+00:00")
-
-    assert seen == [None]
+    with pytest.raises(TypeError):
+        schedules.generate_schedule.run("2026-09-06T08:00:00+00:00")
 
 
 def test_the_worker_parses_the_selection_back_into_job_ids(monkeypatch: Any) -> None:
     """The selection crosses the queue as strings and has to arrive at the service as UUIDs."""
 
     first, second = uuid4(), uuid4()
-    seen: list[Collection[UUID] | None] = []
+    seen: list[Collection[UUID]] = []
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         seen.append(job_ids)
         return _loaded_input()
 
@@ -378,7 +354,7 @@ def test_a_refused_selection_never_reaches_the_engine(monkeypatch: Any) -> None:
     generated = False
 
     def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
+        _: object, *, starts_at: datetime, job_ids: Collection[UUID]
     ) -> SchedulingInputInvalid:
         return SchedulingInputInvalid(
             issues=(SchedulingIssue("unknown_job", "No such job.", job_id=job_id),)
@@ -420,9 +396,7 @@ def test_resched_worker_refuses_incoherent_data_before_the_engine_runs(monkeypat
         dependencies=(),
     )
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         return problem
 
     def generate(_: object) -> object:
@@ -432,7 +406,7 @@ def test_resched_worker_refuses_incoherent_data_before_the_engine_runs(monkeypat
     monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
     monkeypatch.setattr(schedules.ReSchedEngine, "generate", staticmethod(generate))
 
-    result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00")
+    result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00", SELECTION)
 
     assert result["outcome"] == "invalid"
     issues = result["issues"]
@@ -469,9 +443,7 @@ def test_exact_worker_refuses_downtime_windows_it_cannot_model(monkeypatch: Any)
         ),
     )
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         return problem
 
     def adapt_scheduling_input(_: SchedulingInput) -> tuple[object, ...]:
@@ -481,7 +453,7 @@ def test_exact_worker_refuses_downtime_windows_it_cannot_model(monkeypatch: Any)
     monkeypatch.setattr(schedules.SchedulingService, "load_input", staticmethod(load_input))
     monkeypatch.setattr(schedules, "adapt_scheduling_input", adapt_scheduling_input)
 
-    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+    result = schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00", SELECTION)
 
     assert result == {
         "outcome": "invalid",
@@ -522,9 +494,7 @@ def test_both_workers_refuse_exactly_what_the_validation_report_says_they_would(
     assert validate_input(problem) == ()
     limits = strategy_limits(problem)
 
-    def load_input(
-        _: object, *, starts_at: datetime, job_ids: Collection[UUID] | None = None
-    ) -> SchedulingInput:
+    def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         return problem
 
     engine_ran: list[str] = []
@@ -542,13 +512,13 @@ def test_both_workers_refuse_exactly_what_the_validation_report_says_they_would(
     monkeypatch.setattr(schedules.ReSchedEngine, "generate", staticmethod(generate))
     monkeypatch.setattr(schedules, "adapt_scheduling_input", adapt_scheduling_input)
 
-    resched_result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00")
+    resched_result = schedules.generate_schedule.run("2026-09-06T08:00:00+00:00", SELECTION)
     assert resched_result["outcome"] == "invalid"
     assert [issue["code"] for issue in resched_result["issues"]] == [  # type: ignore[union-attr]
         issue.code for issue in limits["resched"]
     ]
 
     with pytest.raises(RuntimeError, match="accepted the input"):
-        schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00")
+        schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00", SELECTION)
     assert limits["exact"] == ()
     assert engine_ran == ["exact"]

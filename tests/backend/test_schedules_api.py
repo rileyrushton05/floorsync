@@ -148,13 +148,18 @@ def schedule_fixture() -> tuple[Schedule, ScheduleEntry, ScheduleDependency]:
     return schedule, entry, dependency
 
 
+SELECTED_JOB = uuid4()
+GENERATION_BODY = {"starts_at": "2026-09-06T08:00:00Z", "job_ids": [str(SELECTED_JOB)]}
+"""A run always names its jobs (#270); tests not about the selection send this one."""
+
+
 def test_manager_can_queue_schedule_generation(monkeypatch: Any) -> None:
     queue = FakeTaskQueue()
     monkeypatch.setattr(schedules_router, "task_queue", queue)
     manager = User(id=uuid4(), name="Manager", role="manager")
 
     response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
-        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
+        "/api/v1/schedules", json=GENERATION_BODY
     )
 
     expected_status_url = f"/api/v1/schedules/generations/{queue.task_id}"
@@ -167,7 +172,7 @@ def test_manager_can_queue_schedule_generation(monkeypatch: Any) -> None:
     }
     assert queue.sent == (
         SCHEDULE_GENERATION_TASK,
-        ("2026-09-06T08:00:00+00:00", None),
+        ("2026-09-06T08:00:00+00:00", [str(SELECTED_JOB)]),
         "scheduling",
     )
 
@@ -179,19 +184,19 @@ def test_manager_can_request_the_exact_strategy(monkeypatch: Any) -> None:
 
     response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
         "/api/v1/schedules",
-        json={"starts_at": "2026-09-06T08:00:00Z", "strategy": "exact"},
+        json={**GENERATION_BODY, "strategy": "exact"},
     )
 
     assert response.status_code == 202
     assert queue.sent == (
         EXACT_SCHEDULE_GENERATION_TASK,
-        ("2026-09-06T08:00:00+00:00", None),
+        ("2026-09-06T08:00:00+00:00", [str(SELECTED_JOB)]),
         "scheduling",
     )
 
 
-def test_omitting_job_ids_still_queues_a_whole_floor_run(monkeypatch: Any) -> None:
-    """The selection is optional, so #231 changes no existing caller's behaviour."""
+def test_omitting_job_ids_is_refused_at_the_edge(monkeypatch: Any) -> None:
+    """A selection is required (#270): there is no whole-floor run for its absence to mean."""
 
     queue = FakeTaskQueue()
     monkeypatch.setattr(schedules_router, "task_queue", queue)
@@ -201,9 +206,9 @@ def test_omitting_job_ids_still_queues_a_whole_floor_run(monkeypatch: Any) -> No
         "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
     )
 
-    assert response.status_code == 202
-    assert queue.sent is not None
-    assert queue.sent[1][1] is None
+    assert response.status_code == 422
+    assert "job_ids" in response.text
+    assert queue.sent is None
 
 
 def test_queued_generation_carries_the_selected_jobs(monkeypatch: Any) -> None:
@@ -253,13 +258,8 @@ def test_a_job_selection_reaches_the_exact_solver_task_too(monkeypatch: Any) -> 
     )
 
 
-def test_an_empty_selection_is_queued_rather_than_refused_at_the_edge(monkeypatch: Any) -> None:
-    """This endpoint reads no database, so every selection refusal belongs to the worker.
-
-    An empty list is a selection that selects nothing, not an omitted selection, and the difference
-    has to survive the queue: the worker reports it as `empty_selection` rather than planning the
-    whole floor.
-    """
+def test_an_empty_selection_is_refused_at_the_edge(monkeypatch: Any) -> None:
+    """An empty list selects nothing, and the schema says so before anything is queued (#270)."""
 
     queue = FakeTaskQueue()
     monkeypatch.setattr(schedules_router, "task_queue", queue)
@@ -269,9 +269,9 @@ def test_an_empty_selection_is_queued_rather_than_refused_at_the_edge(monkeypatc
         "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z", "job_ids": []}
     )
 
-    assert response.status_code == 202
-    assert queue.sent is not None
-    assert queue.sent[1][1] == []
+    assert response.status_code == 422
+    assert "job_ids" in response.text
+    assert queue.sent is None
 
 
 def test_operator_cannot_queue_schedule_generation(monkeypatch: Any) -> None:
@@ -280,7 +280,7 @@ def test_operator_cannot_queue_schedule_generation(monkeypatch: Any) -> None:
     operator = User(id=uuid4(), name="Operator", role="operator", machine_id=uuid4())
 
     response = TestClient(schedule_application(operator, FakeScheduleSession())).post(
-        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
+        "/api/v1/schedules", json=GENERATION_BODY
     )
 
     assert response.status_code == 403
@@ -294,7 +294,7 @@ def test_broker_outage_returns_a_problem_detail(monkeypatch: Any) -> None:
     manager = User(id=uuid4(), name="Manager", role="manager")
 
     response = TestClient(schedule_application(manager, FakeScheduleSession())).post(
-        "/api/v1/schedules", json={"starts_at": "2026-09-06T08:00:00Z"}
+        "/api/v1/schedules", json=GENERATION_BODY
     )
 
     assert response.status_code == 503
@@ -582,7 +582,7 @@ def _stub_validation(monkeypatch: Any, report: object) -> list[object]:
 
     calls: list[object] = []
 
-    async def fake(_: object, *, job_ids: object = None) -> object:
+    async def fake(_: object, *, job_ids: object) -> object:
         calls.append(job_ids)
         return report
 
@@ -612,7 +612,7 @@ def test_validation_route_maps_the_report(monkeypatch: Any) -> None:
     manager = User(id=uuid4(), name="Manager", role="manager")
 
     response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
-        "/api/v1/schedules/validation"
+        "/api/v1/schedules/validation", params={"job_ids": [str(SELECTED_JOB)]}
     )
 
     assert response.status_code == 200
@@ -625,6 +625,7 @@ def test_validation_route_maps_the_report(monkeypatch: Any) -> None:
             "operation_id": str(operation_id),
             "machine_id": None,
             "job_id": None,
+            "schedule_id": None,
         }
     ]
     assert body["warnings"][0]["job_id"] == str(job_id)
@@ -632,7 +633,7 @@ def test_validation_route_maps_the_report(monkeypatch: Any) -> None:
     assert body["unsupported"][0]["issue"]["code"] == "unsupported_dependency_shape"
 
 
-def test_validation_route_passes_the_selection_through(monkeypatch: Any) -> None:
+def test_validation_route_requires_and_passes_the_selection(monkeypatch: Any) -> None:
     from floorsync_common.scheduling.validation import FloorValidation
 
     first, second = uuid4(), uuid4()
@@ -645,10 +646,12 @@ def test_validation_route_passes_the_selection_through(monkeypatch: Any) -> None
     manager = User(id=uuid4(), name="Manager", role="manager")
     client = TestClient(schedule_application(manager, FakeScheduleSession()))
 
-    client.get("/api/v1/schedules/validation")
     client.get("/api/v1/schedules/validation", params={"job_ids": [str(first), str(second)]})
+    without = client.get("/api/v1/schedules/validation")
 
-    assert calls == [None, [first, second]]
+    assert calls == [[first, second]]
+    assert without.status_code == 422
+    assert "job_ids" in without.text
 
 
 def test_validation_is_declared_before_the_schedule_id_route(monkeypatch: Any) -> None:
@@ -665,7 +668,7 @@ def test_validation_is_declared_before_the_schedule_id_route(monkeypatch: Any) -
     manager = User(id=uuid4(), name="Manager", role="manager")
 
     response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
-        "/api/v1/schedules/validation"
+        "/api/v1/schedules/validation", params={"job_ids": [str(SELECTED_JOB)]}
     )
 
     assert response.status_code != 422

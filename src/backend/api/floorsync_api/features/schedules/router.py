@@ -88,7 +88,7 @@ async def create_schedule(
             _GENERATION_TASK_BY_STRATEGY[command.strategy],
             args=(
                 command.starts_at.isoformat(),
-                None if command.job_ids is None else [str(job_id) for job_id in command.job_ids],
+                [str(job_id) for job_id in command.job_ids],
             ),
             queue="scheduling",
         )
@@ -153,19 +153,19 @@ async def get_schedule_generation(
 @router.get(
     "/validation",
     response_model=ScheduleValidationResponse,
-    summary="Check the floor is ready to schedule",
+    summary="Check a job selection is ready to schedule",
 )
 async def validate_schedule_input(
     db: DbSession,
     _: Manager,
-    job_ids: Annotated[list[UUID] | None, Query()] = None,
+    job_ids: Annotated[list[UUID], Query(min_length=1)],
 ) -> ScheduleValidationResponse:
     """Report what would stop a generation run, before queueing one (#133).
 
-    Reads the floor exactly as `POST /api/v1/schedules` would, selection included, and runs the
-    same data checks every strategy runs. Always `200`: a floor with problems is a successful
-    answer to "what is wrong", and the report says per strategy whether Generate would succeed.
-    Nothing is written.
+    Reads the selection exactly as `POST /api/v1/schedules` would, refusals included, and runs
+    the same data checks every strategy runs. `job_ids` is required for the same reason it is on
+    generation (#270). Always `200`: a selection with problems is a successful answer to "what is
+    wrong", and the report says per strategy whether Generate would succeed. Nothing is written.
     """
 
     async with db.begin():
@@ -470,6 +470,7 @@ def _issue_response(issue: SchedulingIssue) -> SchedulingIssueResponse:
         operation_id=issue.operation_id,
         machine_id=issue.machine_id,
         job_id=issue.job_id,
+        schedule_id=issue.schedule_id,
     )
 
 

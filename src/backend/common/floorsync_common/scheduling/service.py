@@ -15,11 +15,12 @@ from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.database.models.schedule import Schedule
+from floorsync_common.database.models.schedule import SCHEDULE_DRAFT, Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.schedule_job_selection import ScheduleJobSelection
 from floorsync_common.database.models.unavailability import Unavailability
+from floorsync_common.jobs.backlog import derive_backlog, planned_jobs_statement
 from floorsync_common.jobs.dependency_graph import job_dependency_edges_statement
 from floorsync_common.scheduling.contracts import (
     DependencySpec,
@@ -56,42 +57,35 @@ class SchedulingService:
         db: Session,
         *,
         starts_at: datetime,
-        job_ids: Collection[UUID] | None = None,
+        job_ids: Collection[UUID],
     ) -> LoadInputResult:
-        """Snapshot the floor configuration for a later, transaction-free inference run.
+        """Snapshot the chosen jobs for a later, transaction-free inference run.
 
-        `job_ids` scopes the snapshot to those jobs; `None` takes the whole floor, which is what
-        every caller did before #231 and what an omitted selection still means.
+        `job_ids` is the manager's selection and is required: a run always plans a chosen part of
+        the backlog, never "everything" (decision 0013 as amended by #270), so the backlog page is
+        the one place that decides what a run contains.
 
-        A scoped snapshot is refused rather than quietly narrowed. Validating here rather than in
-        the API is deliberate: the checks need the dependency graph, this is the transaction that
-        already reads it, and a refusal then reaches the client through the same
-        `SchedulingInputInvalid` path the adapter's own refusals use. Refusing rather than adding
-        the missing jobs is the contract #231 asks for -- returning a schedule containing jobs the
-        caller did not ask for is worse than saying which ones are missing, and the manager's
-        backlog is expected to tick them itself before ever sending one.
+        A selection is refused rather than quietly narrowed. Validating here rather than in the
+        API is deliberate: the checks need the dependency graph and the backlog, this is the
+        transaction that already reads them, and a refusal then reaches the client through the
+        same `SchedulingInputInvalid` path the adapter's own refusals use. Refusing rather than
+        adding the missing jobs is the contract #231 asks for -- returning a schedule containing
+        jobs the caller did not ask for is worse than saying which ones are missing, and the
+        manager's backlog is expected to tick them itself before ever sending one.
         """
 
-        selection: frozenset[UUID] | None = None
-        if job_ids is not None:
-            selection = frozenset(job_ids)
-            known = db.execute(
-                select(Job.id, Job.archived_at).where(Job.id.in_(selection))
-            ).tuples()
-            known_job_ids: set[UUID] = set()
-            archived_job_ids: set[UUID] = set()
-            for known_job_id, archived_at in known:
-                known_job_ids.add(known_job_id)
-                if archived_at is not None:
-                    archived_job_ids.add(known_job_id)
-            issues = selection_issues(
-                selection,
-                known_job_ids=known_job_ids,
-                archived_job_ids=archived_job_ids,
-                job_edges=list(db.execute(job_dependency_edges_statement()).tuples()),
-            )
-            if issues:
-                return SchedulingInputInvalid(issues=issues)
+        selection = frozenset(job_ids)
+        known = db.execute(select(Job.id, Job.archived_at).where(Job.id.in_(selection))).tuples()
+        known_jobs = list(known)
+        plans = db.execute(planned_jobs_statement([job_id for job_id, _ in known_jobs])).tuples()
+        issues = selection_issues(
+            selection,
+            known_job_ids=[job_id for job_id, _ in known_jobs],
+            backlog=derive_backlog(known_jobs, plans),
+            job_edges=list(db.execute(job_dependency_edges_statement()).tuples()),
+        )
+        if issues:
+            return SchedulingInputInvalid(issues=issues)
 
         # Machines are never filtered. A machine belongs to the floor, not to a job, and an active
         # machine that no selected operation can run is harmless -- the adapter only ever reads a
@@ -100,27 +94,21 @@ class SchedulingService:
         # thing a machine can do.
         machines = list(db.scalars(select(Machine)).all())
 
-        # An archived job has left the backlog (finished or cancelled), so a whole-floor run skips
-        # it; a scoped run naming one has already been refused above.
-        operation_statement = select(Operation)
-        if selection is not None:
-            operation_statement = operation_statement.where(Operation.job_id.in_(selection))
-        else:
-            operation_statement = operation_statement.join(Job, Job.id == Operation.job_id).where(
-                Job.archived_at.is_(None)
-            )
-        operations = list(db.scalars(operation_statement).all())
+        operations = list(
+            db.scalars(select(Operation).where(Operation.job_id.in_(selection))).all()
+        )
         operation_ids = {operation.id for operation in operations}
-        if selection is not None and not operation_ids:
+        if not operation_ids:
             return SchedulingInputInvalid(issues=(no_schedulable_work_issue(),))
 
-        # Routes and edges are always narrowed to the operations in the snapshot, so an edge whose
-        # other end was left out is dropped rather than left pointing at an operation the snapshot
-        # does not contain (which the adapter would refuse as `unknown_dependency_operation`). For
-        # a scoped run only an *outbound* edge can go this way: an inbound one would mean a
-        # prerequisite job was left out, and the selection check above has already refused that.
-        # For a whole-floor run the other end can only be an archived job's operation, and an
-        # archived prerequisite is treated as satisfied, matching `job_dependency_edges_statement`.
+        # Routes and edges are narrowed to the operations in the snapshot, so an edge whose other
+        # end was left out is dropped rather than left pointing at an operation the snapshot does
+        # not contain (which the adapter would refuse as `unknown_dependency_operation`). An
+        # outbound edge goes this way when its dependant was simply not selected. An inbound one
+        # can only come from a job that has left the backlog (archived, or planned by a confirmed
+        # schedule): `job_dependency_edges_statement` treats that prerequisite as satisfied, so
+        # the selection check above did not demand it, and dropping the edge here is the same
+        # reading.
         route_statement = select(Compatibility).where(Compatibility.operation_id.in_(operation_ids))
         dependency_statement = select(Dependency).where(
             Dependency.before_operation_id.in_(operation_ids),
@@ -177,18 +165,18 @@ class SchedulingService:
         runtime_ms: int,
         input_operation_count: int,
         strategy: str | None = None,
-        job_ids: Collection[UUID] | None = None,
+        job_ids: Collection[UUID],
     ) -> ScheduleStored:
         """Write one generated plan without re-running inference or changing prior schedules.
 
         `job_ids` is the selection the run was asked for, written verbatim rather than derived from
         the plan: a selected job holding no schedulable work would otherwise vanish from the record.
-        `None` writes no selection rows at all, which is how an unscoped, whole-floor run is stored
-        (see `ScheduleJobSelection`).
+        Schedules made before #231, and seeded ones, have no selection rows (see
+        `ScheduleJobSelection`).
         """
 
         schedule = Schedule(
-            status="draft",
+            status=SCHEDULE_DRAFT,
             strategy=strategy or SchedulingService.strategy,
             runtime_ms=runtime_ms,
             input_operation_count=input_operation_count,
@@ -199,7 +187,7 @@ class SchedulingService:
         db.add(schedule)
         db.flush()
 
-        for job_id in sorted(set(job_ids or ())):
+        for job_id in sorted(set(job_ids)):
             db.add(ScheduleJobSelection(schedule_id=schedule.id, job_id=job_id))
 
         entries_by_operation_id: dict[UUID, ScheduleEntry] = {}

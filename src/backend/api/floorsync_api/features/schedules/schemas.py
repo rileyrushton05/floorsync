@@ -3,32 +3,37 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
+from pydantic import Field
+
 from floorsync_api.schemas import RequestSchema, ResponseSchema
 
 
 class ScheduleCreateRequest(RequestSchema):
-    """Request a draft schedule from the current floor configuration.
+    """Request a draft schedule for a chosen set of jobs.
 
-    `job_ids` scopes the run to a chosen part of the backlog (#231). Omitting it plans the whole
-    floor, which is what this request has always meant, so no existing caller changes behaviour.
+    `job_ids` is the manager's selection and is required (#231, #270): a run always plans a
+    chosen part of the backlog, never "everything", so the backlog page is the one place that
+    decides what a run contains.
 
     A selection is validated where the dependency graph is already being read, not here: an unknown
-    job, a selection with no schedulable work, and a selection missing a job that a selected job
-    waits on each come back through the generation status resource as a `rejected` outcome with its
-    own issue code. See `GET /api/v1/jobs/dependency-graph` for working out what a selection
-    implies before sending one.
+    job, an archived or already planned job, a selection with no schedulable work, and a selection
+    missing a job that a selected job waits on each come back through the generation status
+    resource as a `rejected` outcome with its own issue code. See
+    `GET /api/v1/jobs/dependency-graph` for working out what a selection implies before sending
+    one.
     """
 
     starts_at: datetime
     strategy: Literal["resched", "exact"] = "resched"
-    job_ids: list[UUID] | None = None
+    job_ids: list[UUID] = Field(min_length=1)
 
 
 class SchedulingIssueResponse(ResponseSchema):
     """One unsupported or invalid scheduling input reported by the adapter.
 
-    At most one of the three ids is set, naming whichever the issue is about, so a client can mark
-    the offending row rather than parse `message`.
+    The ids name whichever record the issue is about, so a client can mark the offending row
+    rather than parse `message`. `schedule_id` accompanies `job_id` on `planned_job`: the confirmed
+    schedule that already plans the job.
     """
 
     code: str
@@ -36,6 +41,7 @@ class SchedulingIssueResponse(ResponseSchema):
     operation_id: UUID | None = None
     machine_id: UUID | None = None
     job_id: UUID | None = None
+    schedule_id: UUID | None = None
 
 
 class ScheduleGenerationAcceptedResponse(ResponseSchema):
