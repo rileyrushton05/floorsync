@@ -129,22 +129,13 @@ def test_renaming_an_archived_job_is_refused() -> None:
     _refusal(result, job)
 
 
-def test_unarchiving_is_accepted_with_other_fields_in_the_same_request() -> None:
-    """The job leaves the archive in the same transaction, so nothing frozen is being edited."""
+def test_there_is_no_way_back_through_the_service() -> None:
+    """Archiving is one way (decision 0018): the service does not accept `archived=False`."""
 
-    job = _job()
-    fake = FakeSession(job, writable=True)
+    import inspect
 
-    result = _run(
-        job_service.JobService.update_job(
-            _session(fake), job.id, name="Repair conveyor v2", archived=False
-        )
-    )
-
-    assert isinstance(result, JobUpdated)
-    assert job.archived_at is None
-    assert job.name == "Repair conveyor v2"
-    assert fake.flushes == 1
+    signature = inspect.signature(job_service.JobService.update_job)
+    assert str(signature.parameters["archived"].annotation) == "Literal[True] | Unset"
 
 
 def test_archiving_an_archived_job_again_is_still_idempotent() -> None:
@@ -297,7 +288,7 @@ def _assert_problem(response: Any, job_id: UUID) -> None:
     assert body["type"] == PROBLEM_TYPE
     assert body["job_id"] == str(job_id)
     assert datetime.fromisoformat(body["archived_at"]) == ARCHIVED_AT
-    assert "archived: false" in body["detail"]
+    assert "Duplicate" in body["detail"]
 
 
 def _stub(monkeypatch: pytest.MonkeyPatch, target: Any, method: str, job_id: UUID) -> None:
@@ -376,7 +367,7 @@ def test_put_dependencies_reports_the_archived_conflict(monkeypatch: pytest.Monk
 
 
 def test_the_partial_marker_is_what_the_guard_compares_against() -> None:
-    """`update_job` must treat an omitted `archived` as "not unarchiving", not as False."""
+    """`update_job` must treat an omitted `archived` as "no change", and still refuse the rename."""
 
     job = _job()
 
@@ -387,3 +378,10 @@ def test_the_partial_marker_is_what_the_guard_compares_against() -> None:
     )
 
     _refusal(result, job)
+
+
+def test_the_request_schema_refuses_archived_false() -> None:
+    response = _client().patch(f"/api/v1/jobs/{uuid4()}", json={"archived": False})
+
+    assert response.status_code == 422
+    assert "archived" in response.text

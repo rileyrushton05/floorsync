@@ -880,11 +880,12 @@
       },
       "JobUpdateRequest": {
         "additionalProperties": false,
-        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.\n\n`archived` retires the job from the backlog (`true`) or brings it back (`false`). It is a\nboolean here rather than the timestamp the row stores, because the caller decides *whether* the\njob is archived and the server records *when*.",
+        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.\n\n`archived: true` retires the job from the backlog. Only `true` is accepted: archiving is one\nway (decision 0018), and a job a plan claimed comes back when that plan is discarded. It is a\nflag here rather than the timestamp the row stores, because the caller decides *whether* the\njob is archived and the server records *when*.",
         "properties": {
           "archived": {
             "anyOf": [
               {
+                "const": true,
                 "type": "boolean"
               },
               {
@@ -2695,7 +2696,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires the job from the backlog by hand, for a job that finished without a\nsimulation running or one that was cancelled; `archived: false` brings it back. Neither touches\nany schedule, and neither makes the job deletable. An archived job is read-only (decision\n0018): the only change it accepts is `archived: false`, which may carry other fields with it.",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires an unplanned job from the backlog by hand, for one that was cancelled\nor finished without a plan. It touches no schedule and does not make the job deletable. An\narchived job is read-only and archiving is one way (decision 0018): a job a plan claimed comes\nback when that plan is discarded, not here.",
         "operationId": "update_job_api_v1_jobs__job_id__patch",
         "parameters": [
           {
@@ -2731,7 +2732,7 @@
             "description": "Successful Response"
           },
           "409": {
-            "description": "The job is archived and read-only; only archived: false is accepted until it is brought back"
+            "description": "The job is archived and read-only"
           },
           "422": {
             "content": {
@@ -2804,7 +2805,7 @@
         ]
       },
       "put": {
-        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when the job is archived (decision 0018: unarchive it or duplicate\nit) or when the save would remove an operation a generated schedule already recorded; every\nother edit is covered by the schedule's own snapshot, so a scheduled job stays editable. The\nscheduled conflict names the schedules in the way.",
+        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when the job is archived (decision 0018: duplicate it instead) or\nwhen the save would remove an operation a generated schedule already recorded; every\nother edit is covered by the schedule's own snapshot, so a scheduled job stays editable. The\nscheduled conflict names the schedules in the way.",
         "operationId": "replace_definition_api_v1_jobs__job_id__definition_put",
         "parameters": [
           {

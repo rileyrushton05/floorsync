@@ -1,4 +1,4 @@
-# Decision: An archived job is read-only until it is brought back
+# Decision: An archived job is read-only, and archiving is one way
 
 ## Date
 
@@ -32,10 +32,12 @@ API did not have: anything that could reach the API could edit an archived job.
    before reading anything else or writing anything, and each route renders it as the one
    problem type `urn:floorsync:problem:job-is-archived` (409) with `job_id` and `archived_at` as
    extension members.
-2. **The way back is `archived: false`.** `PATCH` with `archived: false` is accepted on an archived
-   job and may carry other fields in the same request, since the job leaves the archive in the
-   same transaction. `archived: true` on an already archived job stays an idempotent no-op rather
-   than a refusal.
+2. **Archiving is one way.** `PATCH` accepts only `archived: true`; there is no `archived: false`.
+   A repeated `archived: true` on an archived job stays an idempotent no-op rather than a
+   refusal, so a stale form does not error. `archived_at` therefore means one thing: a manager
+   retired this job by hand. A job that a plan has claimed is not archived at all; its place in
+   the backlog is derived from the schedules that reference it (#269), and it returns to the
+   backlog when that plan is discarded, not through this endpoint.
 3. **Reading, deleting and scheduling are unchanged.** An archived job can still be read through
    every endpoint that exposes it. Deletion keeps 0015's rules: a job a schedule planned cannot
    be deleted, archived or not, and a hand-archived job no schedule ever touched still can be.
@@ -51,8 +53,9 @@ The rule now exists because the product has one. A frontend affordance that the 
 back is the "second gate" the frontend conventions forbid, and the cheapest way to close the gap
 is in the four services that own the writes, using the same shape (`ExpectedOutcome`, result
 union, `match` with `assert_never`, one problem type) the scheduled-job refusals already use.
-Point 7's argument that a returning job can be fixed "in whichever order the manager likes" is
-kept in spirit by decision 2: unarchive and fix are one request.
+Point 7's argument that a returning job can be fixed "in whichever order the manager likes" no
+longer applies: a job comes back by duplicating it, which is the flow the jobs page offers. That
+keeps the archived job's record exactly as it was.
 
 ## Alternatives considered
 
@@ -63,9 +66,13 @@ kept in spirit by decision 2: unarchive and fix are one request.
 - **Refuse deletion of archived jobs too.** Rejected: a cancelled job that was archived by hand
   and never scheduled is exactly the case deletion is for, and a scheduled one is already
   protected.
+- **Keep `archived: false` as the way back.** Cheap, and it would let a mis-click be undone.
+  Rejected because no page needs it, "archived means gone, duplicate to continue" is one rule
+  instead of two, and the job a manager most wants back (one a plan claimed) was never archived
+  in the first place under #269.
 - **Refuse `PATCH archived: true` with other fields.** Simpler guard, but it turns a harmless
   repeated archive request with a stale form into an error. Rejected in favour of refusing only
-  when a non-`archived` field is present and the job stays archived.
+  when a non-`archived` field is present.
 
 ## Consequences
 
@@ -75,5 +82,7 @@ kept in spirit by decision 2: unarchive and fix are one request.
   `floorsync_api.problems` renders it.
 - The jobs page can keep its read-only rendering as an affordance and report the 409 if a stale
   tab tries anyway.
+- A mis-archived job cannot be un-archived through the API; the recovery is Duplicate. Adding
+  `archived: false` back later is a small change if that ever proves wrong.
 - Point 7 of decision 0015 is superseded; the rest of 0015 stands.
 - Follow-up: the machine capability endpoints (decision 4) once #264 lands.

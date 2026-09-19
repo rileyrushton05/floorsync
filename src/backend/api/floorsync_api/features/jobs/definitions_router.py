@@ -181,8 +181,8 @@ async def replace_definition(
     index becomes each operation's 1-based position. Only this job's own `builder_sequence`
     ordering edges are rebuilt; externally owned edges are never touched.
 
-    Refused with a conflict when the job is archived (decision 0018: unarchive it or duplicate
-    it) or when the save would remove an operation a generated schedule already recorded; every
+    Refused with a conflict when the job is archived (decision 0018: duplicate it instead) or
+    when the save would remove an operation a generated schedule already recorded; every
     other edit is covered by the schedule's own snapshot, so a scheduled job stays editable. The
     scheduled conflict names the schedules in the way.
     """

@@ -103,9 +103,8 @@ def job_is_archived_problem(request: Request, job_id: UUID, archived_at: datetim
             title="Job is archived",
             status=HTTPStatus.CONFLICT,
             detail=(
-                "This job is archived, so its definition is read-only. Bring it back with "
-                "PATCH /api/v1/jobs/{job_id} and archived: false, or duplicate it and edit "
-                "the copy."
+                "This job is archived, so its definition is read-only. Duplicate it and edit the "
+                "copy; a job a plan claimed comes back when that plan is discarded."
             ),
             instance=request.url.path,
         ),

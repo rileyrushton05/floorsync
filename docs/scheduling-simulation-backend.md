@@ -44,7 +44,7 @@ flowchart LR
 | Resource | Important fields | Invariant |
 | --- | --- | --- |
 | `schedules` | status, strategy, metrics, confirmation audit fields | A successful worker run creates a new `draft`; it does not overwrite older schedules. A draft can be deleted; a confirmed schedule cannot, and blocks removal of the jobs it planned (decision 0015). |
-| `jobs` | name, priority, `archived_at` | Archived jobs are hidden from the backlog and skipped by a whole-floor run. Every job in a schedule is archived when that schedule's simulation completes. An archived job is read-only until brought back (decision 0018). |
+| `jobs` | name, priority, `archived_at` | Archived jobs are hidden from the backlog and skipped by a whole-floor run. Every job in a schedule is archived when that schedule's simulation completes. An archived job is read-only and archiving is one way (decision 0018). |
 | `schedule_entries` | operation, chosen machine, duration, energy, machine salary | One entry per operation per schedule; route/cost data are generation-time snapshots. |
 | `schedule_dependencies` | waiting entry, prerequisite entry, `job_order` / `machine_queue` | The graph used to calculate the timeline. References must belong to the same schedule. |
 | `simulations` | unique schedule, status, speed, timestamps | At most one simulation for each schedule. Status/speed are a projection, not the clock authority. |

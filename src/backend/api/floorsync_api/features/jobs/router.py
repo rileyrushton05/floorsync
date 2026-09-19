@@ -149,12 +149,7 @@ async def get_job(job_id: UUID, db: DbSession, _: Manager) -> JobDetailResponse:
     response_model=JobResponse,
     summary="Update a job",
     responses={
-        409: {
-            "description": (
-                "The job is archived and read-only; only archived: false is accepted until it is "
-                "brought back"
-            )
-        },
+        409: {"description": "The job is archived and read-only"},
     },
 )
 async def update_job(
@@ -166,10 +161,10 @@ async def update_job(
 ) -> JobResponse | JSONResponse:
     """Apply a partial update, so a later schedule is generated from the corrected job.
 
-    `archived: true` retires the job from the backlog by hand, for a job that finished without a
-    simulation running or one that was cancelled; `archived: false` brings it back. Neither touches
-    any schedule, and neither makes the job deletable. An archived job is read-only (decision
-    0018): the only change it accepts is `archived: false`, which may carry other fields with it.
+    `archived: true` retires an unplanned job from the backlog by hand, for one that was cancelled
+    or finished without a plan. It touches no schedule and does not make the job deletable. An
+    archived job is read-only and archiving is one way (decision 0018): a job a plan claimed comes
+    back when that plan is discarded, not here.
     """
 
     changes = command.model_dump(exclude_unset=True)

@@ -6,8 +6,8 @@
 
 ## Status
 
-Accepted. Point 7 is superseded by decision 0018: an archived job is now read-only until it is
-brought back with `archived: false`.
+Accepted. Point 7 is superseded by decision 0018: an archived job is read-only and archiving is
+one way.
 
 ## Context
 
