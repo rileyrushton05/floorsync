@@ -10,12 +10,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, select, tuple_, update
+from sqlalchemy import Select, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.jobs.dependency_graph import JobEdge, job_dependency_edges_statement
 from floorsync_common.jobs.results import (
     DeleteJobResult,
@@ -156,30 +155,6 @@ class JobService:
         # it during serialisation would need a lazy reload that async SQLAlchemy cannot await.
         await db.refresh(job)
         return JobUpdated(job=job)
-
-    @staticmethod
-    async def archive_scheduled_jobs(
-        db: AsyncSession, *, schedule_id: UUID, archived_at: datetime
-    ) -> int:
-        """Retire every still-open job a schedule planned, once that schedule has run.
-
-        Called when a simulation completes: the floor has done the work, so the jobs leave the
-        backlog. A job archived earlier keeps its own stamp, and a job the manager later brings
-        back is not touched again by a replay of the same simulation, because a reset does not
-        undo this. Returns how many jobs were archived, for the caller's log.
-        """
-
-        planned_job_ids = (
-            select(Operation.job_id)
-            .join(ScheduleEntry, ScheduleEntry.operation_id == Operation.id)
-            .where(ScheduleEntry.schedule_id == schedule_id)
-        )
-        result = await db.execute(
-            update(Job)
-            .where(Job.id.in_(planned_job_ids), Job.archived_at.is_(None))
-            .values(archived_at=archived_at)
-        )
-        return int(getattr(result, "rowcount", 0))
 
     @staticmethod
     async def delete_job(db: AsyncSession, job_id: UUID) -> DeleteJobResult:

@@ -31,6 +31,7 @@ from floorsync_api.problems import (
 from floorsync_api.schemas import CursorPage
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.user import User
+from floorsync_common.jobs.backlog import OPEN, BacklogService, JobBacklog
 from floorsync_common.jobs.definition_results import (
     DefinitionCreated,
     DefinitionFound,
@@ -86,7 +87,8 @@ async def create_definition(
         match result:
             case DefinitionCreated(definition=definition):
                 response.headers["Location"] = f"/api/v1/jobs/{definition.job.id}/definition"
-                return _definition_response(definition)
+                # A job that did not exist a moment ago is in no schedule; no need to ask.
+                return _definition_response(definition, OPEN)
             case UnknownMachine(machine_id=machine_id):
                 return _unknown_machine(request, machine_id)
             case InactiveMachine(machine_id=machine_id):
@@ -117,9 +119,13 @@ async def list_definitions(
         page = await JobDefinitionService.list_definitions(
             db, limit=limit, cursor=cursor, include_archived=include_archived
         )
+        backlog = await BacklogService.load(db, [definition.job for definition in page.definitions])
 
     return CursorPage[JobDefinitionResponse](
-        items=[_definition_response(definition) for definition in page.definitions],
+        items=[
+            _definition_response(definition, backlog[definition.job.id])
+            for definition in page.definitions
+        ],
         next_cursor=page.next_cursor,
     )
 
@@ -139,7 +145,7 @@ async def get_definition(
 
         match result:
             case DefinitionFound(definition=definition):
-                return _definition_response(definition)
+                return await _definition_with_backlog(db, definition)
             case JobNotFound():
                 return _job_not_found(request, job_id)
             case _:
@@ -193,7 +199,7 @@ async def replace_definition(
 
         match result:
             case DefinitionReplaced(definition=definition):
-                return _definition_response(definition)
+                return await _definition_with_backlog(db, definition)
             case JobNotFound():
                 return _job_not_found(request, job_id)
             case JobDefinitionIsScheduled(references=references):
@@ -270,16 +276,27 @@ def _operation_response(item: OperationWithRoutes) -> BuilderOperationResponse:
     )
 
 
-def _definition_response(definition: JobDefinitionRead) -> JobDefinitionResponse:
+def _definition_response(
+    definition: JobDefinitionRead, backlog: JobBacklog
+) -> JobDefinitionResponse:
     return JobDefinitionResponse(
         id=definition.job.id,
         name=definition.job.name,
         priority=definition.job.priority,
         archived_at=definition.job.archived_at,
+        backlog_status=backlog.status,
+        planned_by_schedule_ids=list(backlog.schedule_ids),
         created_at=definition.job.created_at,
         updated_at=definition.job.updated_at,
         operations=[_operation_response(item) for item in definition.operations],
     )
+
+
+async def _definition_with_backlog(
+    db: DbSession, definition: JobDefinitionRead
+) -> JobDefinitionResponse:
+    backlog = await BacklogService.load(db, [definition.job])
+    return _definition_response(definition, backlog[definition.job.id])
 
 
 # -- problem responses ---------------------------------------------------------------------------
