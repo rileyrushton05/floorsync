@@ -105,6 +105,24 @@ def test_unregister_all_removes_a_socket_from_every_key() -> None:
     assert hub.keys_for_simulation(SIMULATION_ID) == ()
 
 
+def test_subscription_count_is_the_number_of_distinct_keys() -> None:
+    hub = ConnectionHub()
+    hub.register(_key(audience="manager_floor"), FakeSocket())
+    hub.register(_key(audience="operator_machine", machine_id=MACHINE_ID), FakeSocket())
+
+    assert hub.subscription_count() == 2
+
+
+def test_socket_count_deduplicates_one_socket_subscribed_to_several_keys() -> None:
+    hub = ConnectionHub()
+    socket = FakeSocket()
+    hub.register(_key(audience="manager_floor"), socket)
+    hub.register(_key(audience="operator_machine", machine_id=MACHINE_ID), socket)
+
+    assert hub.subscription_count() == 2
+    assert hub.socket_count() == 1
+
+
 def test_a_failing_socket_is_dropped_without_stopping_delivery_to_others() -> None:
     hub = ConnectionHub()
     key = _key()

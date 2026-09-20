@@ -72,6 +72,14 @@ class ConnectionHub:
         """
         return tuple(key for key in self._sockets if key.simulation_id == simulation_id)
 
+    def subscription_count(self) -> int:
+        """How many distinct `(simulation, audience, machine)` keys this process is serving."""
+        return len(self._sockets)
+
+    def socket_count(self) -> int:
+        """How many distinct sockets this process holds, across every key they subscribe to."""
+        return len({socket for sockets in self._sockets.values() for socket in sockets})
+
     async def broadcast(self, key: SubscriptionKey, message: dict[str, Any]) -> None:
         """Send `message` to every socket subscribed to `key`.
 
@@ -84,6 +92,7 @@ class ConnectionHub:
             except Exception:
                 logger.warning(
                     "Dropping a live-update socket that failed to receive a message.",
+                    extra={"simulation_id": str(key.simulation_id), "audience_scope": key.audience},
                     exc_info=True,
                 )
                 self.unregister(key, socket)

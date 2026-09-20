@@ -106,7 +106,16 @@ async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> None:
         row.attempt_count += 1
         row.next_attempt_at = datetime.now(UTC) + _backoff(row.attempt_count)
         row.last_error_code = type(error).__name__
-        logger.warning("Outbox row %s failed to publish; will retry.", row.id, exc_info=True)
+        logger.warning(
+            "Outbox row %s failed to publish; will retry.",
+            row.id,
+            extra={
+                "outbox_id": str(row.id),
+                "attempt_count": row.attempt_count,
+                "error_code": row.last_error_code,
+            },
+            exc_info=True,
+        )
         return
     row.published_at = datetime.now(UTC)
 

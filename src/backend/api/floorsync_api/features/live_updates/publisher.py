@@ -46,6 +46,7 @@ class OutboxPublisher:
             logger.warning(
                 "Could not publish outbox row %s to Redis; leaving it for the relay.",
                 outbox_id,
+                extra={"outbox_id": str(outbox_id)},
                 exc_info=True,
             )
             return

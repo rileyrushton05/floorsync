@@ -18,7 +18,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Any, Final, NoReturn
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -60,10 +60,31 @@ class _Closed(Exception):
     """Raised once this module has already sent a WebSocket close frame, to unwind the loop."""
 
 
+async def _close(websocket: WebSocket, state: _ConnectionState, code: int, reason: str) -> NoReturn:
+    """Close with `code`, logging `reason` and whatever this connection has proven so far.
+
+    Every close in this module goes through here so the close code and the reason it maps to are
+    always logged together -- the two things support needs to tell a client-reported disconnect
+    apart from a deliberate protocol rejection.
+    """
+    logger.info(
+        "Live-update connection closing.",
+        extra={
+            "connection_id": str(state.connection_id),
+            "actor_user_id": str(state.user_id) if state.user_id is not None else None,
+            "close_code": code,
+            "reason": reason,
+        },
+    )
+    await websocket.close(code=code)
+    raise _Closed
+
+
 @dataclass
 class _ConnectionState:
     """What one socket has proven about itself, mutated as the protocol progresses."""
 
+    connection_id: UUID = field(default_factory=uuid4)
     user_id: UUID | None = None
     keys: set[SubscriptionKey] = field(default_factory=set)
 
@@ -74,11 +95,10 @@ async def live_updates(websocket: WebSocket) -> None:
     state = _ConnectionState()
     try:
         if not await check_ip(_client_ip(websocket)):
-            await websocket.close(code=CLOSE_TIMEOUT_OR_LIMIT)
-            raise _Closed
+            await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "ip_rate_limited")
         await _authenticate(websocket, state)
         while True:
-            frame = await _receive_frame(websocket)
+            frame = await _receive_frame(websocket, state)
             await _handle_frame(websocket, state, frame)
     except (_Closed, WebSocketDisconnect):
         pass
@@ -92,51 +112,48 @@ async def _authenticate(websocket: WebSocket, state: _ConnectionState) -> None:
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=AUTH_TIMEOUT_SECONDS)
     except TimeoutError:
-        await websocket.close(code=CLOSE_TIMEOUT_OR_LIMIT)
-        raise _Closed from None
+        await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "auth_timeout")
 
     frame = _parse_frame(raw)
     if frame is None or frame.get("type") != "authenticate":
-        await websocket.close(code=CLOSE_MALFORMED_FRAME)
-        raise _Closed
+        await _close(websocket, state, CLOSE_MALFORMED_FRAME, "malformed_auth_frame")
 
     ticket = frame.get("ticket")
     if not isinstance(ticket, str):
-        await websocket.close(code=CLOSE_MALFORMED_FRAME)
-        raise _Closed
+        await _close(websocket, state, CLOSE_MALFORMED_FRAME, "malformed_auth_frame")
 
     user_id = await LiveUpdateTicketService.consume(ticket)
     if user_id is None:
-        await websocket.close(code=CLOSE_INVALID_TICKET)
-        raise _Closed
+        await _close(websocket, state, CLOSE_INVALID_TICKET, "invalid_ticket")
 
     if not await check_account(user_id):
-        await websocket.close(code=CLOSE_TIMEOUT_OR_LIMIT)
-        raise _Closed
+        await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "account_rate_limited")
 
     state.user_id = user_id
+    logger.info(
+        "Live-update connection authenticated.",
+        extra={"connection_id": str(state.connection_id), "actor_user_id": str(user_id)},
+    )
     await websocket.send_json(
         {
             "v": PROTOCOL_VERSION,
             "type": "authenticated",
-            "connection_id": str(uuid4()),
+            "connection_id": str(state.connection_id),
             "server_time": _now_iso(),
         }
     )
 
 
-async def _receive_frame(websocket: WebSocket) -> dict[str, Any]:
+async def _receive_frame(websocket: WebSocket, state: _ConnectionState) -> dict[str, Any]:
     """Read one client frame, or close the socket and unwind for every way that can fail."""
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=IDLE_TIMEOUT_SECONDS)
     except TimeoutError:
-        await websocket.close(code=CLOSE_TIMEOUT_OR_LIMIT)
-        raise _Closed from None
+        await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "idle_timeout")
 
     frame = _parse_frame(raw)
     if frame is None:
-        await websocket.close(code=CLOSE_MALFORMED_FRAME)
-        raise _Closed
+        await _close(websocket, state, CLOSE_MALFORMED_FRAME, "malformed_frame")
     return frame
 
 
@@ -168,19 +185,16 @@ async def _handle_frame(
     if frame_type == "unsubscribe":
         _unsubscribe(websocket, state, frame)
         return
-    await websocket.close(code=CLOSE_MALFORMED_FRAME)
-    raise _Closed
+    await _close(websocket, state, CLOSE_MALFORMED_FRAME, "unknown_frame_type")
 
 
 async def _subscribe(websocket: WebSocket, state: _ConnectionState, frame: dict[str, Any]) -> None:
     simulation_id = _parse_simulation_id(frame)
     if simulation_id is None:
-        await websocket.close(code=CLOSE_MALFORMED_FRAME)
-        raise _Closed
+        await _close(websocket, state, CLOSE_MALFORMED_FRAME, "malformed_subscribe_frame")
 
     if len(state.keys) >= MAX_SUBSCRIPTIONS_PER_CONNECTION:
-        await websocket.close(code=CLOSE_TIMEOUT_OR_LIMIT)
-        raise _Closed
+        await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "subscription_limit")
 
     assert state.user_id is not None, "_authenticate must complete before any frame is handled"
 
@@ -189,14 +203,22 @@ async def _subscribe(websocket: WebSocket, state: _ConnectionState, frame: dict[
             db, user_id=state.user_id, simulation_id=simulation_id
         )
         if not isinstance(result, SubscriptionGranted):
-            await websocket.close(code=CLOSE_FORBIDDEN)
-            raise _Closed
+            await _close(websocket, state, CLOSE_FORBIDDEN, "subscription_refused")
 
         key = SubscriptionKey(
             simulation_id=simulation_id, audience=result.audience, machine_id=result.machine_id
         )
         hub.register(key, websocket)
         state.keys.add(key)
+        logger.info(
+            "Live-update subscription granted.",
+            extra={
+                "connection_id": str(state.connection_id),
+                "actor_user_id": str(state.user_id),
+                "simulation_id": str(simulation_id),
+                "audience_scope": result.audience,
+            },
+        )
 
         snapshot = await LiveUpdateSnapshotService.build(
             db, simulation_id=simulation_id, audience=result.audience
