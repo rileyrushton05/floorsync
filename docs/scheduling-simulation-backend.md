@@ -44,7 +44,7 @@ flowchart LR
 | Resource | Important fields | Invariant |
 | --- | --- | --- |
 | `schedules` | status, strategy, metrics, confirmation audit fields | A successful worker run creates a new `draft`; it does not overwrite older schedules. A draft can be deleted; a confirmed schedule cannot, and blocks removal of the jobs it planned (decision 0015). |
-| `jobs` | name, priority, `archived_at` | Archived jobs are hidden from the backlog and skipped by a whole-floor run. Every job in a schedule is archived when that schedule's simulation completes. An archived job is read-only and archiving is one way (decision 0018). |
+| `jobs` | name, priority, `archived_at` | `archived_at` is set only by a manager. A job's `backlog_status` (`open`, `planned`, `done`, `archived`) is derived from the confirmed schedules that plan it and their simulations, never stored (decision 0019). Archived, planned and done jobs are refused by generation and are read-only (`409 job-has-left-backlog`); only an open job can be edited. |
 | `schedule_entries` | operation, chosen machine, duration, energy, machine salary | One entry per operation per schedule; route/cost data are generation-time snapshots. |
 | `schedule_dependencies` | waiting entry, prerequisite entry, `job_order` / `machine_queue` | The graph used to calculate the timeline. References must belong to the same schedule. |
 | `simulations` | unique schedule, status, speed, timestamps | At most one simulation for each schedule. Status/speed are a projection, not the clock authority. |
@@ -58,9 +58,9 @@ Every product endpoint requires a bearer token. Manager-only access applies to g
 
 | Endpoint | Role | Current response |
 | --- | --- | --- |
-| `POST /api/v1/schedules` | manager | Queues `{starts_at, job_ids?}` and returns `202`, a generation ID, and `Location`/`status_url`. Omitting `job_ids` plans the whole floor; supplying it scopes the run, and the selection is validated in the worker rather than here (decision 0013). |
+| `POST /api/v1/schedules` | manager | Queues `{starts_at, job_ids, strategy?}` and returns `202`, a generation ID, and `Location`/`status_url`. `job_ids` is required with at least one entry (#270); the selection is validated in the worker rather than here (decision 0013), and an archived, planned or done job is refused there (`archived_job`, `planned_job` naming the schedule). |
 | `GET /api/v1/jobs/dependency-graph` | manager | Every cross-job precedence edge, so a caller can work out what selecting a job implies before scoping a run. |
-| `GET /api/v1/schedules/validation` | manager | `{schedulable: {resched, exact}, issues, warnings, unsupported}` for the whole floor or `?job_ids=...`. Always `200`; writes nothing. Issues stop every strategy and name their record; warnings (empty job, idle machine) stop nothing; unsupported is per strategy. |
+| `GET /api/v1/schedules/validation` | manager | `{schedulable: {resched, exact}, issues, warnings, unsupported}` for the required `?job_ids=...` selection. Always `200`; writes nothing. Issues stop every strategy and name their record; warnings (empty job, idle machine) stop nothing; unsupported is per strategy. |
 | `GET /api/v1/schedules/generations/{id}` | manager | `pending`, `running`, `completed`, `rejected`, `unavailable`, or `failed`. Completion supplies a schedule link; rejection supplies issues. |
 | `GET /api/v1/schedules` | manager | Every schedule summary, newest first; currently unpaginated. |
 | `GET /api/v1/schedules/{id}` | manager | Metadata plus all entries and dependencies. |

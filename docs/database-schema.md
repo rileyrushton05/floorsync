@@ -140,15 +140,19 @@ Jobs are independent of one another: there is no job-to-job dependency table or 
 Precedence is an operation-level fact on `dependencies`, and an edge may cross jobs only at that
 level. `priority` is lower-case in the database and API; the frontend maps to its own labels.
 
-`archived_at` is how a job leaves the backlog without being deleted (decision 0015). NULL means the
-job is open; a timestamp means it finished or was cancelled then. It is set for every job in a
-schedule whose simulation completes, or by hand through the jobs API. Listing and whole-floor
-generation skip archived jobs, and a precedence edge touching one is treated as satisfied. It is a
+`archived_at` is how a manager retires a job by hand without deleting it (decisions 0015, 0019).
+NULL means the manager has not; a timestamp means they did, then. Nothing else writes it. Whether a
+job is *planned* (a confirmed schedule has entries for it) or *done* (that schedule's simulation
+completed) is not stored here at all: it is derived from `schedule_entries`, `schedules.status` and
+`simulations.status` at read time and reported as `backlog_status` on every job response, so the
+column cannot drift from the schedules. Listing hides archived jobs, generation refuses archived,
+planned and done jobs, and a precedence edge touching any of them is treated as satisfied. It is a
 timestamp rather than a flag because *when* a job left the backlog is the fact worth keeping, and
 the flag is derivable from it. Archiving never unlocks deletion: a job a confirmed schedule planned
 stays undeletable, which is the whole reason archiving exists.
-An archived job is read-only and archiving is one way: every write that changes what it is
-answers 409, and there is no `archived: false` (decision 0018). Duplicate is the way to continue.
+Only an open job can be changed: a planned, done or archived job answers 409 to every write that
+changes what it is, and there is no `archived: false` (decisions 0018, 0019). Duplicate is the way
+to continue; a planned job also comes back when its schedule is discarded.
 
 ## operations
 

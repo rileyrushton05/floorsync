@@ -7,6 +7,7 @@ from pydantic import Field, StringConstraints, model_validator
 
 from floorsync_api.features.jobs.schemas import JobPriority
 from floorsync_api.schemas import RequestSchema, ResponseSchema
+from floorsync_common.jobs.backlog import BacklogStatus
 
 type BuilderName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -98,6 +99,8 @@ class JobDefinitionResponse(ResponseSchema):
     name: str
     priority: JobPriority
     archived_at: datetime | None
+    backlog_status: BacklogStatus
+    planned_by_schedule_ids: list[UUID]
     created_at: datetime
     updated_at: datetime
     operations: list[BuilderOperationResponse]

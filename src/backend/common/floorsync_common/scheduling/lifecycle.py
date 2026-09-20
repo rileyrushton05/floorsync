@@ -19,16 +19,17 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from floorsync_common.database.models.schedule import Schedule, ScheduleStatus
+from floorsync_common.database.models.schedule import (
+    SCHEDULE_CONFIRMED,
+    SCHEDULE_DISCARDED,
+    SCHEDULE_DRAFT,
+    Schedule,
+    ScheduleStatus,
+)
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.database.models.simulation_event import SimulationEvent
 from floorsync_common.outcomes import ExpectedOutcome
-from floorsync_common.scheduling.references import (
-    SCHEDULE_CONFIRMED,
-    SCHEDULE_DISCARDED,
-    SCHEDULE_DRAFT,
-)
 
 
 @dataclass(frozen=True, slots=True)

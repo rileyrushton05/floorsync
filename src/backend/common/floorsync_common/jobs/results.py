@@ -11,6 +11,7 @@ from uuid import UUID
 
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
+from floorsync_common.jobs.backlog import JobBacklog
 from floorsync_common.outcomes import ExpectedOutcome
 from floorsync_common.scheduling.references import ScheduleReferences
 
@@ -52,20 +53,21 @@ class JobIsScheduled(ExpectedOutcome):
 
 
 @dataclass(frozen=True, slots=True)
-class JobIsArchived(ExpectedOutcome):
-    """The job has left the backlog, and an archived job is read-only.
+class JobHasLeftBacklog(ExpectedOutcome):
+    """The job is no longer open, and only an open job can be changed.
 
     Every path that changes what a job is (its fields, its operations, its routes, its ordering)
-    refuses while `archived_at` is set, so the "read it, duplicate it, edit the copy" flow the jobs
-    page offers is a rule the API enforces rather than a courtesy the browser extends (decision
-    0018). Archiving is one way: nothing on the job itself brings it back. A job a plan claimed
-    returns to the backlog when that plan is discarded.
+    refuses unless `backlog_status` is `open`, so the "read it, duplicate it, edit the copy" flow
+    the jobs page offers is a rule the API enforces rather than a courtesy the browser extends
+    (decision 0018, extended by 0019). A planned job comes back to the backlog when the schedule
+    that claims it is discarded; a done or archived job does not come back at all.
     """
 
     job_id: UUID
-    archived_at: datetime
+    backlog: JobBacklog
+    archived_at: datetime | None
 
 
 type GetJobResult = JobFound | JobNotFound
-type UpdateJobResult = JobUpdated | JobNotFound | JobIsArchived
+type UpdateJobResult = JobUpdated | JobNotFound | JobHasLeftBacklog
 type DeleteJobResult = JobDeleted | JobNotFound | JobIsScheduled

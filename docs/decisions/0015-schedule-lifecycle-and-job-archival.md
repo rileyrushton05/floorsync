@@ -6,8 +6,9 @@
 
 ## Status
 
-Accepted. Point 7 is superseded by decision 0018: an archived job is read-only and archiving is
-one way.
+Accepted. Point 7 is superseded by decision 0018: a job that has left the backlog is read-only and
+archiving is one way. Points 5 and 6 are amended by decision 0019: nothing but a manager sets
+`archived_at`, and a job's place in the backlog is derived from its schedules.
 
 ## Context
 
@@ -46,13 +47,14 @@ have to be repointed at the copies. The only thing a schedule reads live is a di
 4. **Every refusal names the schedules in the way, split by what the caller can do about them.**
    `draft_schedule_ids` can be deleted to clear the way; `confirmed_schedule_ids` cannot. The
    refusal never deletes drafts on the caller's behalf.
-5. **A finished or cancelled job is archived, not deleted.** `jobs.archived_at` is set
-   automatically for every job in a schedule whose simulation completes, or by hand through
-   `PATCH /api/v1/jobs/{id}` with `archived: true`. Archived jobs are hidden from the backlog and
-   skipped by a whole-floor generation; naming one in a scoped run is refused as `archived_job`.
-   Archiving never makes a job deletable, and resetting a simulation does not un-archive its jobs.
-6. **A precedence edge touching an archived job is treated as satisfied.** Both the job dependency
-   graph the backlog reads and the input the scheduler loads drop such edges, so the backlog never
+5. **A cancelled job is archived, not deleted.** *(Amended by decision 0019.)* `jobs.archived_at`
+   is set by hand through `PATCH /api/v1/jobs/{id}` with `archived: true`, and by nothing else: a
+   finished job reads as `done` from its schedule's simulation rather than being stamped.
+   Archived jobs are hidden from the backlog; naming one in a run is refused as `archived_job`.
+   Archiving never makes a job deletable.
+6. **A precedence edge touching a job that has left the backlog is treated as satisfied.**
+   *(Extended by decision 0019 to planned and done jobs.)* Both the job dependency graph the
+   backlog reads and the input the scheduler loads drop such edges, so the backlog never
    auto-ticks a job the scheduler would then refuse.
 7. *(Superseded by decision 0018.)* **Archiving takes a job out of the backlog; it does not freeze it.** An archived job can still
    be read and edited through every job, operation and definition endpoint. Blocking edits would
@@ -102,8 +104,8 @@ have to be repointed at the copies. The only thing a schedule reads live is a di
   out of paths. Confirming records who and when; confirming a discarded schedule restores it;
   discarding refuses once the schedule's simulation has recorded any control, and removes a
   simulation that was created but never controlled. Neither transition writes to jobs (#269).
-- `SimulationService.record_control` archives the schedule's jobs on `COMPLETED`, in the same
-  transaction as the event.
+- `SimulationService.record_control` no longer archives the schedule's jobs on `COMPLETED`
+  (decision 0019): that they are done is read from the simulation.
 - The frontend follow-ups are a delete button for drafts on the scheduler page, reading the two id
   lists on the jobs page, and an archive toggle with an archived filter.
 - Seeded benchmark schedules are confirmed, so seeded jobs remain undeletable on purpose.

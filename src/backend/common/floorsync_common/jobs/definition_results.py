@@ -12,7 +12,7 @@ from uuid import UUID
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.jobs.results import JobIsArchived, JobNotFound
+from floorsync_common.jobs.results import JobHasLeftBacklog, JobNotFound
 from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.outcomes import ExpectedOutcome
 from floorsync_common.scheduling.references import ScheduleReferences
@@ -114,7 +114,7 @@ type GetDefinitionResult = DefinitionFound | JobNotFound
 type ReplaceDefinitionResult = (
     DefinitionReplaced
     | JobNotFound
-    | JobIsArchived
+    | JobHasLeftBacklog
     | JobDefinitionIsScheduled
     | OperationDoesNotBelongToJob
     | OperationHasExternalDependents
