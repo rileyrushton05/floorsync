@@ -1707,6 +1707,18 @@
             ],
             "title": "Confirmed At"
           },
+          "confirmed_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed By User Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1760,9 +1772,29 @@
           "makespan",
           "input_operation_count",
           "created_at",
+          "confirmed_by_user_id",
           "confirmed_at"
         ],
         "title": "ScheduleSummaryResponse",
+        "type": "object"
+      },
+      "ScheduleUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A lifecycle transition (decision 0015).\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.",
+        "properties": {
+          "status": {
+            "enum": [
+              "confirmed",
+              "discarded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ScheduleUpdateRequest",
         "type": "object"
       },
       "ScheduleValidationResponse": {
@@ -3849,6 +3881,69 @@
           }
         ],
         "summary": "Get a generated schedule",
+        "tags": [
+          "schedules"
+        ]
+      },
+      "patch": {
+        "description": "Move a schedule through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269).",
+        "operationId": "update_schedule_api_v1_schedules__schedule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The schedule does not exist"
+          },
+          "409": {
+            "description": "A draft cannot be discarded (delete it instead), or the schedule's simulation has started so it cannot be withdrawn"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Confirm or discard a schedule",
         "tags": [
           "schedules"
         ]

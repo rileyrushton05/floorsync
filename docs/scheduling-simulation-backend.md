@@ -4,7 +4,7 @@ This is the implementation reference for FloorSync's scheduling and simulation r
 
 ## Scope and vocabulary
 
-- A **schedule** is an immutable generated assignment of operations to machines. Its intended lifecycle is `draft` → `confirmed` or `discarded`.
+- A **schedule** is an immutable generated assignment of operations to machines. Its lifecycle is `draft` → `confirmed` ⇄ `discarded`; a draft is deleted, never discarded (decision 0015).
 - A **timeline** is the calculated earliest-feasible placement of schedule entries on the schedule clock. It is derived, never stored.
 - A **simulation** is the shared, persistent playback session for one confirmed schedule.
 - A frontend **plan** is currently an in-memory browser object. It is not a backend `Schedule` and is lost on reload.
@@ -65,6 +65,7 @@ Every product endpoint requires a bearer token. Manager-only access applies to g
 | `GET /api/v1/schedules` | manager | Every schedule summary, newest first; currently unpaginated. |
 | `GET /api/v1/schedules/{id}` | manager | Metadata plus all entries and dependencies. |
 | `DELETE /api/v1/schedules/{id}` | manager | Removes a draft and everything under it, `204`. A confirmed or discarded schedule answers `409 schedule-is-not-draft`. |
+| `PATCH /api/v1/schedules/{id}` | manager | `{"status": "confirmed"}` makes a draft the plan (records `confirmed_by_user_id`, `confirmed_at`) or restores a discarded one; `{"status": "discarded"}` withdraws a confirmed schedule. Repeating the current status is a no-op `200`. A draft answers `409 schedule-is-draft` (delete it instead); a schedule whose simulation has recorded a control answers `409 schedule-simulation-started`; a never-controlled simulation is removed with the withdrawal. |
 | `GET /api/v1/schedules/{id}/timeline` | signed-in user | Gantt-ready, derived timeline. It currently permits drafts as well as confirmed schedules. |
 | `POST /api/v1/simulations` | manager | Creates one simulation for a confirmed schedule; `201` with `Location`. |
 | `GET /api/v1/simulations/{id}` | signed-in user | Authoritative position, replayed at server time. |
@@ -144,7 +145,7 @@ Data coherence is checked once, in `scheduling/input_checks.py`, before either e
 
 ## Required user flow: generate, review, confirm, simulate
 
-The required product flow needs an explicit confirmation boundary. Generation produces a draft, not authority to start a persistent simulation. Discarding a draft is implemented as `DELETE /api/v1/schedules/{id}` (decision 0015); the confirmation command below is not implemented yet (#246), and is why user-generated schedules cannot reach `POST /simulations` today.
+The required product flow has an explicit confirmation boundary. Generation produces a draft, not authority to start a persistent simulation. A draft is thrown away with `DELETE /api/v1/schedules/{id}` and confirmed with `PATCH /api/v1/schedules/{id}` `{"status": "confirmed"}` (decision 0015, #268); only a confirmed schedule can reach `POST /simulations`. A confirmed schedule the floor has not acted on can be withdrawn with `{"status": "discarded"}` and confirmed again later.
 
 Refusals that a schedule causes elsewhere name it: `DELETE /jobs/{id}`, `DELETE /operations/{id}` and a definition save that removes a scheduled step all answer `409` with `draft_schedule_ids` (delete those and retry) and `confirmed_schedule_ids` (history; archive the job instead with `PATCH /jobs/{id}` `{"archived": true}`).
 
@@ -245,7 +246,7 @@ Client rules:
 
 | Priority | Finding | Evidence and user impact | Remediation |
 | --- | --- | --- | --- |
-| P0 | No confirmation/discard endpoint | Worker output is always `draft`; simulation accepts only `confirmed`. Only seed data can currently be persistently simulated. | Add atomic manager-only lifecycle transitions and tests. |
+| Done | Confirmation/discard endpoint | `PATCH /api/v1/schedules/{id}` with `status` (#268). | Frontend wiring is #271. |
 | P0 | Frontend bypasses backend lifecycle | Scheduler generates a browser plan; simulation reads timeline but plays via a local React interval. The frontend API client lacks generation/control calls. | Wire queue/poll/review/confirm/create/control flow; mark the local planner as preview until replaced. |
 | P1 | Snapshot happens at worker start, not request acceptance | Queue command contains only `starts_at`; the worker loads the configuration when it claims the task. A changed floor can yield a different plan from the one the manager requested. | Persist a generation request and input snapshot before enqueueing; publish via an outbox. |
 | P1 | Concurrent simulation commands can race | Create and control services check state then write without a row lock. Concurrent calls can both pass a transition test or collide on the unique schedule ID. | Lock the schedule/simulation row; catch unique violation and return a deterministic `409`; test concurrent create/play. |

@@ -22,6 +22,8 @@ from floorsync_common.database.models.schedule import Schedule, ScheduleStatus
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 
 SCHEDULE_DRAFT: ScheduleStatus = "draft"
+SCHEDULE_CONFIRMED: ScheduleStatus = "confirmed"
+SCHEDULE_DISCARDED: ScheduleStatus = "discarded"
 """The one status a schedule can be deleted in; shared with `lifecycle.py` rather than restated."""
 
 

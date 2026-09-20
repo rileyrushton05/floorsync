@@ -95,8 +95,13 @@ have to be repointed at the copies. The only thing a schedule reads live is a di
 
 - `JobIsScheduled`, `OperationIsScheduled` and `JobDefinitionIsScheduled` carry a
   `ScheduleReferences` and their 409s emit `draft_schedule_ids` and `confirmed_schedule_ids`.
-- `ScheduleLifecycleService` is the home of post-generation transitions; the confirm transition
-  (#246) belongs beside `delete_draft`, and both lock the schedule row so they cannot race.
+- `ScheduleLifecycleService` is the home of post-generation transitions. `confirm` and `discard`
+  (#268) sit beside `delete_draft`; all three lock the schedule row so they cannot race. They are
+  exposed as `PATCH /api/v1/schedules/{id}` with `{"status": "confirmed" | "discarded"}`, the
+  same shape as `machines.active` and `jobs.archived`, because the API conventions keep verbs
+  out of paths. Confirming records who and when; confirming a discarded schedule restores it;
+  discarding refuses once the schedule's simulation has recorded any control, and removes a
+  simulation that was created but never controlled. Neither transition writes to jobs (#269).
 - `SimulationService.record_control` archives the schedule's jobs on `COMPLETED`, in the same
   transaction as the event.
 - The frontend follow-ups are a delete button for drafts on the scheduler page, reading the two id
