@@ -4144,6 +4144,29 @@
         ]
       }
     },
+    "/health/live-updates": {
+      "get": {
+        "description": "Report on the live-update subsystem alone.\n\nDeliberately not folded into `/health/ready`: Redis being down must not pull this instance out\nof rotation for ordinary REST traffic (decision 0017's whole premise), so this is a signal for\nwhoever wants to alert on live delivery specifically, not a traffic gate.",
+        "operationId": "live_updates_health_health_live_updates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "Live delivery is degraded"
+          }
+        },
+        "summary": "Check live-update delivery health",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/health/ready": {
       "get": {
         "description": "Report whether this instance should receive application traffic.",

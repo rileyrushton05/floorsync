@@ -1,9 +1,12 @@
 import asyncio
+from dataclasses import asdict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from floorsync_api.features.live_updates.health import build_report
+from floorsync_api.features.live_updates.websocket import hub as live_update_hub
 from floorsync_common.database.session import session_scope
 from floorsync_common.settings import settings
 
@@ -51,4 +54,28 @@ async def readiness() -> JSONResponse:
             "status": "ready" if ready else "not_ready",
             "service": "api",
         },
+    )
+
+
+@router.get(
+    "/health/live-updates",
+    summary="Check live-update delivery health",
+    responses={503: {"description": "Live delivery is degraded"}},
+)
+async def live_updates_health(request: Request) -> JSONResponse:
+    """Report on the live-update subsystem alone.
+
+    Deliberately not folded into `/health/ready`: Redis being down must not pull this instance out
+    of rotation for ordinary REST traffic (decision 0017's whole premise), so this is a signal for
+    whoever wants to alert on live delivery specifically, not a traffic gate.
+    """
+
+    report = await build_report(
+        subscriber=request.app.state.live_update_subscriber,
+        relay=request.app.state.live_update_relay,
+        hub=live_update_hub,
+    )
+    return JSONResponse(
+        status_code=200 if report.status == "ok" else 503,
+        content={"service": "api", **asdict(report)},
     )

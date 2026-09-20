@@ -26,11 +26,14 @@ from floorsync_common.settings import Settings, settings
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     subscriber = RedisLiveUpdateSubscriber(live_update_hub)
     relay = OutboxRelay()
     subscriber.start()
     relay.start()
+    # Exposed for /health/live-updates, which reports on these two independently of /health/ready.
+    app.state.live_update_subscriber = subscriber
+    app.state.live_update_relay = relay
     yield
     await relay.stop()
     await subscriber.stop()

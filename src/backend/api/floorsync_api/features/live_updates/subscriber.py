@@ -37,6 +37,11 @@ class RedisLiveUpdateSubscriber:
         if self._task is None:
             self._task = asyncio.create_task(self._run_forever())
 
+    @property
+    def running(self) -> bool:
+        """`False` once `stop()` completes, or if the background task died without one."""
+        return self._task is not None and not self._task.done()
+
     async def stop(self) -> None:
         if self._task is None:
             return
