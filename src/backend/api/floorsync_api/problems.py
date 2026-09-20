@@ -1,5 +1,7 @@
 from collections.abc import Mapping
+from datetime import datetime
 from http import HTTPStatus
+from uuid import UUID
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -84,6 +86,29 @@ def schedule_references_hint(references: ScheduleReferences) -> str:
     return (
         f"Only draft schedules ({drafts}) reference it: delete them through "
         "DELETE /api/v1/schedules/{schedule_id} and retry."
+    )
+
+
+def job_is_archived_problem(request: Request, job_id: UUID, archived_at: datetime) -> JSONResponse:
+    """The 409 every write to an archived job returns (decision 0018).
+
+    Six routes across three features refuse for the same reason, so the type, title and the way
+    out are defined once. `job_id` and `archived_at` are extension members so a client can name
+    the job and say since when.
+    """
+
+    return problem_response(
+        ProblemDetail(
+            type="urn:floorsync:problem:job-is-archived",
+            title="Job is archived",
+            status=HTTPStatus.CONFLICT,
+            detail=(
+                "This job is archived, so its definition is read-only. Duplicate it and edit the "
+                "copy; a job a plan claimed comes back when that plan is discarded."
+            ),
+            instance=request.url.path,
+        ),
+        extensions={"job_id": str(job_id), "archived_at": archived_at.isoformat()},
     )
 
 

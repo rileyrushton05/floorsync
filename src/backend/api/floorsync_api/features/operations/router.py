@@ -19,13 +19,14 @@ from floorsync_api.features.operations.schemas import (
 )
 from floorsync_api.problems import (
     ProblemDetail,
+    job_is_archived_problem,
     problem_response,
     schedule_references_hint,
     schedule_references_members,
 )
 from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.user import User
-from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.jobs.results import JobIsArchived, JobNotFound
 from floorsync_common.operations.results import (
     DependencyCycle,
     JobDependenciesListed,
@@ -55,15 +56,20 @@ Manager = Annotated[User, Depends(require_roles("manager"))]
     response_model=OperationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Add an operation to a job",
+    responses={409: {"description": "The job is archived and read-only"}},
 )
 async def create_operation(
     job_id: UUID,
     command: OperationCreateRequest,
+    request: Request,
     response: Response,
     db: DbSession,
     _: Manager,
-) -> OperationResponse:
-    """Add a step to a job. Its durations and its ordering are recorded separately."""
+) -> OperationResponse | JSONResponse:
+    """Add a step to a job. Its durations and its ordering are recorded separately.
+
+    Refused while the job is archived (decision 0018).
+    """
 
     async with db.begin():
         result = await OperationService.create_operation(db, job_id, name=command.name)
@@ -74,6 +80,8 @@ async def create_operation(
                 return OperationResponse.model_validate(operation)
             case JobNotFound():
                 raise _job_not_found()
+            case JobIsArchived(archived_at=archived_at):
+                return job_is_archived_problem(request, job_id, archived_at)
             case _:
                 assert_never(result)
 
@@ -107,6 +115,7 @@ async def list_job_dependencies(
     response_model=JobDependenciesResponse,
     summary="Set the order a job's operations run in",
     responses={
+        409: {"description": "The job is archived and read-only"},
         422: {
             "description": (
                 "An edge names an unknown operation, orders an operation belonging to another job, "
@@ -150,6 +159,8 @@ async def replace_job_dependencies(
                 return _dependencies_response(dependencies)
             case JobNotFound():
                 raise _job_not_found()
+            case JobIsArchived(archived_at=archived_at):
+                return job_is_archived_problem(request, job_id, archived_at)
             case OperationNotFound(operation_id=operation_id):
                 return _operation_reference_invalid(request, operation_id)
             case OperationNotInJob(operation_id=operation_id, job_id=owning_job_id):
@@ -201,14 +212,19 @@ async def get_operation(operation_id: UUID, db: DbSession, _: Manager) -> Operat
     "/{operation_id}",
     response_model=OperationResponse,
     summary="Update an operation",
+    responses={409: {"description": "The operation's job is archived and read-only"}},
 )
 async def update_operation(
     operation_id: UUID,
     command: OperationUpdateRequest,
+    request: Request,
     db: DbSession,
     _: Manager,
-) -> OperationResponse:
-    """Apply a partial update, so a later schedule is generated from the corrected step."""
+) -> OperationResponse | JSONResponse:
+    """Apply a partial update, so a later schedule is generated from the corrected step.
+
+    Refused while the operation's job is archived (decision 0018).
+    """
 
     changes = command.model_dump(exclude_unset=True)
 
@@ -224,6 +240,8 @@ async def update_operation(
                 return OperationResponse.model_validate(operation)
             case OperationNotFound():
                 raise _operation_not_found()
+            case JobIsArchived(job_id=job_id, archived_at=archived_at):
+                return job_is_archived_problem(request, job_id, archived_at)
             case _:
                 assert_never(result)
 
@@ -236,7 +254,11 @@ async def update_operation(
     summary="Remove an operation",
     responses={
         204: {"description": "The operation, its capabilities and its ordering were removed"},
-        409: {"description": "The operation already appears in a schedule"},
+        409: {
+            "description": (
+                "The operation already appears in a schedule, or its job is archived and read-only"
+            )
+        },
     },
 )
 async def delete_operation(
@@ -260,6 +282,8 @@ async def delete_operation(
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
             case OperationNotFound():
                 raise _operation_not_found()
+            case JobIsArchived(job_id=job_id, archived_at=archived_at):
+                return job_is_archived_problem(request, job_id, archived_at)
             case OperationIsScheduled(references=references):
                 return problem_response(
                     ProblemDetail(

@@ -17,6 +17,7 @@ from floorsync_api.features.jobs.schemas import (
 )
 from floorsync_api.problems import (
     ProblemDetail,
+    job_is_archived_problem,
     problem_response,
     schedule_references_hint,
     schedule_references_members,
@@ -26,6 +27,7 @@ from floorsync_common.database.models.user import User
 from floorsync_common.jobs.results import (
     JobDeleted,
     JobFound,
+    JobIsArchived,
     JobIsScheduled,
     JobNotFound,
     JobUpdated,
@@ -146,18 +148,23 @@ async def get_job(job_id: UUID, db: DbSession, _: Manager) -> JobDetailResponse:
     "/{job_id}",
     response_model=JobResponse,
     summary="Update a job",
+    responses={
+        409: {"description": "The job is archived and read-only"},
+    },
 )
 async def update_job(
     job_id: UUID,
     command: JobUpdateRequest,
+    request: Request,
     db: DbSession,
     _: Manager,
-) -> JobResponse:
+) -> JobResponse | JSONResponse:
     """Apply a partial update, so a later schedule is generated from the corrected job.
 
-    `archived: true` retires the job from the backlog by hand, for a job that finished without a
-    simulation running or one that was cancelled; `archived: false` brings it back. Neither touches
-    any schedule, and neither makes the job deletable.
+    `archived: true` retires an unplanned job from the backlog by hand, for one that was cancelled
+    or finished without a plan. It touches no schedule and does not make the job deletable. An
+    archived job is read-only and archiving is one way (decision 0018): a job a plan claimed comes
+    back when that plan is discarded, not here.
     """
 
     changes = command.model_dump(exclude_unset=True)
@@ -175,6 +182,8 @@ async def update_job(
                 return JobResponse.model_validate(job)
             case JobNotFound():
                 raise _job_not_found()
+            case JobIsArchived(job_id=job_id, archived_at=archived_at):
+                return job_is_archived_problem(request, job_id, archived_at)
             case _:
                 assert_never(result)
 
