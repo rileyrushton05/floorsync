@@ -302,7 +302,9 @@ def _session(fake: FakeSession) -> AsyncSession:
 def test_service_reports_a_coherent_floor_as_schedulable_by_every_strategy() -> None:
     problem, _, _ = _floor()
 
-    report = _run(ValidationService.validate_floor(_session(FakeSession(problem))))
+    report = _run(
+        ValidationService.validate_floor(_session(FakeSession(problem)), job_ids=[uuid4()])
+    )
 
     assert report.issues == ()
     assert report.unsupported == ()
@@ -312,7 +314,9 @@ def test_service_reports_a_coherent_floor_as_schedulable_by_every_strategy() -> 
 def test_service_reports_fan_in_as_schedulable_by_exact_only() -> None:
     problem, _, _ = _floor(operations=3, dependencies=((0, 2), (1, 2)))
 
-    report = _run(ValidationService.validate_floor(_session(FakeSession(problem))))
+    report = _run(
+        ValidationService.validate_floor(_session(FakeSession(problem)), job_ids=[uuid4()])
+    )
 
     assert report.issues == ()
     assert [limit.strategy for limit in report.unsupported] == ["resched"]
@@ -322,7 +326,9 @@ def test_service_reports_fan_in_as_schedulable_by_exact_only() -> None:
 def test_service_turns_a_data_problem_into_no_for_every_strategy() -> None:
     problem, _, _ = _floor(active=False)
 
-    report = _run(ValidationService.validate_floor(_session(FakeSession(problem))))
+    report = _run(
+        ValidationService.validate_floor(_session(FakeSession(problem)), job_ids=[uuid4()])
+    )
 
     assert _codes(report.issues) == {"no_compatible_machine"}
     assert report.schedulable == {"resched": False, "exact": False}
@@ -350,7 +356,8 @@ def test_service_warns_about_empty_jobs_and_idle_machines_by_id() -> None:
 
     report = _run(
         ValidationService.validate_floor(
-            _session(FakeSession(problem, empty_jobs=[job_id], idle_machines=[machine_id]))
+            _session(FakeSession(problem, empty_jobs=[job_id], idle_machines=[machine_id])),
+            job_ids=[job_id],
         )
     )
 

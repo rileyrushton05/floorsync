@@ -69,19 +69,17 @@ class ValidationService:
     """Read the floor as generation would and report what is wrong with it. Stateless."""
 
     @staticmethod
-    async def validate_floor(
-        db: AsyncSession, *, job_ids: Collection[UUID] | None = None
-    ) -> FloorValidation:
-        """Validate the whole floor, or the given selection, without generating anything.
+    async def validate_floor(db: AsyncSession, *, job_ids: Collection[UUID]) -> FloorValidation:
+        """Validate the given selection without generating anything.
 
         Loads through `SchedulingService.load_input` so the snapshot is exactly what a generation
         run would see, selection refusals included: those come back as issues too, since a manager
-        who ticked an unknown or archived job wants to hear it here rather than after queueing a
-        run. `starts_at` is now, because nothing here depends on the start beyond it having a
-        timezone.
+        who ticked an unknown, archived or already planned job wants to hear it here rather than
+        after queueing a run. `starts_at` is now, because nothing here depends on the start beyond
+        it having a timezone.
         """
 
-        selection = None if job_ids is None else frozenset(job_ids)
+        selection = frozenset(job_ids)
 
         def load(session: Session) -> LoadInputResult:
             return SchedulingService.load_input(
@@ -120,23 +118,21 @@ class ValidationService:
 
     @staticmethod
     async def _warnings(
-        db: AsyncSession, selection: frozenset[UUID] | None
+        db: AsyncSession, selection: frozenset[UUID]
     ) -> tuple[SchedulingIssue, ...]:
         """The two facts the snapshot cannot show, because the rows in question leave no trace.
 
-        A job with no operations contributes nothing to the input, so a whole-floor run plans
-        around it without a word; an active machine nothing can run on is never chosen. Neither
-        blocks a schedule, both are probably mistakes.
+        A selected job with no operations contributes nothing to the input, so a run plans around
+        it without a word; an active machine nothing can run on is never chosen. Neither blocks a
+        schedule, both are probably mistakes.
         """
 
         empty_jobs = (
             select(Job.id)
             .outerjoin(Operation, Operation.job_id == Job.id)
-            .where(Operation.id.is_(None), Job.archived_at.is_(None))
+            .where(Operation.id.is_(None), Job.id.in_(selection))
             .order_by(Job.id)
         )
-        if selection is not None:
-            empty_jobs = empty_jobs.where(Job.id.in_(selection))
         idle_machines = (
             select(Machine.id)
             .outerjoin(Compatibility, Compatibility.machine_id == Machine.id)

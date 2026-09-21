@@ -15,7 +15,7 @@ from uuid import UUID
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.jobs.results import JobHasLeftBacklog, JobNotFound
 from floorsync_common.outcomes import ExpectedOutcome
 from floorsync_common.scheduling.references import ScheduleReferences
 
@@ -67,10 +67,12 @@ class OperationIsScheduled(ExpectedOutcome):
     references: ScheduleReferences
 
 
-type CreateOperationResult = OperationCreated | JobNotFound
+type CreateOperationResult = OperationCreated | JobNotFound | JobHasLeftBacklog
 type GetOperationResult = OperationFound | OperationNotFound
-type UpdateOperationResult = OperationUpdated | OperationNotFound
-type DeleteOperationResult = OperationDeleted | OperationNotFound | OperationIsScheduled
+type UpdateOperationResult = OperationUpdated | OperationNotFound | JobHasLeftBacklog
+type DeleteOperationResult = (
+    OperationDeleted | OperationNotFound | OperationIsScheduled | JobHasLeftBacklog
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,5 +110,10 @@ class DependencyCycle(ExpectedOutcome):
 
 type ListJobDependenciesResult = JobDependenciesListed | JobNotFound
 type ReplaceJobDependenciesResult = (
-    JobDependenciesReplaced | JobNotFound | OperationNotFound | OperationNotInJob | DependencyCycle
+    JobDependenciesReplaced
+    | JobNotFound
+    | JobHasLeftBacklog
+    | OperationNotFound
+    | OperationNotInJob
+    | DependencyCycle
 )

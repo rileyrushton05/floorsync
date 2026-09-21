@@ -12,7 +12,7 @@ invariants a stubbed session cannot exercise -- the same substitute pattern
 """
 
 import inspect
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import cast
@@ -29,7 +29,9 @@ from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.user import User
+from floorsync_common.jobs import backlog
 from floorsync_common.jobs import definitions as definitions_service
+from floorsync_common.jobs.backlog import OPEN, JobBacklog
 from floorsync_common.jobs.definition_results import (
     DefinitionCreated,
     DefinitionFound,
@@ -66,6 +68,17 @@ class FakeSession:
 
     def begin(self) -> FakeTransaction:
         return FakeTransaction()
+
+
+@pytest.fixture(autouse=True)
+def every_job_is_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Routes read backlog status through `BacklogService` after the service call they test;
+    answer `open` for every job here so each test stays about its own route (decision 0019)."""
+
+    async def fake(_: object, jobs: Collection[Job]) -> dict[UUID, JobBacklog]:
+        return {job.id: OPEN for job in jobs}
+
+    monkeypatch.setattr(backlog.BacklogService, "load", staticmethod(fake))
 
 
 def make_job(name: str = "Repair conveyor", priority: str = "high") -> Job:

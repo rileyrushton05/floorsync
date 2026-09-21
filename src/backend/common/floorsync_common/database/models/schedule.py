@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 
 type ScheduleStatus = Literal["draft", "confirmed", "discarded"]
 
+SCHEDULE_DRAFT: ScheduleStatus = "draft"
+SCHEDULE_CONFIRMED: ScheduleStatus = "confirmed"
+SCHEDULE_DISCARDED: ScheduleStatus = "discarded"
+"""The values of the `status_valid` check constraint below, defined once beside it."""
+
 
 class Schedule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A generated set of operation-to-machine assignments.

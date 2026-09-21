@@ -24,6 +24,7 @@ from floorsync_api.features.jobs.definitions_schemas import (
 )
 from floorsync_api.problems import (
     ProblemDetail,
+    job_has_left_backlog_problem,
     problem_response,
     schedule_references_hint,
     schedule_references_members,
@@ -31,6 +32,7 @@ from floorsync_api.problems import (
 from floorsync_api.schemas import CursorPage
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.user import User
+from floorsync_common.jobs.backlog import OPEN, BacklogService, JobBacklog
 from floorsync_common.jobs.definition_results import (
     DefinitionCreated,
     DefinitionFound,
@@ -51,7 +53,7 @@ from floorsync_common.jobs.definitions import (
     JobDefinitionReplaceCommand,
     JobDefinitionService,
 )
-from floorsync_common.jobs.results import JobNotFound
+from floorsync_common.jobs.results import JobHasLeftBacklog, JobNotFound
 from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.scheduling.references import ScheduleReferences
 
@@ -86,7 +88,8 @@ async def create_definition(
         match result:
             case DefinitionCreated(definition=definition):
                 response.headers["Location"] = f"/api/v1/jobs/{definition.job.id}/definition"
-                return _definition_response(definition)
+                # A job that did not exist a moment ago is in no schedule; no need to ask.
+                return _definition_response(definition, OPEN)
             case UnknownMachine(machine_id=machine_id):
                 return _unknown_machine(request, machine_id)
             case InactiveMachine(machine_id=machine_id):
@@ -117,9 +120,13 @@ async def list_definitions(
         page = await JobDefinitionService.list_definitions(
             db, limit=limit, cursor=cursor, include_archived=include_archived
         )
+        backlog = await BacklogService.load(db, [definition.job for definition in page.definitions])
 
     return CursorPage[JobDefinitionResponse](
-        items=[_definition_response(definition) for definition in page.definitions],
+        items=[
+            _definition_response(definition, backlog[definition.job.id])
+            for definition in page.definitions
+        ],
         next_cursor=page.next_cursor,
     )
 
@@ -139,7 +146,7 @@ async def get_definition(
 
         match result:
             case DefinitionFound(definition=definition):
-                return _definition_response(definition)
+                return await _definition_with_backlog(db, definition)
             case JobNotFound():
                 return _job_not_found(request, job_id)
             case _:
@@ -154,8 +161,8 @@ async def get_definition(
         404: {"description": "The job does not exist"},
         409: {
             "description": (
-                "The save would remove an operation that appears in a schedule; the body names "
-                "the draft and confirmed schedules involved"
+                "The job has left the backlog and is read-only, or the save would remove an "
+                "operation that appears in a schedule; the body names the schedules involved"
             )
         },
         422: {
@@ -180,10 +187,10 @@ async def replace_definition(
     index becomes each operation's 1-based position. Only this job's own `builder_sequence`
     ordering edges are rebuilt; externally owned edges are never touched.
 
-    Refused with a conflict only when the save would remove an operation a generated schedule
-    already recorded; every other edit is covered by the schedule's own snapshot, so a scheduled
-    job stays editable. The conflict names the schedules in the way. An archived job is editable
-    too: archiving takes a job out of the backlog, it does not freeze it (decision 0015).
+    Refused with a conflict when the job is not open (planned, done or archived: duplicate it
+    instead, decisions 0018 and 0019) or when the save would remove an operation a draft
+    schedule already recorded; every other edit is covered by the draft's own snapshot. The
+    scheduled conflict names the schedules in the way.
     """
 
     async with db.begin():
@@ -193,9 +200,11 @@ async def replace_definition(
 
         match result:
             case DefinitionReplaced(definition=definition):
-                return _definition_response(definition)
+                return await _definition_with_backlog(db, definition)
             case JobNotFound():
                 return _job_not_found(request, job_id)
+            case JobHasLeftBacklog(backlog=backlog, archived_at=archived_at):
+                return job_has_left_backlog_problem(request, job_id, backlog, archived_at)
             case JobDefinitionIsScheduled(references=references):
                 return _job_definition_is_scheduled(request, job_id, references)
             case OperationDoesNotBelongToJob(operation_id=operation_id, job_id=owning_job_id):
@@ -270,16 +279,27 @@ def _operation_response(item: OperationWithRoutes) -> BuilderOperationResponse:
     )
 
 
-def _definition_response(definition: JobDefinitionRead) -> JobDefinitionResponse:
+def _definition_response(
+    definition: JobDefinitionRead, backlog: JobBacklog
+) -> JobDefinitionResponse:
     return JobDefinitionResponse(
         id=definition.job.id,
         name=definition.job.name,
         priority=definition.job.priority,
         archived_at=definition.job.archived_at,
+        backlog_status=backlog.status,
+        planned_by_schedule_ids=list(backlog.schedule_ids),
         created_at=definition.job.created_at,
         updated_at=definition.job.updated_at,
         operations=[_operation_response(item) for item in definition.operations],
     )
+
+
+async def _definition_with_backlog(
+    db: DbSession, definition: JobDefinitionRead
+) -> JobDefinitionResponse:
+    backlog = await BacklogService.load(db, [definition.job])
+    return _definition_response(definition, backlog[definition.job.id])
 
 
 # -- problem responses ---------------------------------------------------------------------------
