@@ -23,7 +23,7 @@ export function MachineInventoryList({
                     >
                         <span className="min-w-0 flex-1">
                             <span className="block truncate font-semibold">{machine.name}</span>
-                            <span className="block truncate text-xs opacity-75">{machine.categoryLabel} · {machine.id}</span>
+                            <span className="block truncate text-xs opacity-75">{machine.categoryLabel}</span>
                         </span>
                         <Badge intent={machine.active ? "success" : "secondary"}>{machine.statusLabel}</Badge>
                     </Button>

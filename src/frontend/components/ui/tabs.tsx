@@ -74,7 +74,7 @@ const TabList = <T extends object>({
             '[--tab-list-gutter:--spacing(1)]',
             'relative flex forced-color-adjust-none',
             orientation === 'horizontal' &&
-              'flex-row gap-x-(--tab-list-gutter) rounded-(--tab-list-rounded) border-b py-(--tab-list-gutter)',
+              'flex-row items-center gap-x-(--tab-list-gutter) rounded-(--tab-list-rounded) border-b py-(--tab-list-gutter)',
             orientation === 'vertical' &&
               'min-w-56 shrink-0 flex-col items-start gap-y-(--tab-list-gutter) border-l px-(--tab-list-gutter) [--tab-list-gutter:--spacing(2)]',
             className,

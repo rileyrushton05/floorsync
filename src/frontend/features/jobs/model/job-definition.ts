@@ -30,6 +30,8 @@ export function toJobDefinition(job: JobDefinition): JobDef {
         id: job.id,
         name: job.name,
         priority: PRIORITY_FROM_API[job.priority],
+        createdAt: job.created_at,
+        archivedAt: job.archived_at,
         operations: [...job.operations]
             .sort((left, right) => left.position - right.position)
             .map(toOperation),

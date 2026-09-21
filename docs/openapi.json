@@ -3222,6 +3222,57 @@
       }
     },
     "/api/v1/machines/{machine_id}": {
+      "delete": {
+        "description": "Remove a machine no operation is assigned to.\n\nA machine that any job definition's routes still name cannot be removed: the scheduler would be\nleft planning work onto a machine that no longer exists. Unassign or re-route those operations\nfirst, or deactivate the machine to keep it out of new plans while retaining history.",
+        "operationId": "delete_machine_api_v1_machines__machine_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The machine was removed"
+          },
+          "409": {
+            "description": "Operations are still assigned to the machine"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove a machine",
+        "tags": [
+          "machines"
+        ]
+      },
       "get": {
         "description": "Read one machine together with the operations it can run.",
         "operationId": "get_machine_api_v1_machines__machine_id__get",

@@ -21,7 +21,7 @@ export function UserMenu() {
     return (
         <div className="flex items-center gap-2">
             <UserCircleIcon className="size-7 shrink-0 text-muted-fg" aria-hidden />
-            <span className="leading-tight">
+            <span className="leading-tight whitespace-nowrap">
                 <span className="block font-semibold text-sm">{user.name}</span>
                 <span className="block text-muted-fg text-xs capitalize">{user.role}</span>
             </span>

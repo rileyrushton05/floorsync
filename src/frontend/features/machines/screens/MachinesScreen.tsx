@@ -1,13 +1,14 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
-import { reportMutationError } from "@/core/feedback/reportMutationError";
-import type { MachineSummary } from "../data/api";
-import { Button } from "@/components/ui/button";
-import { PlusIcon } from "@heroicons/react/24/outline";
-import { useCallback, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { ManagerPageState } from "@/core/shell/ManagerPageState";
+import { ManagerShell } from "@/core/shell/ManagerShell";
+import { useJobDefinitions } from "@/features/jobs/data/queries";
+import { useDeleteMachine, useMachineCategories, useMachines, useSaveMachine } from "@/features/machines/data/queries";
 import {
     EMPTY_MACHINE_DRAFT,
     draftFromMachine,
@@ -15,29 +16,48 @@ import {
     toMachineRow,
     type MachineDraft,
 } from "@/features/machines/model/machine";
-import { useMachineCategories, useMachines, useSaveMachine } from "@/features/machines/data/queries";
+import { DeleteMachineDialog } from "@/features/machines/ui/DeleteMachineDialog";
 import { MachineEditor } from "@/features/machines/ui/MachineEditor";
 import { MachineInventoryPanel } from "@/features/machines/ui/MachineInventoryPanel";
-import { ManagerPageState } from "@/core/shell/ManagerPageState";
-import { ManagerShell } from "@/core/shell/ManagerShell";
+import { PlusIcon } from "@heroicons/react/24/outline";
+import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
+import type { MachineSummary } from "../data/api";
 
 export default function MachinesPage() {
     const machineQuery = useMachines();
     const categoryQuery = useMachineCategories();
     const saveMachine = useSaveMachine();
+    const deleteMachine = useDeleteMachine();
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<MachineDraft>(EMPTY_MACHINE_DRAFT);
     const [query, setQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+    const [confirmDeactivate, setConfirmDeactivate] = useState(false);
+    const [confirmRemove, setConfirmRemove] = useState(false);
+    const jobDefinitionsQuery = useJobDefinitions();
 
     const machines = useMemo(() => machineQuery.data ?? [], [machineQuery.data]);
     const categories = useMemo(() => categoryQuery.data ?? [], [categoryQuery.data]);
-    const saving = saveMachine.isPending;
     const categoryName = useMemo(
         () => new Map(categories.map((category) => [category.id, category.name])),
         [categories],
     );
     const selected = machines.find((machine) => machine.id === selectedId) ?? null;
+    // Safeguard: a machine that is referenced by any operation route in a job
+    // definition is still needed by the scheduler and must not be removed.
+    const assignedOperationCount = useMemo(() => {
+        if (!selected) return 0;
+        return (jobDefinitionsQuery.data ?? []).reduce(
+            (total, job) => total + job.operations.reduce(
+                (ops, operation) => ops + operation.routes.filter((route) => route.machineId === selected.id).length,
+                0,
+            ),
+            0,
+        );
+    }, [jobDefinitionsQuery.data, selected]);
+    const machineInUse = assignedOperationCount > 0;
+    const saving = saveMachine.isPending || deleteMachine.isPending;
     const filteredMachines = useMemo(() => {
         const needle = query.trim().toLowerCase();
         return machines.filter((machine) => {
@@ -74,14 +94,62 @@ export default function MachinesPage() {
         }
     }
 
-    async function deactivate() {
+    /** Retire an active machine, or restore an inactive one; no confirm needed to re-activate. */
+    function requestDeactivate() {
         if (!selected || saving) return;
+        if (machineInUse && selected.active) {
+            reportBackendFailure(
+                `${selected.name} cannot be removed: ${assignedOperationCount} operation${assignedOperationCount === 1 ? " is" : "s are"} still assigned to it. Unassign or re-route those operations first.`,
+            );
+            return;
+        }
+        if (selected.active) setConfirmDeactivate(true);
+        else void toggleActive();
+    }
+
+    async function toggleActive() {
+        if (!selected || saveMachine.isPending) return;
         try {
-            const saved = await saveMachine.mutateAsync({ id: selected.id, values: { active: false } });
+            const saved = await saveMachine.mutateAsync({ id: selected.id, values: { active: !selected.active } });
             setDraft(draftFromMachine(saved));
-            toast.success(`${saved.name} deactivated.`);
+            setConfirmDeactivate(false);
+            toast.success(`${saved.name} ${saved.active ? "activated" : "deactivated"}.`);
         } catch (error) {
             reportMutationError(error);
+        }
+    }
+
+    /** Hard removal; guarded against active machines and the
+        assigned-operations count, confirmed via DeleteMachineDialog. */
+    function requestRemove() {
+        if (!selected || saving) return;
+        if (machineInUse) {
+            reportBackendFailure(
+                `${selected.name} cannot be removed: ${assignedOperationCount} operation${assignedOperationCount === 1 ? " is" : "s are"} still assigned to it. Unassign or re-route those operations first.`,
+            );
+            return;
+        }
+        if (selected.active) {
+            reportBackendFailure(
+                `${selected.name} is still active. Deactivate it before removing it from the floor.`,
+            );
+            return;
+        }
+        setConfirmRemove(true);
+    }
+
+    async function remove() {
+        if (!selected) return;
+        const removedName = selected.name;
+        try {
+            await deleteMachine.mutateAsync(selected.id);
+            setConfirmRemove(false);
+            setSelectedId(null);
+            setDraft(EMPTY_MACHINE_DRAFT);
+            toast.success(`${removedName} removed from the floor.`);
+        } catch (error) {
+            reportMutationError(error);
+            setConfirmRemove(false);
         }
     }
 
@@ -112,8 +180,26 @@ export default function MachinesPage() {
         <ManagerShell actions={<Button onPress={beginCreate} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_2fr]">
                 <MachineInventoryPanel total={machines.length} rows={filteredRows} selectedId={selectedId} query={query} statusFilter={statusFilter} onQueryChange={setQuery} onStatusFilterChange={setStatusFilter} onSelect={(id) => { const machine = machines.find((candidate) => candidate.id === id); if (machine) selectMachine(machine); }} />
-                <MachineEditor draft={draft} selected={selected} categories={categories} categoryNames={categoryName} saving={saving} onDraftChange={(update) => setDraft(update)} onSave={() => void save()} onDeactivate={() => void deactivate()} />
+                <MachineEditor draft={draft} selected={selected} categories={categories} categoryNames={categoryName} saving={saving} assignedOperationCount={assignedOperationCount} onDraftChange={(update) => setDraft(update)} onSave={() => void save()} onDeactivate={requestDeactivate} onRemove={requestRemove} />
             </main>
+            {confirmDeactivate && selected && (
+                <ConfirmDialog
+                    title={`Deactivate ${selected.name}?`}
+                    description={<>The machine will be kept as history but excluded from scheduling.</>}
+                    confirmLabel="Deactivate machine"
+                    danger
+                    onConfirm={() => void toggleActive()}
+                    onCancel={() => setConfirmDeactivate(false)}
+                />
+            )}
+            {confirmRemove && selected && (
+                <DeleteMachineDialog
+                    machineName={selected.name}
+                    closing={false}
+                    onConfirm={() => void remove()}
+                    onDismiss={() => setConfirmRemove(false)}
+                />
+            )}
         </ManagerShell>
     );
 }
