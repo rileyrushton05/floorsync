@@ -36,6 +36,7 @@ from floorsync_common.simulation.results import (
     ControlRecorded,
     ControlSpeedRequired,
     CreateSimulationResult,
+    GetScheduleSimulationResult,
     GetSimulationResult,
     GetTimelineResult,
     RecordControlResult,
@@ -44,6 +45,7 @@ from floorsync_common.simulation.results import (
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -166,6 +168,35 @@ class SimulationService:
 
         position = await SimulationService._derive_position(
             db, simulation_id=simulation_id, makespan=timeline.makespan, at=at
+        )
+        return SimulationPositionResolved(
+            simulation=simulation, position=position, makespan=timeline.makespan
+        )
+
+    @staticmethod
+    async def get_simulation_for_schedule(
+        db: AsyncSession, *, schedule_id: UUID, at: datetime | None = None
+    ) -> GetScheduleSimulationResult:
+        """Read a schedule's one persisted simulation, when it has been started.
+
+        The browser selects a schedule before it knows its simulation id. This
+        lookup makes refresh/re-entry recover the event-sourced position without
+        teaching clients to parse a conflict response from ``create_simulation``.
+        """
+        schedule = await queries.load_schedule(db, schedule_id)
+        if schedule is None:
+            return ScheduleNotFound(schedule_id=schedule_id)
+
+        simulation = await queries.load_simulation_for_schedule(db, schedule_id)
+        if simulation is None:
+            return SimulationForScheduleNotFound(schedule_id=schedule_id)
+
+        timeline = await SimulationService._resolve_timeline(db, schedule_id)
+        if timeline is None:
+            return ScheduleNotGenerated(schedule_id=schedule_id)
+
+        position = await SimulationService._derive_position(
+            db, simulation_id=simulation.id, makespan=timeline.makespan, at=at
         )
         return SimulationPositionResolved(
             simulation=simulation, position=position, makespan=timeline.makespan
