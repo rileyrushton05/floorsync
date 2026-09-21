@@ -21,7 +21,8 @@ import { DeleteScheduleDialog } from "@/features/schedules/ui/DeleteScheduleDial
 import { ScheduleDetailPane } from "@/features/schedules/ui/ScheduleDetailPane";
 import { ScheduleInventoryPanel } from "@/features/schedules/ui/ScheduleInventoryPanel";
 import { ArrowPathIcon } from "@heroicons/react/24/outline";
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 /**
@@ -39,11 +40,23 @@ type StatusFilter = "all" | "confirmed" | "draft" | "discarded";
 type StrategyFilter = "any" | "resched" | "exact";
 
 export default function SchedulesPage() {
+    return (
+        <Suspense>
+            <SchedulesPageInner />
+        </Suspense>
+    );
+}
+
+function SchedulesPageInner() {
     const schedulesQuery = useScheduleSummaries();
     const updateScheduleStatus = useUpdateScheduleStatus();
     const deleteSchedule = useDeleteSchedule();
 
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    // A job record can link straight to the confirmed schedule that plans it.
+    // Once the manager picks a schedule here, their choice takes precedence
+    // until they leave the page.
+    const linkedScheduleId = useSearchParams().get("schedule");
+    const [userSelectedId, setUserSelectedId] = useState<string | null>(null);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [query, setQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -75,9 +88,10 @@ export default function SchedulesPage() {
     // A selection survives refetching and filtering unless the schedule is no
     // longer visible — then the first visible row takes over, so the pane is
     // never empty while the list has something to show.
+    const selectedOverrideId = userSelectedId ?? linkedScheduleId;
     const effectiveSelectedId =
-        filteredRows.some((row) => row.id === selectedId)
-            ? selectedId
+        filteredRows.some((row) => row.id === selectedOverrideId)
+            ? selectedOverrideId
             : filteredRows[0]?.id ?? null;
 
     const selected = rows.find((row) => row.id === effectiveSelectedId) ?? null;
@@ -114,11 +128,10 @@ export default function SchedulesPage() {
         try {
             await deleteSchedule.mutateAsync({ id: selected.id });
             setConfirmDelete(false);
-            setSelectedId(null);
+            setUserSelectedId(null);
             toast.success(`${shortScheduleId(selected.id)} deleted.`);
         } catch (error) {
-            // The dialog stays open so the manager can retry; the optimistic
-            // removal of the row is rolled back by the mutation's onError.
+            // The dialog stays open so the manager can read the API detail and retry.
             reportMutationError(error);
         }
     }
@@ -166,7 +179,7 @@ export default function SchedulesPage() {
                     onStrategyFilterChange={setStrategyFilter}
                     onSortChange={setSort}
                     onClearFilters={clearFilters}
-                    onSelect={setSelectedId}
+                    onSelect={setUserSelectedId}
                 />
                 {selected ? (
                     <ScheduleDetailPane
