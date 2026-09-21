@@ -3,11 +3,15 @@ import type { CursorPage } from "@/core/http/contracts";
 
 export type { CursorPage } from "@/core/http/contracts";
 
+export type BacklogStatus = "open" | "planned" | "done" | "archived";
+
 export interface Job {
     id: string;
     name: string;
     /** When the job left the backlog, or null while it is still open. */
     archived_at: string | null;
+    backlog_status: BacklogStatus;
+    planned_by_schedule_ids: string[];
     created_at: string;
     updated_at: string;
 }
@@ -33,6 +37,8 @@ export interface JobDefinition {
     priority: JobPriority;
     /** When the job left the backlog, or null while it is still open. */
     archived_at: string | null;
+    backlog_status: BacklogStatus;
+    planned_by_schedule_ids: string[];
     created_at: string;
     updated_at: string;
     operations: JobDefinitionOperation[];

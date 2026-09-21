@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Link } from "@/components/ui/link";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
@@ -58,11 +59,8 @@ function Stat({ value, label, hint }: { value: string; label: string; hint?: str
  * answer to whether a draft is valid comes back from the API, so nothing here
  * blocks a save.
  *
- * An archived job is shown read-only, with "Duplicate" as the way to act on it.
- * That is a UI position, not an enforced one: the API still accepts edits to an
- * archived job by design (decision 0015 point 7), so this is an affordance that
- * keeps a finished job's record intact by default, not a guarantee. Tightening
- * the API to match is tracked separately.
+ * A job is editable only while it is open. Planned, done and archived jobs are
+ * shown as records with Duplicate as the way to create new work from one.
  */
 export function JobEditorPanel({
     draft,
@@ -137,12 +135,13 @@ export function JobEditorPanel({
      * branching job into a linear one.
      */
     canDuplicate: boolean;
-    /** Open an unsaved copy of this job. The only action an archived job offers. */
+    /** Open an unsaved copy of this job. The only write action for a read-only job. */
     onDuplicate: () => void;
     onRequestDelete: () => void;
 }) {
     const shortcut = useSyncExternalStore(NEVER_CHANGES, readShortcut, noShortcutOnServer);
-    const archived = draft.archivedAt !== null;
+    const readOnly = draft.backlogStatus !== "open";
+    const scheduleId = draft.plannedByScheduleIds[0] ?? null;
     const workMins = totalWorkMins(draft);
     const durationOf = new Map(
         draft.operations.map((operation) => [operation.id, routeMins(primaryRoute(operation))]),
@@ -176,13 +175,15 @@ export function JobEditorPanel({
         <Card>
             <CardHeader className="flex-row items-center gap-3">
                 <span className="flex items-center gap-2.5">
-                    <CardTitle>{archived ? "Archived job" : draft.id ? "Edit job" : "New job"}</CardTitle>
+                    <CardTitle>{readOnly ? "Job record" : draft.id ? "Edit job" : "New job"}</CardTitle>
                     {draft.id && sequenceNumber !== undefined && (
                         <Badge intent="secondary">#{sequenceNumber}</Badge>
                     )}
-                    {archived && (
+                    {readOnly && (
                         <Badge intent="secondary" role="status">
-                            Archived
+                            {draft.backlogStatus === "done"
+                                ? "Done"
+                                : draft.backlogStatus[0]?.toUpperCase() + draft.backlogStatus.slice(1)}
                         </Badge>
                     )}
                     {/* Unsaved work is otherwise invisible until something tries
@@ -198,19 +199,31 @@ export function JobEditorPanel({
             <CardContent className="space-y-5">
                 {notes}
 
-                {/* Every control below is inert for an archived job, and a
+                {/* Every control below is inert when the job has left the backlog, and a
                     screen of dead inputs with no explanation is a bug report
                     waiting to happen. The note says why and points at the one
                     action that does work; the button itself stays in the action
                     row with every other action rather than being repeated here. */}
-                {archived && (
+                {readOnly && (
                     <Note intent="info" role="status">
-                        <strong>This job has been archived.</strong>
+                        <strong>This job is {draft.backlogStatus}.</strong>
                         <div className="mt-1">
-                            It has finished or been cancelled, so it is no longer offered for
-                            scheduling and is shown here as a record. Duplicate it to start a new
-                            job from the same steps, machines and ordering.
+                            It is no longer editable or offered for scheduling. Duplicate it to start a
+                            new job from the same steps, machines and ordering.
+                            {scheduleId !== null && (
+                                <>
+                                    {" "}
+                                    <Link href={`/manager/schedules?schedule=${encodeURIComponent(scheduleId)}`} className="underline">
+                                        Open its schedule.
+                                    </Link>
+                                </>
+                            )}
                         </div>
+                        {draft.backlogStatus === "archived" && draft.archivedAt !== null && (
+                            <div className="mt-1 text-sm">
+                                Archived since {new Date(draft.archivedAt).toLocaleString()}.
+                            </div>
+                        )}
                     </Note>
                 )}
 
@@ -234,7 +247,7 @@ export function JobEditorPanel({
                     <TextField
                         className="flex-2"
                         value={draft.name}
-                        isReadOnly={archived}
+                        isReadOnly={readOnly}
                         onChange={onNameChange}
                     >
                         <Label>Job name</Label>
@@ -244,7 +257,7 @@ export function JobEditorPanel({
                     <Select
                         className="flex-1"
                         value={draft.priority}
-                        isDisabled={archived}
+                        isDisabled={readOnly}
                         onChange={(priority) => onPriorityChange(priority as JobDraft["priority"])}
                     >
                         <Label>Priority</Label>
@@ -262,7 +275,7 @@ export function JobEditorPanel({
                 <div>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="font-semibold text-sm">Operations</h3>
-                        {!archived && (
+                        {!readOnly && (
                             <Button
                                 intent="primary"
                                 size="sm"
@@ -275,14 +288,14 @@ export function JobEditorPanel({
                     </div>
                     <p className="mt-1 flex items-center gap-1 text-muted-fg text-xs">
                         <CursorArrowRaysIcon className="size-3.5" />
-                        {archived
+                        {readOnly
                             ? "Click a step to see the machines it ran on and what it waited for"
                             : "Click a step to edit it: “Runs after” decides what waits for what"}
                     </p>
 
                     {draft.operations.length === 0 ? (
                         <div className="mt-3 rounded-xl border border-dashed p-6 text-center text-muted-fg text-sm">
-                            {archived
+                            {readOnly
                                 ? "This job has no operations recorded."
                                 : "No operations yet — a job needs at least one."}
                         </div>
@@ -307,7 +320,7 @@ export function JobEditorPanel({
                                 machines={machines}
                                 activeMachines={activeMachines}
                                 saving={saving}
-                                readOnly={archived}
+                                readOnly={readOnly}
                                 predecessorOptions={selected ? predecessorOptionsFor(selected.id) : []}
                                 onPatch={(patch) => onPatchOperation(selectedIndex, patch)}
                                 onDependenciesChange={(ids) => onDependenciesChange(selectedIndex, ids)}
@@ -360,25 +373,23 @@ export function JobEditorPanel({
                             {gate.reason}
                         </span>
                     )}
-                    {/* Copying is offered for any saved job, not only an
-                        archived one: "start from this one" is the same wish
-                        whether or not the original has been retired. For an
-                        archived job it is simply the only thing on offer. */}
+                    {/* Copying is offered for any saved job; it is the only write action
+                        once a job has left the backlog. */}
                     {draft.id && (
                         <Button
-                            intent={archived ? "primary" : "outline"}
+                            intent={readOnly ? "primary" : "outline"}
                             onPress={onDuplicate}
                             isDisabled={!canDuplicate || saving || loading || hasLoadError}
                         >
                             <DocumentDuplicateIcon /> Duplicate
                         </Button>
                     )}
-                    {/* Deleting an archived job is not merely disabled but gone.
+                    {/* Deleting a job that has left the backlog is not merely disabled but gone.
                         The API refuses it outright once a confirmed schedule has
                         planned the work, and archiving is what a finished job
                         gets *instead* of deletion — so offering the button would
                         only ever lead to a refusal. */}
-                    {draft.id && !archived && (
+                    {draft.id && !readOnly && (
                         <Button
                             intent="danger"
                             onPress={onRequestDelete}
@@ -392,9 +403,9 @@ export function JobEditorPanel({
                         disabled while there is nothing to discard: appearing
                         only when the draft is dirty would shift Save sideways
                         under the pointer at the moment of the first keystroke.
-                        Both go entirely for an archived job, which has nothing
+                        Both go entirely for a read-only job, which has nothing
                         to save and so nothing to discard either. */}
-                    {!archived && (
+                    {!readOnly && (
                         <Button
                             intent="outline"
                             onPress={onDiscard}
@@ -403,7 +414,7 @@ export function JobEditorPanel({
                             <ArrowUturnLeftIcon /> Discard changes
                         </Button>
                     )}
-                    {!archived && (
+                    {!readOnly && (
                         <Button
                             onPress={onSave}
                             isPending={saving}

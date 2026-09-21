@@ -8,6 +8,7 @@
  */
 
 export type Priority = "High" | "Med" | "Low";
+export type BacklogStatus = "open" | "planned" | "done" | "archived";
 
 export interface Machine {
     id: string;
@@ -54,6 +55,10 @@ export interface JobDef {
      * reason as `createdAt` — the schedule timeline contract does not carry it.
      */
     archivedAt?: string | null;
+    /** Derived from confirmed schedules and the job's archive state. */
+    backlogStatus?: BacklogStatus;
+    /** Confirmed schedules that plan this job, oldest first. */
+    plannedByScheduleIds?: string[];
     /** Ordered chain — operation n+1 cannot start until operation n finishes. */
     operations: OperationDef[];
 }

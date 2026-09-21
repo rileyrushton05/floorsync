@@ -2,7 +2,7 @@ import { stableJobOrder } from "@/domains/scheduling/colors";
 import type { DependencyEdge } from "../data/api";
 import { chainDependsOn, dependsOnFromEdges, foreignEdgesFor } from "./dependencies";
 import { totalWorkMins } from "@/domains/scheduling/format";
-import type { JobDef, OperationDef, Priority } from "@/domains/scheduling/types";
+import type { BacklogStatus, JobDef, OperationDef, Priority } from "@/domains/scheduling/types";
 
 /**
  * An operation as the builder edits it: the shared domain shape plus the
@@ -21,14 +21,10 @@ export interface JobDraft {
     id: string | null;
     name: string;
     priority: Priority;
-    /**
-     * When the job left the backlog, or null while it is still open.
-     *
-     * Read-only on the draft: nothing in this editor sets it, and no save sends
-     * it. It is carried because an archived job is shown read-only — the way
-     * back to an editable job is `duplicateDraft`, not an edit.
-     */
+    /** Derived by the backend; any non-open status is read-only here. */
     archivedAt: string | null;
+    backlogStatus: BacklogStatus;
+    plannedByScheduleIds: string[];
     operations: DraftOperation[];
     /**
      * Edges into this job from an operation in another job.
@@ -46,6 +42,8 @@ export const EMPTY_JOB_DRAFT: JobDraft = {
     name: "",
     priority: "Med",
     archivedAt: null,
+    backlogStatus: "open",
+    plannedByScheduleIds: [],
     operations: [],
     foreignEdges: [],
 };
@@ -67,8 +65,9 @@ export const DURATION_FILTERS = [
  */
 export const STATUS_FILTERS = [
     { id: "Active", label: "Active jobs" },
+    { id: "Planned", label: "Planned jobs" },
     { id: "Archived", label: "Archived jobs" },
-    { id: "All", label: "Active + archived" },
+    { id: "All", label: "All jobs" },
 ] as const;
 
 /**
@@ -105,6 +104,8 @@ export function draftFromJob(job: JobDef): JobDraft {
     return {
         ...job,
         archivedAt: job.archivedAt ?? null,
+        backlogStatus: job.backlogStatus ?? "open",
+        plannedByScheduleIds: job.plannedByScheduleIds ?? [],
         foreignEdges: [],
         operations: job.operations.map((operation) => ({
             ...operation,
@@ -153,6 +154,8 @@ export function duplicateDraft(draft: JobDraft): JobDraft {
         name: `${draft.name.trim()} (copy)`.trim(),
         priority: draft.priority,
         archivedAt: null,
+        backlogStatus: "open",
+        plannedByScheduleIds: [],
         foreignEdges: [],
         operations: draft.operations.map((operation, index) => ({
             id: copiedId(index),
@@ -263,19 +266,19 @@ export function saveGate(input: {
     graphFailed: boolean;
     loading: boolean;
     hasLoadError: boolean;
-    /** The open job has been retired, so the editor is showing it read-only. */
-    archived: boolean;
+    /** The job has left the open backlog, so the editor is read-only. */
+    readOnly: boolean;
 }): SaveGate {
     if (input.loading || input.hasLoadError) {
         return { canSave: false, reason: null, held: input.dirty };
     }
-    // Ahead of everything else, including the graph: an archived job is not
+    // Ahead of everything else, including the graph: a job outside the active backlog is not
     // being saved whatever else is true of it, and saying why is more use than
     // reporting a load state for a write that is not on offer.
-    if (input.archived) {
+    if (input.readOnly) {
         return {
             canSave: false,
-            reason: "This job is archived. Duplicate it to make changes.",
+            reason: "This job has left the active backlog. Duplicate it to make changes.",
             // `held`, so an explicit Ctrl+S answers rather than doing nothing
             // quietly: the editor looks editable enough to try saving, and
             // silence would read as the shortcut being broken.
@@ -314,9 +317,10 @@ export function filterJobs(jobs: JobDef[], filters: JobFilters): JobDef[] {
         // so matching against it could only ever produce results they cannot
         // explain from what is on screen.
         if (needle && !job.name.toLowerCase().includes(needle)) return false;
-        const archived = job.archivedAt != null;
-        if (filters.status === "Active" && archived) return false;
-        if (filters.status === "Archived" && !archived) return false;
+        const status = job.backlogStatus ?? "open";
+        if (filters.status === "Active" && status !== "open") return false;
+        if (filters.status === "Planned" && status !== "planned" && status !== "done") return false;
+        if (filters.status === "Archived" && status !== "archived") return false;
         if (filters.priority !== "All" && job.priority !== filters.priority) return false;
         if (filters.machineId !== "All" && !job.operations.some((operation) => operation.routes.some((route) => route.machineId === filters.machineId))) return false;
         const work = totalWorkMins(job);
