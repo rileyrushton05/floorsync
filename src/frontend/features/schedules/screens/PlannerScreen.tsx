@@ -23,6 +23,7 @@ import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { reportingDateStartsAt, useReportingDate } from "@/core/shell/ReportingDate";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -40,6 +41,7 @@ import {
     useScheduleValidation,
 } from "@/features/schedules/data/queries";
 import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { getLocalTimeZone, type CalendarDate } from "@internationalized/date";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -121,6 +123,76 @@ function formatCreated(iso: string): string {
  */
 function shortId(id: string): string {
     return id.split("-")[0] ?? id;
+}
+
+function formatPlanningDate(date: CalendarDate): string {
+    return date.toDate(getLocalTimeZone()).toLocaleDateString(undefined, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+    });
+}
+
+function PlannerActions({
+    busy,
+    canGenerate,
+    scheduleExists,
+    strategy,
+    onStrategyChange,
+    onGenerate,
+}: {
+    busy: boolean;
+    canGenerate: boolean;
+    scheduleExists: boolean;
+    strategy: ScheduleStrategy;
+    onStrategyChange: (strategy: ScheduleStrategy) => void;
+    onGenerate: (startsAt: string) => void;
+}) {
+    const { date } = useReportingDate();
+    const startLabel = formatPlanningDate(date);
+    return (
+        <>
+            <ToggleGroup
+                aria-label="Scheduling engine"
+                selectionMode="single"
+                disallowEmptySelection
+                isDisabled={busy}
+                selectedKeys={new Set([strategy])}
+                onSelectionChange={(keys) => {
+                    const [first] = Array.from(keys);
+                    if (first === "resched" || first === "exact") onStrategyChange(first);
+                }}
+            >
+                {STRATEGIES.map((option) => (
+                    <ToggleGroupItem
+                        key={option.value}
+                        id={option.value}
+                        aria-label={`${option.label} — ${option.hint}`}
+                    >
+                        {option.label}
+                    </ToggleGroupItem>
+                ))}
+            </ToggleGroup>
+            <Button
+                onPress={() => onGenerate(reportingDateStartsAt(date))}
+                isPending={busy}
+                isDisabled={!canGenerate}
+                aria-label={`Generate schedule starting ${startLabel}`}
+            >
+                {busy ? "Generating…" : scheduleExists ? "Regenerate schedule" : "Generate schedule"}
+            </Button>
+        </>
+    );
+}
+
+function PlanningStartNotice() {
+    const { date } = useReportingDate();
+    return (
+        <p className="text-muted-fg text-xs">
+            New schedules start on <strong className="font-semibold text-fg">{formatPlanningDate(date)}</strong>.
+        </p>
+    );
 }
 
 /** A full-page state for when the floor itself could not be read. */
@@ -361,10 +433,10 @@ export default function PlannerPage() {
         timelineQuery.error,
     ]);
 
-    const generate = () => {
+    const generate = (startsAt: string) => {
         if (!canGenerate) return;
         setHighlightedJobId(null);
-        requestSchedule.mutate({ startsAt: new Date().toISOString(), jobIds: selectedJobIds, strategy }, {
+        requestSchedule.mutate({ startsAt, jobIds: selectedJobIds, strategy }, {
             onSuccess: (accepted) => {
                 setGenerationRequest({ id: accepted.id, deadline: Date.now() + 180_000 });
             },
@@ -495,37 +567,14 @@ export default function PlannerPage() {
         plan?.machines.find((machine) => machine.id === id)?.name ?? id;
 
     return (
-        <ManagerShell actions={<>
-                <ToggleGroup
-                    aria-label="Scheduling engine"
-                    selectionMode="single"
-                    disallowEmptySelection
-                    isDisabled={busy}
-                    selectedKeys={new Set([strategy])}
-                    onSelectionChange={(keys) => {
-                        const [first] = Array.from(keys);
-                        if (first === "resched" || first === "exact") setStrategy(first);
-                    }}
-                >
-                    {STRATEGIES.map((option) => (
-                        <ToggleGroupItem
-                            key={option.value}
-                            id={option.value}
-                            aria-label={`${option.label} — ${option.hint}`}
-                        >
-                            {option.label}
-                        </ToggleGroupItem>
-                    ))}
-                </ToggleGroup>
-
-                {/* `isPending` rather than `isDisabled`: React Aria already stops
-            {/* `isPending` rather than `isDisabled`: React Aria already stops
-                    onPress firing while pending, and keeps the control focusable
-                    and announced as busy instead of silently going dead. */}
-            <Button onPress={generate} isPending={busy} isDisabled={!canGenerate}>
-                {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
-            </Button>
-        </>}>
+        <ManagerShell actions={<PlannerActions
+            busy={busy}
+            canGenerate={canGenerate}
+            scheduleExists={schedule !== null}
+            strategy={strategy}
+            onStrategyChange={setStrategy}
+            onGenerate={generate}
+        />}>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,2.2fr)_minmax(260px,0.9fr)]">
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
@@ -537,7 +586,8 @@ export default function PlannerPage() {
                         </Badge>
                     </CardHeader>
                     <CardContent>
-                        <Note intent="info">
+                        <PlanningStartNotice />
+                        <Note intent="info" className="mt-2">
                             Select the open jobs to include in this run. Jobs already planned,
                             completed or archived cannot be selected again.
                         </Note>
