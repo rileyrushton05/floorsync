@@ -5,15 +5,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import type { ScheduleSummary } from "./api";
 import {
+    deleteSchedule,
     fetchScheduleGeneration,
     fetchScheduleTimeline,
     fetchSchedules,
-    archiveSchedule as postArchive,
-    unarchiveSchedule as postUnarchive,
     requestSchedule,
+    updateScheduleStatus,
     type ScheduleGenerationStatus,
     type ScheduleStrategy,
 } from "./api";
+import { jobKeys } from "@/features/jobs/data/keys";
 import { scheduleKeys } from "./keys";
 
 const GENERATION_POLL_MS = 1_000;
@@ -84,110 +85,41 @@ export function useRequestSchedule() {
     });
 }
 
-/**
- * Archive (or restore) a schedule.
- *
- * Hits the real endpoints —
- *   archive:   `POST /api/v1/schedules/{id}/archive`
- *   unarchive: `POST /api/v1/schedules/{id}/unarchive`
- * — while optimistically patching the summaries cache so the badge flips
- * immediately; a failure rolls the patch back before the response matters.
- * The backend stores the retired state as "discarded"; that mapping lives in
- * `features/schedules/model/archive.ts`.
- */
-export function useArchiveSchedule() {
+/** Move a schedule through the lifecycle the API owns. */
+export function useUpdateScheduleStatus() {
     const { token } = useAuth();
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
-            archived ? postArchive(id, requireToken(token)) : postUnarchive(id, requireToken(token)),
-        onMutate: async ({ id, archived }) => {
-            await queryClient.cancelQueries({ queryKey: scheduleKeys.all });
-            const previous = queryClient.getQueryData<ScheduleSummary[]>(scheduleKeys.all);
-            queryClient.setQueryData<ScheduleSummary[]>(scheduleKeys.all, (current) =>
-                (current ?? []).map((schedule) =>
-                    schedule.id === id
-                        ? // Archiving marks the schedule discarded. Restoring puts back
-                          // whatever it was before it was archived — a draft stays a
-                          // draft — rather than promoting everything to confirmed.
-                          { ...schedule, status: archived ? "discarded" : schedule.status === "discarded" ? "draft" : schedule.status }
-                        : schedule,
-                ),
-            );
-            return { previous };
+        mutationFn: ({ id, status }: { id: string; status: "confirmed" | "discarded" }) =>
+            updateScheduleStatus(id, status, requireToken(token)),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
+            ]);
         },
-        onError: (_error, _variables, context) => {
-            if (context?.previous) queryClient.setQueryData(scheduleKeys.all, context.previous);
-        },
-        onSettled: () => queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
-    });
-}
-
-/**
- * Give a schedule the manager's name for it ("Friday morning plan"), or clear
- * the name with an empty string.
- *
- * TODO(backend): `PATCH /api/v1/schedules/{id}` with `{ name }`. Until then the
- * mutation resolves immediately and optimistically patches the summaries cache,
- * so the UI behaviour is complete and only the HTTP call is missing.
- */
-export function useRenameSchedule() {
-    const { token } = useAuth();
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async ({ id, name }: { id: string; name: string }) => {
-            void token; // TODO(backend): `apiRequest(..., requireToken(token), ...)`
-            void id;
-            return { id, name };
-        },
-        onMutate: async ({ id, name }) => {
-            await queryClient.cancelQueries({ queryKey: scheduleKeys.all });
-            const previous = queryClient.getQueryData<ScheduleSummary[]>(scheduleKeys.all);
-            queryClient.setQueryData<ScheduleSummary[]>(scheduleKeys.all, (current) =>
-                (current ?? []).map((schedule) =>
-                    schedule.id === id ? { ...schedule, name: name.trim() === "" ? null : name } : schedule,
-                ),
-            );
-            return { previous };
-        },
-        onError: (_error, _variables, context) => {
-            if (context?.previous) queryClient.setQueryData(scheduleKeys.all, context.previous);
-        },
-        // No `onSettled` refetch while the stub resolves locally — a refetch
-        // would revert the optimistic name before the real endpoint exists.
     });
 }
 
 /**
  * Permanently remove a schedule.
  *
- * TODO(backend): `DELETE /api/v1/schedules/{id}`. Until then the mutation
- * resolves immediately and optimistically removes the schedule from the
- * summaries cache, so the UI behaviour is complete and only the HTTP call is
- * missing.
+ * The API only accepts this for a draft; the caller makes that restriction
+ * visible, while a stale screen still receives the API's 409 detail.
  */
 export function useDeleteSchedule() {
     const { token } = useAuth();
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id }: { id: string }) => {
-            void token; // TODO(backend): `apiRequest(..., requireToken(token), ...)`
-            void id;
-            return { id };
+        mutationFn: ({ id }: { id: string }) => deleteSchedule(id, requireToken(token)),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
+            ]);
         },
-        onMutate: async ({ id }) => {
-            await queryClient.cancelQueries({ queryKey: scheduleKeys.all });
-            const previous = queryClient.getQueryData<ScheduleSummary[]>(scheduleKeys.all);
-            queryClient.setQueryData<ScheduleSummary[]>(scheduleKeys.all, (current) =>
-                (current ?? []).filter((schedule) => schedule.id !== id),
-            );
-            return { previous };
-        },
-        onError: (_error, _variables, context) => {
-            if (context?.previous) queryClient.setQueryData(scheduleKeys.all, context.previous);
-        },
-        // No `onSettled` refetch while the stub resolves locally — a refetch
-        // would revert the optimistic removal before the real endpoint exists.
     });
 }
 

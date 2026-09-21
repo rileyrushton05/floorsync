@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
 import { PageMessage } from "@/core/feedback/PageMessage";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
@@ -10,18 +9,15 @@ import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
-import { useArchiveSchedule, useDeleteSchedule, useRenameSchedule, useScheduleSummaries, useScheduleTimeline } from "@/features/schedules/data/queries";
+import { useDeleteSchedule, useScheduleSummaries, useScheduleTimeline, useUpdateScheduleStatus } from "@/features/schedules/data/queries";
 import {
     isFilterActive,
-    normalizeScheduleName,
     shortScheduleId,
     sortScheduleRows,
     toScheduleRow,
     type ScheduleSortKey
 } from "@/features/schedules/model/archive";
-import { DeleteArchivedScheduleDialog } from "@/features/schedules/ui/DeleteArchivedScheduleDialog";
 import { DeleteScheduleDialog } from "@/features/schedules/ui/DeleteScheduleDialog";
-import { RenameScheduleDialog } from "@/features/schedules/ui/RenameScheduleDialog";
 import { ScheduleDetailPane } from "@/features/schedules/ui/ScheduleDetailPane";
 import { ScheduleInventoryPanel } from "@/features/schedules/ui/ScheduleInventoryPanel";
 import { ArrowPathIcon } from "@heroicons/react/24/outline";
@@ -29,30 +25,26 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 /**
- * The schedule archive.
+ * Schedule history and lifecycle controls.
  *
  * Schedules are produced by the Planner, so this page only reads them: it is
- * the record of past runs a manager can browse, confirm context from, and jump
- * into the simulation from. The one mutation is archiving — hide a run from
- * the default list without deleting history.
+ * the record of past runs a manager can browse, confirm, withdraw, restore,
+ * and jump into the simulation from.
  *
  * Filters and sort are client-side over `GET /api/v1/schedules`; the detail
  * pane reads the same timeline endpoint the Planner and Simulation pages use.
  */
 
-type StatusFilter = "all" | "confirmed" | "draft" | "archived";
+type StatusFilter = "all" | "confirmed" | "draft" | "discarded";
 type StrategyFilter = "any" | "resched" | "exact";
 
 export default function SchedulesPage() {
     const schedulesQuery = useScheduleSummaries();
-    const archiveSchedule = useArchiveSchedule();
-    const renameSchedule = useRenameSchedule();
+    const updateScheduleStatus = useUpdateScheduleStatus();
     const deleteSchedule = useDeleteSchedule();
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
-    const [renaming, setRenaming] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
-    const [confirmArchive, setConfirmArchive] = useState(false);
     const [query, setQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [strategyFilter, setStrategyFilter] = useState<StrategyFilter>("any");
@@ -67,14 +59,11 @@ export default function SchedulesPage() {
             if (
                 needle &&
                 !row.id.toLowerCase().includes(needle) &&
-                !row.strategy.toLowerCase().includes(needle) &&
-                !(row.name ?? "").toLowerCase().includes(needle)
+                !row.strategy.toLowerCase().includes(needle)
             ) {
                 return false;
             }
-            // "All statuses" (the default view) hides archived runs; picking
-            // Archived shows only those. The total counts everything either way.
-            if (statusFilter === "all" ? row.status === "archived" : row.status !== statusFilter) {
+            if (statusFilter !== "all" && row.status !== statusFilter) {
                 return false;
             }
             if (strategyFilter !== "any" && row.strategy.toLowerCase() !== strategyFilter) return false;
@@ -92,11 +81,6 @@ export default function SchedulesPage() {
             : filteredRows[0]?.id ?? null;
 
     const selected = rows.find((row) => row.id === effectiveSelectedId) ?? null;
-    // A Confirmed schedule can only leave the floor when another Confirmed
-    // schedule exists to take over; otherwise the Archive control is dead.
-    const canArchiveConfirmed =
-        selected !== null &&
-        rows.some((row) => row.status === "confirmed" && row.id !== selected.id);
     const timelineQuery = useScheduleTimeline(effectiveSelectedId);
     const plan = useMemo(
         () => (timelineQuery.data ? timelineToPlan(timelineQuery.data) : null),
@@ -109,49 +93,16 @@ export default function SchedulesPage() {
         setStrategyFilter("any");
     }
 
-    async function toggleArchive() {
-        if (!selected || archiveSchedule.isPending) return;
-        // The toggle reads the schedule's current state; `archived` is the
-        // state we want it to *become*.
-        // - Confirmed: retiring the live plan must be answered first.
-        // - Archived: restore down the /unarchive path — non-destructive,
-        //   so no prompt.
-        // - Draft: nothing on the floor depended on it; archive outright.
-        if (selected.status === "confirmed") {
-            setConfirmArchive(true);
-            return;
-        }
-        if (selected.status === "archived") {
-            try {
-                await archiveSchedule.mutateAsync({ id: selected.id, archived: false });
-                toast.success(`${shortScheduleId(selected.id)} restored to the list.`);
-            } catch (error) {
-                reportMutationError(error);
-            }
-            return;
-        }
-        await doArchive(selected);
-    }
-
-    async function doArchive(target: typeof selected) {
-        if (!target) return;
+    async function changeStatus(status: "confirmed" | "discarded") {
+        if (!selected || updateScheduleStatus.isPending) return;
         try {
-            await archiveSchedule.mutateAsync({ id: target.id, archived: true });
-            toast.success(`${shortScheduleId(target.id)} archived.`);
-        } catch (error) {
-            reportMutationError(error);
-        }
-    }
-
-    async function rename(name: string) {
-        if (!selected || renameSchedule.isPending) return;
-        try {
-            await renameSchedule.mutateAsync({ id: selected.id, name: normalizeScheduleName(name) });
-            setRenaming(false);
+            await updateScheduleStatus.mutateAsync({ id: selected.id, status });
             toast.success(
-                normalizeScheduleName(name) === ""
-                    ? `Name cleared — ${shortScheduleId(selected.id)} is back to its ID.`
-                    : `Renamed to “${normalizeScheduleName(name)}”.`,
+                status === "discarded"
+                    ? `${shortScheduleId(selected.id)} withdrawn.`
+                    : selected.status === "discarded"
+                        ? `${shortScheduleId(selected.id)} restored.`
+                        : `${shortScheduleId(selected.id)} confirmed.`,
             );
         } catch (error) {
             reportMutationError(error);
@@ -164,7 +115,7 @@ export default function SchedulesPage() {
             await deleteSchedule.mutateAsync({ id: selected.id });
             setConfirmDelete(false);
             setSelectedId(null);
-            toast.success(`${selected.name?.trim() || shortScheduleId(selected.id)} deleted.`);
+            toast.success(`${shortScheduleId(selected.id)} deleted.`);
         } catch (error) {
             // The dialog stays open so the manager can retry; the optimistic
             // removal of the row is rolled back by the mutation's onError.
@@ -173,7 +124,7 @@ export default function SchedulesPage() {
     }
 
     if (schedulesQuery.isPending) {
-        return <ManagerPageState title="Loading schedules…">Reading the archive from the API.</ManagerPageState>;
+        return <ManagerPageState title="Loading schedules…">Reading schedule history from the API.</ManagerPageState>;
     }
     if (schedulesQuery.error instanceof ApiError && schedulesQuery.error.isForbidden) {
         return (
@@ -221,11 +172,11 @@ export default function SchedulesPage() {
                     <ScheduleDetailPane
                         schedule={selected}
                         plan={plan}
-                        archiving={archiveSchedule.isPending}
+                        updating={updateScheduleStatus.isPending}
                         deleting={deleteSchedule.isPending}
-                        canArchive={selected.status !== "confirmed" || canArchiveConfirmed}
-                        onToggleArchive={() => void toggleArchive()}
-                        onRename={() => setRenaming(true)}
+                        onConfirm={() => void changeStatus("confirmed")}
+                        onWithdraw={() => void changeStatus("discarded")}
+                        onRestore={() => void changeStatus("confirmed")}
                         onDelete={() => setConfirmDelete(true)}
                     />
                 ) : (
@@ -237,53 +188,19 @@ export default function SchedulesPage() {
                                 <p>
                                     {rows.length === 0
                                         ? "No schedules exist yet — generate one on the Planner page."
-                                        : "No schedules match these filters. Clear them to see the archive."}
+                                        : "No schedules match these filters. Clear them to see schedule history."}
                                 </p>
                             </PageMessage>
                         </CardContent>
                     </Card>
                 )}
-                {renaming && selected && (
-                    <RenameScheduleDialog
-                        currentName={selected.name ?? ""}
-                        isPending={renameSchedule.isPending}
-                        onSave={(name) => void rename(name)}
-                        onDismiss={() => setRenaming(false)}
-                    />
-                )}
-                {confirmArchive && selected && (
-                    <ConfirmDialog
-                        title={`Archive “${selected.name?.trim() || shortScheduleId(selected.id)}”?`}
-                        description={
-                            <>This will remove the schedule from the floor. Another confirmed schedule
-                            takes over as the active plan. Continue?</>
-                        }
-                        confirmLabel="Archive schedule"
-                        onConfirm={() => {
-                            setConfirmArchive(false);
-                            void doArchive(selected);
-                        }}
-                        onCancel={() => setConfirmArchive(false)}
-                    />
-                )}
                 {confirmDelete && selected && (
-                    selected.status === "archived" ? (
-                        // A retired schedule carries rollback lineage, so its
-                        // deletion is confirmed by typing the name, not a click.
-                        <DeleteArchivedScheduleDialog
-                            scheduleName={selected.name?.trim() || shortScheduleId(selected.id)}
-                            closing={false}
-                            onConfirm={() => void remove()}
-                            onDismiss={() => setConfirmDelete(false)}
-                        />
-                    ) : (
-                        <DeleteScheduleDialog
-                            scheduleLabel={`“${selected.name?.trim() || shortScheduleId(selected.id)}”`}
-                            closing={false}
-                            onConfirm={() => void remove()}
-                            onDismiss={() => setConfirmDelete(false)}
-                        />
-                    )
+                    <DeleteScheduleDialog
+                        scheduleLabel={`“${shortScheduleId(selected.id)}”`}
+                        closing={false}
+                        onConfirm={() => void remove()}
+                        onDismiss={() => setConfirmDelete(false)}
+                    />
                 )}
             </main>
         </ManagerShell>
