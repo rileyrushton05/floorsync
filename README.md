@@ -58,8 +58,11 @@ cp .env.example .env
 make bootstrap
 make install-hooks # optional: run the full check suite before each push
 docker compose up --build -d
-make db-upgrade
 ```
+
+Compose applies outstanding Alembic migrations before the API accepts traffic; the worker waits for
+that API health check. `make db-upgrade` remains available when you want to run the migration step
+manually.
 
 Load a scenario to work against — an empty database has no jobs or machines:
 
