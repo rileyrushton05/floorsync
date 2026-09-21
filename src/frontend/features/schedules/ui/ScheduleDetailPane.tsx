@@ -8,14 +8,13 @@ import { formatDuration } from "@/domains/scheduling/format";
 import type { TimelinePlan } from "@/domains/scheduling/timeline";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
 import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
-import { PencilSquareIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import { formatCreatedAt, shortScheduleId, type ScheduleRow } from "../model/archive";
 import { ScheduleStatusBadge } from "./ScheduleStatusBadge";
 
 /**
  * Right column of the Schedules page: everything known about one past run,
- * read-only apart from renaming, archiving and deleting. The plan preview and
+ * read-only apart from lifecycle transitions and deleting a draft. The plan preview and
  * machine-load bars are drawn exactly as the Planner page draws them, from the
  * same `timelineToPlan` translation — the Gantt is static here, a record of
  * the run rather than a thing to scrub.
@@ -23,21 +22,20 @@ import { ScheduleStatusBadge } from "./ScheduleStatusBadge";
 export function ScheduleDetailPane({
     schedule,
     plan,
-    archiving,
+    updating,
     deleting,
-    canArchive,
-    onToggleArchive,
-    onRename,
+    onConfirm,
+    onWithdraw,
+    onRestore,
     onDelete,
 }: {
     schedule: ScheduleRow;
     plan: TimelinePlan | null;
-    archiving: boolean;
+    updating: boolean;
     deleting: boolean;
-    /** Another Confirmed schedule exists that can take over on the floor. */
-    canArchive: boolean;
-    onToggleArchive: () => void;
-    onRename: () => void;
+    onConfirm: () => void;
+    onWithdraw: () => void;
+    onRestore: () => void;
     onDelete: () => void;
 }) {
     const summary = plan?.schedule ?? null;
@@ -56,18 +54,8 @@ export function ScheduleDetailPane({
                             Schedules › {shortScheduleId(schedule.id)}
                         </p>
                         <div className="flex items-center gap-3">
-                            <CardTitle className="truncate text-2xl">
-                                {schedule.name?.trim() || shortScheduleId(schedule.id)}
-                            </CardTitle>
+                            <CardTitle className="truncate text-2xl">{shortScheduleId(schedule.id)}</CardTitle>
                             <ScheduleStatusBadge status={schedule.status} />
-                            <Button
-                                intent="outline"
-                                size="sm"
-                                aria-label="Rename schedule"
-                                onPress={onRename}
-                            >
-                                <PencilSquareIcon /> Rename
-                            </Button>
                         </div>
                         <p className="text-muted-fg text-xs">{shortScheduleId(schedule.id)}</p>
                     </div>
@@ -107,6 +95,7 @@ export function ScheduleDetailPane({
                         label="Confirmed at"
                         value={schedule.confirmedAt === null ? "—" : formatCreatedAt(schedule.confirmedAt)}
                     />
+                    <Metadata label="Confirmed by" value={schedule.confirmedByUserId ?? "—"} />
                 </dl>
 
                 <Separator className="my-4" />
@@ -162,51 +151,31 @@ export function ScheduleDetailPane({
                             : `${schedule.opsCount ?? "—"} operations · makespan ${schedule.makespanMins === null ? "—" : formatDuration(schedule.makespanMins)}`}
                     </span>
                     <span className="flex items-center gap-2">
-                        {/* Two buttons, always present so the footer never
-                            shifts when a schedule's status changes. The first
-                            is one toggle: "Archive" for a Draft or Confirmed
-                            schedule, "Unarchive" for an Archived one — same
-                            slot, same click, opposite action. Only the label
-                            and the enabled state move with the lifecycle:
-                            - Draft: both live.
-                            - Confirmed: Archive needs a successor on the floor,
-                              and the live plan can never be deleted.
-                            - Archived: the toggle restores; Delete opens the
-                              strong type-the-name confirmation. */}
-                        <span
-                            title={
-                                schedule.status === "confirmed" && !canArchive
-                                    ? "Another confirmed schedule is required before this one can be archived."
-                                    : undefined
-                            }
-                        >
-                            <Button
-                                intent="outline"
-                                size="sm"
-                                isDisabled={schedule.status === "confirmed" && !canArchive}
-                                isPending={archiving}
-                                onPress={onToggleArchive}
-                            >
-                                {schedule.status === "archived" ? "Unarchive" : "Archive"}
+                        {schedule.status === "draft" && (
+                            <Button intent="success" size="sm" isPending={updating} onPress={onConfirm}>
+                                Confirm schedule
                             </Button>
-                        </span>
-                        <span
-                            title={
-                                schedule.status === "confirmed"
-                                    ? "The live confirmed schedule cannot be deleted."
-                                    : undefined
-                            }
-                        >
+                        )}
+                        {schedule.status === "confirmed" && (
+                            <Button intent="outline" size="sm" isPending={updating} onPress={onWithdraw}>
+                                Withdraw schedule
+                            </Button>
+                        )}
+                        {schedule.status === "discarded" && (
+                            <Button intent="success" size="sm" isPending={updating} onPress={onRestore}>
+                                Restore schedule
+                            </Button>
+                        )}
+                        {schedule.status === "draft" && (
                             <Button
                                 intent="danger"
                                 size="sm"
-                                isDisabled={schedule.status === "confirmed"}
                                 isPending={deleting}
                                 onPress={onDelete}
                             >
                                 Delete schedule
                             </Button>
-                        </span>
+                        )}
                     </span>
                 </div>
             </CardContent>

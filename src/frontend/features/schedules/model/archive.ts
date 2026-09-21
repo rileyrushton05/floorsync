@@ -3,20 +3,17 @@ import type { ScheduleSummary } from "../data/api";
 /**
  * View model for one row of the schedule inventory.
  *
- * The backend calls the archived state "discarded"; the archive screen speaks
- * the manager's word for it. Fields the API has not filled in yet
+ * Fields the API has not filled in yet
  * (`input_operation_count`, `makespan`) render as placeholders rather than
  * zeros, so a summary never invents numbers.
  */
 export interface ScheduleRow {
     id: string;
-    /** Optional manager-facing label; null when the schedule is unnamed. */
-    name: string | null;
-    /** Filter key: "archived" stands for the API's "discarded". */
-    status: "confirmed" | "draft" | "archived";
+    status: "confirmed" | "draft" | "discarded";
     strategy: string;
     createdAt: string;
     confirmedAt: string | null;
+    confirmedByUserId: string | null;
     opsCount: number | null;
     makespanMins: number | null;
 }
@@ -24,11 +21,11 @@ export interface ScheduleRow {
 export function toScheduleRow(schedule: ScheduleSummary): ScheduleRow {
     return {
         id: schedule.id,
-        name: schedule.name?.trim() === "" ? null : schedule.name ?? null,
-        status: schedule.status === "discarded" ? "archived" : schedule.status,
+        status: schedule.status,
         strategy: schedule.strategy,
         createdAt: schedule.created_at,
         confirmedAt: schedule.confirmed_at,
+        confirmedByUserId: schedule.confirmed_by_user_id,
         opsCount: schedule.input_operation_count,
         makespanMins: schedule.makespan,
     };
@@ -49,12 +46,6 @@ export function formatCreatedAt(iso: string): string {
 /** The first UUID segment: enough to quote a run, short enough to read. */
 export function shortScheduleId(id: string): string {
     return id.split("-")[0] ?? id;
-}
-
-/** Names are optional and short: trim whitespace, cap at 80 characters. */
-export const SCHEDULE_NAME_MAX = 80;
-export function normalizeScheduleName(raw: string): string {
-    return raw.trim().slice(0, SCHEDULE_NAME_MAX);
 }
 
 /** A filter is "active" when anything other than the defaults is chosen. */
