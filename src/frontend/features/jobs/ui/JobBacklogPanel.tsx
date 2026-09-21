@@ -70,7 +70,7 @@ export function JobBacklogPanel({
 }) {
     const rows = visibleJobs.slice(0, MAX_ROWS);
     const hidden = visibleJobs.length - rows.length;
-    const openCount = jobs.filter((job) => (job.backlogStatus ?? "open") === "open").length;
+    const openCount = jobs.filter((job) => job.backlogStatus === "open").length;
     const filtersActive =
         filters.query.trim() !== "" ||
         filters.status !== "Active" ||
@@ -255,7 +255,7 @@ export function JobBacklogPanel({
                 >
                     {(job) => {
                         const sequence = sequenceNumbers.get(job.id);
-                        const backlogStatus = job.backlogStatus ?? "open";
+                        const backlogStatus = job.backlogStatus ?? "archived";
                         const isOpen = backlogStatus === "open";
                         return (
                             <GridListItem

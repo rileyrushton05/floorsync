@@ -1,9 +1,8 @@
 import { apiRequest } from "@/core/http/client";
 import type { CursorPage } from "@/core/http/contracts";
+import type { BacklogStatus } from "@/domains/scheduling/types";
 
 export type { CursorPage } from "@/core/http/contracts";
-
-export type BacklogStatus = "open" | "planned" | "done" | "archived";
 
 export interface Job {
     id: string;

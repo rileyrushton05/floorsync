@@ -128,7 +128,7 @@ function JobsPageInner() {
     // and landing on a read-only editor would read as the page being broken.
     // Falling back to the first job at all is deliberate — on a floor where
     // everything is archived, showing one is better than showing nothing.
-    const firstJobToOpen = jobs.find((job) => (job.backlogStatus ?? "open") === "open") ?? jobs[0];
+    const firstJobToOpen = jobs.find((job) => job.backlogStatus === "open") ?? jobs[0];
     if (firstJobToOpen && !isCreating && draft.id === null && draft.name === "") {
         openDraft(draftFromJob(firstJobToOpen));
     }

@@ -104,7 +104,10 @@ export function draftFromJob(job: JobDef): JobDraft {
     return {
         ...job,
         archivedAt: job.archivedAt ?? null,
-        backlogStatus: job.backlogStatus ?? "open",
+        // A response missing this required API field must never turn a saved
+        // job editable. Treat it like an archived record until the API reply is
+        // corrected or the page refreshes with a complete contract.
+        backlogStatus: job.backlogStatus ?? "archived",
         plannedByScheduleIds: job.plannedByScheduleIds ?? [],
         foreignEdges: [],
         operations: job.operations.map((operation) => ({
@@ -317,7 +320,7 @@ export function filterJobs(jobs: JobDef[], filters: JobFilters): JobDef[] {
         // so matching against it could only ever produce results they cannot
         // explain from what is on screen.
         if (needle && !job.name.toLowerCase().includes(needle)) return false;
-        const status = job.backlogStatus ?? "open";
+        const status = job.backlogStatus ?? "archived";
         if (filters.status === "Active" && status !== "open") return false;
         if (filters.status === "Planned" && status !== "planned" && status !== "done") return false;
         if (filters.status === "Archived" && status !== "archived") return false;

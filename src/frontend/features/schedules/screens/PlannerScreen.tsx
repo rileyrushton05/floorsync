@@ -285,13 +285,22 @@ export default function PlannerPage() {
     );
     const openJobIds = useMemo(() => new Set(openJobs.map((job) => job.id)), [openJobs]);
     const validationQuery = useScheduleValidation(selectedJobIds);
+    const validationFeedback = useMemo(
+        () => [
+            ...(validationQuery.data?.issues ?? []),
+            ...(validationQuery.data?.unsupported
+                .filter((limit) => limit.strategy === strategy)
+                .map((limit) => limit.issue) ?? []),
+        ],
+        [strategy, validationQuery.data],
+    );
     const validationIssuesByJobId = useMemo(() => {
         const issues = new Map<string, SchedulingIssue>();
-        for (const issue of validationQuery.data?.issues ?? []) {
+        for (const issue of validationFeedback) {
             if (issue.job_id) issues.set(issue.job_id, issue);
         }
         return issues;
-    }, [validationQuery.data]);
+    }, [validationFeedback]);
     const generationQuery = useScheduleGeneration(generationRequest);
     const reportedGenerationFailure = useRef<string | null>(null);
     const latestSchedule = schedulesQuery.data?.[0] ?? null;
@@ -353,7 +362,7 @@ export default function PlannerPage() {
     ]);
 
     const generate = () => {
-        if (selectedJobIds.length === 0) return;
+        if (!canGenerate) return;
         setHighlightedJobId(null);
         requestSchedule.mutate({ startsAt: new Date().toISOString(), jobIds: selectedJobIds, strategy }, {
             onSuccess: (accepted) => {
@@ -384,6 +393,8 @@ export default function PlannerPage() {
     );
 
     const busy = requestSchedule.isPending || IN_FLIGHT.has(generation.status);
+    const canGenerate =
+        selectedJobIds.length > 0 && validationQuery.data?.schedulable[strategy] !== false;
 
     // A job can leave the backlog while this page is open. Settle the selection
     // during render so the next Generate press cannot send an id the page can
@@ -511,7 +522,7 @@ export default function PlannerPage() {
             {/* `isPending` rather than `isDisabled`: React Aria already stops
                     onPress firing while pending, and keeps the control focusable
                     and announced as busy instead of silently going dead. */}
-            <Button onPress={generate} isPending={busy} isDisabled={selectedJobIds.length === 0}>
+            <Button onPress={generate} isPending={busy} isDisabled={!canGenerate}>
                 {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
             </Button>
         </>}>
@@ -564,11 +575,15 @@ export default function PlannerPage() {
                             })}
                         </CheckboxGroup>
 
-                        {validationQuery.data && validationQuery.data.issues.length > 0 && (
+                        {validationFeedback.length > 0 && (
                             <Note intent="warning" className="mt-3">
-                                <strong>This selection needs attention before it can be scheduled.</strong>
+                                <strong>
+                                    {validationQuery.data?.schedulable[strategy] === false
+                                        ? `${strategy === "resched" ? "ReSched" : "Exact"} cannot schedule this selection.`
+                                        : "This selection needs attention before it can be scheduled."}
+                                </strong>
                                 <ul className="mt-1 list-disc space-y-1 ps-5 text-sm">
-                                    {validationQuery.data.issues.map((issue, index) => (
+                                    {validationFeedback.map((issue, index) => (
                                         <li key={`${issue.code}-${issue.job_id ?? index}`}>
                                             {issue.message}
                                         </li>
