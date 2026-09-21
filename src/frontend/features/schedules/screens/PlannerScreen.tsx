@@ -280,7 +280,7 @@ export default function PlannerPage() {
     const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
     const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
     const openJobs = useMemo(
-        () => (jobsQuery.data ?? []).filter((job) => (job.backlog_status ?? "open") === "open"),
+        () => (jobsQuery.data ?? []).filter((job) => job.backlogStatus === "open"),
         [jobsQuery.data],
     );
     const openJobIds = useMemo(() => new Set(openJobs.map((job) => job.id)), [openJobs]);

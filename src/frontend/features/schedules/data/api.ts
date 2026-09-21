@@ -20,7 +20,7 @@ export interface ScheduleValidation {
     schedulable: Record<ScheduleStrategy, boolean>;
     issues: SchedulingIssue[];
     warnings: SchedulingIssue[];
-    unsupported: { strategy: ScheduleStrategy; message: string }[];
+    unsupported: { strategy: ScheduleStrategy; issue: SchedulingIssue }[];
 }
 export interface ScheduleGenerationAccepted { id: string; status: "pending"; status_url: string; }
 export type ScheduleGenerationStatus =
