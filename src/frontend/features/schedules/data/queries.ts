@@ -11,6 +11,7 @@ import {
     fetchSchedules,
     requestSchedule,
     updateScheduleStatus,
+    validateSchedule,
     type ScheduleGenerationStatus,
     type ScheduleStrategy,
 } from "./api";
@@ -48,6 +49,17 @@ export function useScheduleTimeline(scheduleId: string | null) {
     });
 }
 
+/** Read the backend's preflight result for exactly the jobs the manager ticked. */
+export function useScheduleValidation(jobIds: readonly string[]) {
+    const { token } = useAuth();
+    const selected = [...jobIds].sort();
+    return useQuery({
+        queryKey: scheduleKeys.validation(selected),
+        enabled: token !== null && selected.length > 0,
+        queryFn: ({ signal }) => validateSchedule(selected, requireToken(token), signal),
+    });
+}
+
 /** Polls a generation until terminal state without a component-owned loop. */
 export function useScheduleGeneration(generation: { id: string; deadline: number } | null) {
     const { token } = useAuth();
@@ -80,8 +92,8 @@ export function useScheduleGeneration(generation: { id: string; deadline: number
 export function useRequestSchedule() {
     const { token } = useAuth();
     return useMutation({
-        mutationFn: ({ startsAt, strategy }: { startsAt: string; strategy: ScheduleStrategy }) =>
-            requestSchedule(startsAt, requireToken(token), strategy),
+        mutationFn: ({ startsAt, jobIds, strategy }: { startsAt: string; jobIds: string[]; strategy: ScheduleStrategy }) =>
+            requestSchedule(startsAt, jobIds, requireToken(token), strategy),
     });
 }
 

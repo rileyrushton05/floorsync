@@ -70,9 +70,7 @@ export function JobBacklogPanel({
 }) {
     const rows = visibleJobs.slice(0, MAX_ROWS);
     const hidden = visibleJobs.length - rows.length;
-    // The list now carries archived jobs too, so they can be found and copied.
-    // "Backlog" still means the work that is left, which is the open count.
-    const openCount = jobs.filter((job) => job.archivedAt == null).length;
+    const openCount = jobs.filter((job) => job.backlogStatus === "open").length;
     const filtersActive =
         filters.query.trim() !== "" ||
         filters.status !== "Active" ||
@@ -257,11 +255,12 @@ export function JobBacklogPanel({
                 >
                     {(job) => {
                         const sequence = sequenceNumbers.get(job.id);
-                        const archived = job.archivedAt != null;
+                        const backlogStatus = job.backlogStatus ?? "archived";
+                        const isOpen = backlogStatus === "open";
                         return (
                             <GridListItem
                                 id={job.id}
-                                textValue={`Job ${sequence ?? ""} ${job.name}${archived ? " (archived)" : ""}`}
+                                textValue={`Job ${sequence ?? ""} ${job.name}${isOpen ? "" : ` (${backlogStatus})`}`}
                                 className="items-start"
                             >
                                 <JobDot colors={colors} jobId={job.id} className="mt-1" />
@@ -274,11 +273,13 @@ export function JobBacklogPanel({
                                         )}
                                         <GridListLabel className="truncate text-sm">{job.name}</GridListLabel>
                                         <Badge intent={priorityIntent(job.priority)}>{job.priority}</Badge>
-                                        {/* The row is otherwise identical to an
-                                            open job's, and opening one leads to
-                                            a read-only editor — so the reason
-                                            has to be legible before the click. */}
-                                        {archived && <Badge intent="secondary">Archived</Badge>}
+                                        {!isOpen && (
+                                            <Badge intent="secondary">
+                                                {backlogStatus === "done"
+                                                    ? "Done"
+                                                    : backlogStatus[0]?.toUpperCase() + backlogStatus.slice(1)}
+                                            </Badge>
+                                        )}
                                     </span>
                                     <GridListDescription className="text-xs">
                                         {job.operations.length}{" "}

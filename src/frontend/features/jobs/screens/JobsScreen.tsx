@@ -124,11 +124,11 @@ function JobsPageInner() {
     // overwrites a new draft a manager has already started. This guarded render
     // update settles immediately, without a transient blank draft after load.
     //
-    // An open job is preferred over an archived one: the list now carries both,
+    // An open job is preferred over a job that has left the backlog: the list carries both,
     // and landing on a read-only editor would read as the page being broken.
     // Falling back to the first job at all is deliberate — on a floor where
     // everything is archived, showing one is better than showing nothing.
-    const firstJobToOpen = jobs.find((job) => job.archivedAt == null) ?? jobs[0];
+    const firstJobToOpen = jobs.find((job) => job.backlogStatus === "open") ?? jobs[0];
     if (firstJobToOpen && !isCreating && draft.id === null && draft.name === "") {
         openDraft(draftFromJob(firstJobToOpen));
     }
@@ -191,7 +191,7 @@ function JobsPageInner() {
     const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
     const visibleJobs = useMemo(() => filterJobs(jobs, filters), [jobs, filters]);
 
-    const archived = draft.archivedAt !== null;
+    const readOnly = draft.backlogStatus !== "open";
     const dirty = draftFingerprint(draft) !== draftFingerprint(baselineDraft);
     const gate = saveGate({
         isNew: draft.id === null,
@@ -201,7 +201,7 @@ function JobsPageInner() {
         graphFailed: graphError !== null && graphError !== undefined,
         loading,
         hasLoadError: Boolean(loadError),
-        archived,
+        readOnly,
     });
     // A copy is only faithful once the real graph has arrived: `draftFromJob`
     // opens on the straight chain, so duplicating before then would silently

@@ -1,5 +1,6 @@
 import { apiRequest } from "@/core/http/client";
 import type { CursorPage } from "@/core/http/contracts";
+import type { BacklogStatus } from "@/domains/scheduling/types";
 
 export type { CursorPage } from "@/core/http/contracts";
 
@@ -8,6 +9,8 @@ export interface Job {
     name: string;
     /** When the job left the backlog, or null while it is still open. */
     archived_at: string | null;
+    backlog_status: BacklogStatus;
+    planned_by_schedule_ids: string[];
     created_at: string;
     updated_at: string;
 }
@@ -33,6 +36,8 @@ export interface JobDefinition {
     priority: JobPriority;
     /** When the job left the backlog, or null while it is still open. */
     archived_at: string | null;
+    backlog_status: BacklogStatus;
+    planned_by_schedule_ids: string[];
     created_at: string;
     updated_at: string;
     operations: JobDefinitionOperation[];

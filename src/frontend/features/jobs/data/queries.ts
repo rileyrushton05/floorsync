@@ -18,6 +18,7 @@ import { scheduleKeys } from "@/features/schedules/data/keys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { jobKeys } from "./keys";
 import { toJobDefinition, toJobDefinitionInput } from "../model/job-definition";
+import { toJobSummary } from "../model/job-summary";
 import { edgesForSavedOperations, type PrecedenceNode } from "../model/dependencies";
 
 function requireToken(token: string | null): string {
@@ -55,8 +56,11 @@ export function useJobSummaries() {
     return useQuery({
         queryKey: jobKeys.all,
         enabled: token !== null,
-        queryFn: ({ signal }) =>
-            fetchEveryPage((cursor, pageSignal) => fetchJobs(requireToken(token), 100, cursor, pageSignal), signal),
+        queryFn: async ({ signal }) =>
+            (await fetchEveryPage(
+                (cursor, pageSignal) => fetchJobs(requireToken(token), 100, cursor, pageSignal),
+                signal,
+            )).map(toJobSummary),
         refetchOnMount: "always",
     });
 }

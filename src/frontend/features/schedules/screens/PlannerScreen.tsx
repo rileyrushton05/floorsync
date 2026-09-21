@@ -37,6 +37,7 @@ import {
     useScheduleGeneration,
     useScheduleSummaries,
     useScheduleTimeline,
+    useScheduleValidation,
 } from "@/features/schedules/data/queries";
 import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -208,7 +209,7 @@ function GenerationState({ generation }: { generation: Generation }) {
                         failed with no way to find the job responsible. */}
                     {generation.issues.some((issue) => issue.code === "unsupported_dependency_shape") && (
                         <p className="mt-2">
-                            A run covers every job at once, so a single job whose steps branch —
+                            This selection includes a job whose steps branch —
                             two steps waiting on the same earlier one, or one step waiting on
                             several — stops the whole floor being planned.{" "}
                             <Link href="/manager/jobs" className="underline">
@@ -259,8 +260,8 @@ function GenerationState({ generation }: { generation: Generation }) {
                     <h3 className="font-semibold text-lg">No plan yet</h3>
                     <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
                         Press <strong className="text-fg">Generate schedule</strong>. The scheduling
-                        engine assigns every operation in the database to a compatible machine and
-                        places it on the earliest slot that respects the dependencies between them.
+                        engine assigns the selected jobs&apos; operations to compatible machines and
+                        places them on the earliest slots that respect their dependencies.
                         The run happens on a worker, so this page will wait for it.
                     </p>
                 </div>
@@ -277,6 +278,29 @@ export default function PlannerPage() {
     const [generationRequest, setGenerationRequest] = useState<{ id: string; deadline: number } | null>(null);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
     const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
+    const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+    const openJobs = useMemo(
+        () => (jobsQuery.data ?? []).filter((job) => job.backlogStatus === "open"),
+        [jobsQuery.data],
+    );
+    const openJobIds = useMemo(() => new Set(openJobs.map((job) => job.id)), [openJobs]);
+    const validationQuery = useScheduleValidation(selectedJobIds);
+    const validationFeedback = useMemo(
+        () => [
+            ...(validationQuery.data?.issues ?? []),
+            ...(validationQuery.data?.unsupported
+                .filter((limit) => limit.strategy === strategy)
+                .map((limit) => limit.issue) ?? []),
+        ],
+        [strategy, validationQuery.data],
+    );
+    const validationIssuesByJobId = useMemo(() => {
+        const issues = new Map<string, SchedulingIssue>();
+        for (const issue of validationFeedback) {
+            if (issue.job_id) issues.set(issue.job_id, issue);
+        }
+        return issues;
+    }, [validationFeedback]);
     const generationQuery = useScheduleGeneration(generationRequest);
     const reportedGenerationFailure = useRef<string | null>(null);
     const latestSchedule = schedulesQuery.data?.[0] ?? null;
@@ -338,8 +362,9 @@ export default function PlannerPage() {
     ]);
 
     const generate = () => {
+        if (!canGenerate) return;
         setHighlightedJobId(null);
-        requestSchedule.mutate({ startsAt: new Date().toISOString(), strategy }, {
+        requestSchedule.mutate({ startsAt: new Date().toISOString(), jobIds: selectedJobIds, strategy }, {
             onSuccess: (accepted) => {
                 setGenerationRequest({ id: accepted.id, deadline: Date.now() + 180_000 });
             },
@@ -368,6 +393,16 @@ export default function PlannerPage() {
     );
 
     const busy = requestSchedule.isPending || IN_FLIGHT.has(generation.status);
+    const canGenerate =
+        selectedJobIds.length > 0 && validationQuery.data?.schedulable[strategy] !== false;
+
+    // A job can leave the backlog while this page is open. Settle the selection
+    // during render so the next Generate press cannot send an id the page can
+    // already see is no longer open.
+    const currentSelection = selectedJobIds.filter((id) => openJobIds.has(id));
+    if (currentSelection.length !== selectedJobIds.length) {
+        setSelectedJobIds(currentSelection);
+    }
 
     // The poll endpoint is a successful HTTP read even when the queued command
     // failed. Surface its API-authored failure once as feedback, while the
@@ -487,7 +522,7 @@ export default function PlannerPage() {
             {/* `isPending` rather than `isDisabled`: React Aria already stops
                     onPress firing while pending, and keeps the control focusable
                     and announced as busy instead of silently going dead. */}
-            <Button onPress={generate} isPending={busy}>
+            <Button onPress={generate} isPending={busy} isDisabled={!canGenerate}>
                 {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
             </Button>
         </>}>
@@ -498,53 +533,77 @@ export default function PlannerPage() {
                     <CardHeader className="flex-row items-center gap-2.5">
                         <CardTitle>Released to schedule</CardTitle>
                         <Badge intent="secondary">
-                            {jobs.length} / {jobs.length}
+                            {selectedJobIds.length} / {openJobs.length}
                         </Badge>
                     </CardHeader>
                     <CardContent>
                         <Note intent="info">
-                            Generation runs over <strong>every operation in the database</strong>.
-                            Scoping a run to a chosen subset of jobs is not something the API
-                            supports yet, so the list below is what will be planned rather than a
-                            choice.
+                            Select the open jobs to include in this run. Jobs already planned,
+                            completed or archived cannot be selected again.
                         </Note>
 
                         <CheckboxGroup
-                            aria-label="Jobs that will be scheduled"
-                            value={jobs.map((job) => job.id)}
-                            isDisabled
+                            aria-label="Jobs to schedule"
+                            value={selectedJobIds}
+                            isDisabled={busy}
+                            onChange={(values) => setSelectedJobIds([...values])}
                             className="mt-3"
                         >
-                            {jobs.map((job) => (
-                                <CheckboxField
-                                    key={job.id}
-                                    value={job.id}
-                                    className="rounded-lg p-2 transition-colors hover:bg-secondary"
-                                >
-                                    <Checkbox>
-                                        <span className="flex min-w-0 flex-col gap-0.5">
-                                            <span className="flex items-center gap-2">
-                                                <JobDot colors={colors} jobId={job.id} />
-                                                <span className="font-semibold text-sm">{job.name}</span>
+                            {openJobs.map((job) => {
+                                const issue = validationIssuesByJobId.get(job.id);
+                                return (
+                                    <CheckboxField
+                                        key={job.id}
+                                        value={job.id}
+                                        className="rounded-lg p-2 transition-colors hover:bg-secondary"
+                                    >
+                                        <Checkbox>
+                                            <span className="flex min-w-0 flex-col gap-0.5">
+                                                <span className="flex items-center gap-2">
+                                                    <JobDot colors={colors} jobId={job.id} />
+                                                    <span className="font-semibold text-sm">{job.name}</span>
+                                                </span>
+                                                {issue && (
+                                                    <span className="text-danger text-xs">
+                                                        {issue.message}
+                                                    </span>
+                                                )}
                                             </span>
-                                        </span>
-                                    </Checkbox>
-                                </CheckboxField>
-                            ))}
+                                        </Checkbox>
+                                    </CheckboxField>
+                                );
+                            })}
                         </CheckboxGroup>
 
-                        {jobs.length === 0 && (
+                        {validationFeedback.length > 0 && (
+                            <Note intent="warning" className="mt-3">
+                                <strong>
+                                    {validationQuery.data?.schedulable[strategy] === false
+                                        ? `${strategy === "resched" ? "ReSched" : "Exact"} cannot schedule this selection.`
+                                        : "This selection needs attention before it can be scheduled."}
+                                </strong>
+                                <ul className="mt-1 list-disc space-y-1 ps-5 text-sm">
+                                    {validationFeedback.map((issue, index) => (
+                                        <li key={`${issue.code}-${issue.job_id ?? index}`}>
+                                            {issue.message}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </Note>
+                        )}
+
+                        {openJobs.length === 0 && (
                             <p className="mt-3 text-muted-fg text-sm">
-                                No jobs in the database.{" "}
+                                No open jobs are available to schedule. {jobs.length === 0 && "Add a job first. "}
                                 <Link href="/manager/jobs" className="text-primary">
-                                    Add one →
+                                    Open the backlog →
                                 </Link>
                             </p>
                         )}
 
                         <Separator className="my-3" />
                         <div className="text-muted-fg text-sm">
-                            {jobs.length} {jobs.length === 1 ? "job" : "jobs"} ·{" "}
+                            {openJobs.length} open {openJobs.length === 1 ? "job" : "jobs"} ·{" "}
                             {activeMachines.length} of {machines.length} machines active
                         </div>
                         {activeMachines.length === 0 && machines.length > 0 && (
