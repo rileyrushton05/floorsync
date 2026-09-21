@@ -4050,9 +4050,58 @@
         ]
       }
     },
+    "/api/v1/schedules/{schedule_id}/simulation": {
+      "get": {
+        "description": "Recover the one simulation for a schedule, including its replayed clock.\n\nA manager normally reaches the simulation screen with a schedule id, not a\nsimulation id. Returning 404 when no simulation has been created keeps\n\"start simulation\" an explicit action while allowing a refresh to recover\nany existing event log.",
+        "operationId": "get_schedule_simulation_api_v1_schedules__schedule_id__simulation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get a schedule's persisted simulation position",
+        "tags": [
+          "simulation"
+        ]
+      }
+    },
     "/api/v1/schedules/{schedule_id}/timeline": {
       "get": {
-        "description": "Resolve a schedule's entries and dependencies into start and end times.\n\nThe result is immutable for a confirmed schedule, so a client should fetch it\nonce per schedule and animate locally rather than polling.",
+        "description": "Resolve a schedule's entries and dependencies into start and end times.\n\nThe result is immutable for a confirmed schedule. Clients use it to draw the\nplan, then read the schedule's simulation endpoint for a durable position.",
         "operationId": "get_schedule_timeline_api_v1_schedules__schedule_id__timeline_get",
         "parameters": [
           {
