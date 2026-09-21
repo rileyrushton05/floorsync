@@ -100,6 +100,7 @@ def generate_schedule(starts_at: str, job_ids: list[str]) -> dict[str, object]:
             plan=plan,
             runtime_ms=runtime_ms,
             input_operation_count=len(problem.operations),
+            starts_at=problem.starts_at,
             job_ids=selection,
         )
     return {"outcome": "stored", "schedule_id": str(stored.schedule.id)}
@@ -178,6 +179,7 @@ def generate_schedule_exact(starts_at: str, job_ids: list[str]) -> dict[str, obj
             plan=plan,
             runtime_ms=runtime_ms,
             input_operation_count=len(operation_data),
+            starts_at=problem.starts_at,
             strategy=EXACT_SOLVER_STRATEGY,
             job_ids=selection,
         )

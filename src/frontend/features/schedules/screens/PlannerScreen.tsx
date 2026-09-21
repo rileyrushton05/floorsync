@@ -23,7 +23,11 @@ import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { reportingDateStartsAt, useReportingDate } from "@/core/shell/ReportingDate";
+import {
+    ReportingDateProvider,
+    reportingDateStartsAt,
+    useReportingDate,
+} from "@/core/shell/ReportingDate";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -134,10 +138,19 @@ function formatPlanningDate(date: CalendarDate): string {
     });
 }
 
+/** Match a persisted instant to the calendar day shown in this manager's picker. */
+function localDateKey(startsAt: string): string | null {
+    const instant = new Date(startsAt);
+    if (Number.isNaN(instant.getTime())) return null;
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${instant.getFullYear()}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}`;
+}
+
 function PlannerActions({
     busy,
     canGenerate,
     scheduleExists,
+    date,
     strategy,
     onStrategyChange,
     onGenerate,
@@ -145,11 +158,11 @@ function PlannerActions({
     busy: boolean;
     canGenerate: boolean;
     scheduleExists: boolean;
+    date: CalendarDate;
     strategy: ScheduleStrategy;
     onStrategyChange: (strategy: ScheduleStrategy) => void;
     onGenerate: (startsAt: string) => void;
 }) {
-    const { date } = useReportingDate();
     const startLabel = formatPlanningDate(date);
     return (
         <>
@@ -186,8 +199,7 @@ function PlannerActions({
     );
 }
 
-function PlanningStartNotice() {
-    const { date } = useReportingDate();
+function PlanningStartNotice({ date }: { date: CalendarDate }) {
     return (
         <p className="text-muted-fg text-xs">
             New schedules start on <strong className="font-semibold text-fg">{formatPlanningDate(date)}</strong>.
@@ -223,7 +235,13 @@ function Placeholder({
  * problem, and a timeout means nothing ever picked the command up — three
  * different people fix those three things.
  */
-function GenerationState({ generation }: { generation: Generation }) {
+function GenerationState({
+    generation,
+    planningDay,
+}: {
+    generation: Generation;
+    planningDay: string;
+}) {
     switch (generation.status) {
         case "queued":
         case "running":
@@ -329,12 +347,11 @@ function GenerationState({ generation }: { generation: Generation }) {
         default:
             return (
                 <div className="rounded-lg border border-dashed p-8 text-center">
-                    <h3 className="font-semibold text-lg">No plan yet</h3>
+                    <h3 className="font-semibold text-lg">No schedule for {planningDay}</h3>
                     <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
-                        Press <strong className="text-fg">Generate schedule</strong>. The scheduling
-                        engine assigns the selected jobs&apos; operations to compatible machines and
-                        places them on the earliest slots that respect their dependencies.
-                        The run happens on a worker, so this page will wait for it.
+                        Select the open jobs and press <strong className="text-fg">Generate schedule</strong> to
+                        make a schedule for this day. Schedules made for other dates are available in{" "}
+                        <Link href="/manager/schedules" className="underline">Schedules</Link>.
                     </p>
                 </div>
             );
@@ -342,12 +359,25 @@ function GenerationState({ generation }: { generation: Generation }) {
 }
 
 export default function PlannerPage() {
+    return (
+        <ReportingDateProvider>
+            <PlannerPageContent />
+        </ReportingDateProvider>
+    );
+}
+
+function PlannerPageContent() {
+    const { date } = useReportingDate();
     const { user } = useAuth();
     const jobsQuery = useJobSummaries();
     const machinesQuery = useMachines();
     const schedulesQuery = useScheduleSummaries();
     const requestSchedule = useRequestSchedule();
-    const [generationRequest, setGenerationRequest] = useState<{ id: string; deadline: number } | null>(null);
+    const [generationRequest, setGenerationRequest] = useState<{
+        id: string;
+        deadline: number;
+        planningDay: string;
+    } | null>(null);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
     const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
     const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
@@ -373,16 +403,23 @@ export default function PlannerPage() {
         }
         return issues;
     }, [validationFeedback]);
-    const generationQuery = useScheduleGeneration(generationRequest);
+    const planningDay = date.toString();
+    const schedulesForDay = useMemo(
+        () => (schedulesQuery.data ?? []).filter((schedule) => localDateKey(schedule.starts_at) === planningDay),
+        [planningDay, schedulesQuery.data],
+    );
+    const activeGenerationRequest =
+        generationRequest?.planningDay === planningDay ? generationRequest : null;
+    const generationQuery = useScheduleGeneration(activeGenerationRequest);
     const reportedGenerationFailure = useRef<string | null>(null);
-    const latestSchedule = schedulesQuery.data?.[0] ?? null;
+    const latestSchedule = schedulesForDay[0] ?? null;
     const completedScheduleId =
         generationQuery.data?.status === "completed" ? generationQuery.data.schedule_id ?? null : null;
-    const selectedScheduleId = generationRequest === null ? latestSchedule?.id ?? null : completedScheduleId;
+    const selectedScheduleId = activeGenerationRequest === null ? latestSchedule?.id ?? null : completedScheduleId;
     const timelineQuery = useScheduleTimeline(selectedScheduleId);
 
     const generation: Generation = useMemo(() => {
-        if (generationRequest === null) {
+        if (activeGenerationRequest === null) {
             if (latestSchedule && timelineQuery.data) {
                 return {
                     status: "ready",
@@ -401,10 +438,10 @@ export default function PlannerPage() {
                 : { status: "error", message: errorMessage(generationQuery.error) };
         }
         if (!generationQuery.data || generationQuery.data.status === "pending") {
-            return { status: "queued", generationId: generationRequest.id };
+            return { status: "queued", generationId: activeGenerationRequest.id };
         }
         if (generationQuery.data.status === "running") {
-            return { status: "running", generationId: generationRequest.id };
+            return { status: "running", generationId: activeGenerationRequest.id };
         }
         if (generationQuery.data.status === "rejected") {
             return { status: "rejected", issues: generationQuery.data.issues };
@@ -425,7 +462,7 @@ export default function PlannerPage() {
         completedScheduleId,
         generationQuery.data,
         generationQuery.error,
-        generationRequest,
+        activeGenerationRequest,
         latestSchedule,
         requestSchedule.error,
         requestSchedule.isError,
@@ -438,7 +475,11 @@ export default function PlannerPage() {
         setHighlightedJobId(null);
         requestSchedule.mutate({ startsAt, jobIds: selectedJobIds, strategy }, {
             onSuccess: (accepted) => {
-                setGenerationRequest({ id: accepted.id, deadline: Date.now() + 180_000 });
+                setGenerationRequest({
+                    id: accepted.id,
+                    deadline: Date.now() + 180_000,
+                    planningDay,
+                });
             },
             onError: reportMutationError,
         });
@@ -567,10 +608,11 @@ export default function PlannerPage() {
         plan?.machines.find((machine) => machine.id === id)?.name ?? id;
 
     return (
-        <ManagerShell actions={<PlannerActions
+        <ManagerShell reportingDateProvider={false} actions={<PlannerActions
             busy={busy}
             canGenerate={canGenerate}
-            scheduleExists={schedule !== null}
+            scheduleExists={latestSchedule !== null}
+            date={date}
             strategy={strategy}
             onStrategyChange={setStrategy}
             onGenerate={generate}
@@ -586,7 +628,7 @@ export default function PlannerPage() {
                         </Badge>
                     </CardHeader>
                     <CardContent>
-                        <PlanningStartNotice />
+                        <PlanningStartNotice date={date} />
                         <Note intent="info" className="mt-2">
                             Select the open jobs to include in this run. Jobs already planned,
                             completed or archived cannot be selected again.
@@ -668,7 +710,7 @@ export default function PlannerPage() {
                 {/* ===== PLAN ===== */}
                 <Card className="min-w-0">
                     <CardHeader className="gap-3">
-                        <CardTitle>Generated plan</CardTitle>
+                        <CardTitle>Schedule for {formatPlanningDate(date)}</CardTitle>
                         {generation.status === "ready" && schedule && (
                             <div className="flex items-center gap-4">
                                 <span className="shrink-0 text-muted-fg text-xs">
@@ -694,7 +736,7 @@ export default function PlannerPage() {
                                 zoom={timelineZoom}
                             />
                         ) : (
-                            <GenerationState generation={generation} />
+                            <GenerationState generation={generation} planningDay={formatPlanningDate(date)} />
                         )}
                     </CardContent>
                 </Card>

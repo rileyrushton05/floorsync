@@ -42,6 +42,7 @@ def _schedule(status: str = "draft", confirmed: bool = False) -> Schedule:
         id=uuid4(),
         status=status,
         strategy="resched",
+        starts_at=CREATED_AT,
         created_at=CREATED_AT,
         updated_at=CREATED_AT,
         confirmed_by_user_id=MANAGER_ID if confirmed else None,
