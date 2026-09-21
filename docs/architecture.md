@@ -71,7 +71,6 @@ Docker Compose starts frontend, API, worker, Redis and PostgreSQL together. Copy
 
 ```bash
 docker compose up --build -d
-make db-upgrade
 ```
 
 - Frontend: <http://localhost:3000>
@@ -82,8 +81,9 @@ make db-upgrade
 Schema changes are managed with Alembic. Add ORM models under
 `floorsync_common.database.models`, import each module from that package, then run
 `make db-revision name="describe the schema change"` and review the generated migration. Apply
-migrations with `make db-upgrade`; application startup deliberately does not create or mutate the
-schema.
+migrations with `make db-upgrade`. In local Compose, the API startup command applies outstanding
+Alembic revisions before serving and the worker waits for API health; production deployments still
+run migrations as an explicit release step.
 
 Celery workers use a separate synchronous driver and create their pool after each worker process
 starts. See the

@@ -38,7 +38,6 @@ and write to PostgreSQL:
 
 ```bash
 docker compose up --build -d
-make db-upgrade
 ```
 
 Every command below runs through `docker compose run --rm api`, which starts a throwaway container

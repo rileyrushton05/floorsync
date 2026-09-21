@@ -29,8 +29,10 @@ cd team-61-cuffington-and-co
 cp .env.example .env          # required: compose reads .env through env_file
 make bootstrap                # submodules, uv sync, pnpm install
 docker compose up --build -d
-make db-upgrade               # apply migrations; startup never creates the schema
 ```
+
+The local Compose API applies outstanding Alembic migrations before it starts serving; the worker
+waits for the API health check. `make db-upgrade` remains available for a manual migration run.
 
 `make bootstrap` also initialises the ReSched submodule
 (`src/backend/third_party/ReSched`), which the worker image copies in. The stack starts without it
@@ -157,8 +159,9 @@ container, so it must be a URL your machine can reach — `http://localhost:8002
 `http://api:8000`. The app distinguishes this from a signed-out session and reports "The API is
 unreachable" rather than logging you out.
 
-**`relation "users" does not exist`, or similar.** Migrations have not been applied. Application
-startup deliberately never creates or mutates the schema. Run `make db-upgrade`.
+**`relation "users" does not exist`, or similar.** Check the API startup logs: it applies Alembic
+migrations before becoming healthy. If it failed, fix the reported migration error and restart with
+`docker compose up -d api`; `make db-upgrade` is also available for a manual run.
 
 **Signed in, but the simulation page is empty.** Either no scenario is seeded, or the seeded one has
 no solution. Run `make db-seed instance=abz5`.
@@ -171,8 +174,8 @@ command in [docs/accounts.md](../docs/accounts.md#list-every-account).
 bound to; the seed reports this as `removed N operator login(s)`. Recreate them after seeding.
 
 **Starting over.** `docker compose down -v` removes the containers *and* the `postgres_data` volume,
-which destroys the database — every account and every seeded scenario. Afterwards you need
-`make db-upgrade`, a reseed, and to recreate accounts. Without `-v` the data survives.
+which destroys the database — every account and every seeded scenario. Afterwards Compose reapplies
+migrations; reseed and recreate accounts. Without `-v` the data survives.
 
 ## Secrets
 
