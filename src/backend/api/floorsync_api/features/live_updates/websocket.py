@@ -18,7 +18,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Final, NoReturn
+from typing import Any, Final, NoReturn, assert_never
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -32,6 +32,7 @@ from floorsync_api.features.live_updates.snapshots import (
 from floorsync_api.features.live_updates.subscriptions import (
     LiveSubscriptionAuthorizer,
     SubscriptionGranted,
+    SubscriptionRefused,
 )
 from floorsync_api.features.live_updates.tickets import LiveUpdateTicketService
 from floorsync_common.database.session import session_scope
@@ -202,8 +203,13 @@ async def _subscribe(websocket: WebSocket, state: _ConnectionState, frame: dict[
         result = await LiveSubscriptionAuthorizer.authorize(
             db, user_id=state.user_id, simulation_id=simulation_id
         )
-        if not isinstance(result, SubscriptionGranted):
-            await _close(websocket, state, CLOSE_FORBIDDEN, "subscription_refused")
+        match result:
+            case SubscriptionGranted():
+                pass
+            case SubscriptionRefused():
+                await _close(websocket, state, CLOSE_FORBIDDEN, "subscription_refused")
+            case _:
+                assert_never(result)
 
         key = SubscriptionKey(
             simulation_id=simulation_id, audience=result.audience, machine_id=result.machine_id
@@ -224,11 +230,15 @@ async def _subscribe(websocket: WebSocket, state: _ConnectionState, frame: dict[
             db, simulation_id=simulation_id, audience=result.audience
         )
 
-    if isinstance(snapshot, SnapshotUnavailable):
-        # Subscribed, but nothing to show yet (the schedule has no entries). Not a protocol
-        # error -- the client simply waits for the first `simulation.changed` frame.
-        return
-    await websocket.send_json(snapshot)
+    match snapshot:
+        case SnapshotUnavailable():
+            # Subscribed, but nothing to show yet (the schedule has no entries). Not a protocol
+            # error -- the client simply waits for the first `simulation.changed` frame.
+            return
+        case dict():
+            await websocket.send_json(snapshot)
+        case _:
+            assert_never(snapshot)
 
 
 def _unsubscribe(websocket: WebSocket, state: _ConnectionState, frame: dict[str, Any]) -> None:

@@ -10,14 +10,14 @@ since a socket has not yet proven who it is asking on behalf of.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, assert_never
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.user import User
 from floorsync_common.simulation import queries as simulation_queries
-from floorsync_common.users.results import ActiveUserNotFound
+from floorsync_common.users.results import ActiveUserFound, ActiveUserNotFound
 from floorsync_common.users.service import UserService
 
 type AudienceScope = Literal["manager_floor", "operator_machine"]
@@ -51,9 +51,13 @@ class LiveSubscriptionAuthorizer:
         assigned machine -- is refused identically.
         """
         user_result = await UserService.get_active_user(db, user_id=user_id)
-        if isinstance(user_result, ActiveUserNotFound):
-            return SubscriptionRefused()
-        user = user_result.user
+        match user_result:
+            case ActiveUserFound(user=user):
+                pass
+            case ActiveUserNotFound():
+                return SubscriptionRefused()
+            case _:
+                assert_never(user_result)
 
         simulation = await simulation_queries.load_simulation(db, simulation_id)
         if simulation is None:

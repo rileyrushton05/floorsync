@@ -9,14 +9,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, assert_never
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_api.features.live_updates.subscriptions import AudienceScope
 from floorsync_common.live_updates.contracts import ENVELOPE_VERSION, SimulationAnchor
-from floorsync_common.simulation.results import SimulationPositionResolved
+from floorsync_common.simulation.results import (
+    ScheduleNotGenerated,
+    SimulationNotFound,
+    SimulationPositionResolved,
+)
 from floorsync_common.simulation.service import SimulationService
 
 SIMULATION_SNAPSHOT = "simulation.snapshot"
@@ -38,8 +42,13 @@ class LiveUpdateSnapshotService:
         db: AsyncSession, *, simulation_id: UUID, audience: AudienceScope
     ) -> BuildSnapshotResult:
         result = await SimulationService.get_simulation(db, simulation_id=simulation_id)
-        if not isinstance(result, SimulationPositionResolved):
-            return SnapshotUnavailable()
+        match result:
+            case SimulationPositionResolved():
+                pass
+            case SimulationNotFound() | ScheduleNotGenerated():
+                return SnapshotUnavailable()
+            case _:
+                assert_never(result)
 
         observed_at = datetime.now(UTC)
         anchor = SimulationAnchor(

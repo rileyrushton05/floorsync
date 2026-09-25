@@ -143,18 +143,23 @@ async def create_simulation(
             case _:
                 assert_never(created)
 
-        if isinstance(resolved, SimulationPositionResolved):
-            enqueued = await LiveUpdateOutboxService.enqueue_simulation_change(
-                db,
-                simulation=resolved.simulation,
-                position=resolved.position,
-                makespan=resolved.makespan,
-                cause="created",
-                occurred_at=occurred_at,
-            )
-            outbox_id = enqueued.outbox_id
-        # else: get_simulation failed right after creating it -- nothing to announce;
-        # _position_response below raises the appropriate error for both cases.
+        match resolved:
+            case SimulationPositionResolved():
+                enqueued = await LiveUpdateOutboxService.enqueue_simulation_change(
+                    db,
+                    simulation=resolved.simulation,
+                    position=resolved.position,
+                    makespan=resolved.makespan,
+                    cause="created",
+                    occurred_at=occurred_at,
+                )
+                outbox_id = enqueued.outbox_id
+            case SimulationNotFound() | ScheduleNotGenerated():
+                # get_simulation failed right after creating it -- nothing to announce;
+                # _position_response below raises the appropriate error for both cases.
+                pass
+            case _:
+                assert_never(resolved)
 
     if outbox_id is not None:
         await OutboxPublisher.publish_now(db, outbox_id)
@@ -216,16 +221,26 @@ async def create_simulation_event(
             at=occurred_at,
         )
 
-        if isinstance(result, ControlRecorded):
-            enqueued = await LiveUpdateOutboxService.enqueue_simulation_change(
-                db,
-                simulation=result.simulation,
-                position=result.position,
-                makespan=result.makespan,
-                cause=_live_update_cause(event_type),
-                occurred_at=occurred_at,
-            )
-            outbox_id = enqueued.outbox_id
+        match result:
+            case ControlRecorded():
+                enqueued = await LiveUpdateOutboxService.enqueue_simulation_change(
+                    db,
+                    simulation=result.simulation,
+                    position=result.position,
+                    makespan=result.makespan,
+                    cause=_live_update_cause(event_type),
+                    occurred_at=occurred_at,
+                )
+                outbox_id = enqueued.outbox_id
+            case (
+                SimulationNotFound()
+                | ScheduleNotGenerated()
+                | ControlNotApplicable()
+                | ControlSpeedRequired()
+            ):
+                pass
+            case _:
+                assert_never(result)
 
     if outbox_id is not None:
         await OutboxPublisher.publish_now(db, outbox_id)
