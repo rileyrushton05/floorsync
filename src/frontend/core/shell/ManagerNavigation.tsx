@@ -7,7 +7,8 @@ const TABS = [
     { href: "/manager", label: "Overview" },
     { href: "/manager/jobs", label: "Jobs" },
     { href: "/manager/machines", label: "Machines" },
-    { href: "/manager/scheduler", label: "Schedule" },
+    { href: "/manager/schedules", label: "Schedules" },
+    { href: "/manager/planner", label: "Planner" },
     { href: "/manager/simulation", label: "Simulation" },
 ];
 
@@ -27,7 +28,7 @@ export function ManagerNavigation() {
         <Tabs selectedKey={selected} aria-label="Manager sections" className="w-auto">
             <TabList items={TABS} className="ml-15">
                 {TABS.map((tab) => (
-                    <Tab key={tab.href} id={tab.href} href={tab.href}>
+                    <Tab key={tab.href} id={tab.href} href={tab.href} className="whitespace-nowrap">
                         {tab.label}
                     </Tab>
                 ))}

@@ -40,6 +40,7 @@ from floorsync_common.jobs.definition_results import (
     ReplaceDefinitionResult,
     UnknownMachine,
 )
+from floorsync_common.jobs.guards import refuse_unless_open
 from floorsync_common.jobs.results import JobNotFound
 from floorsync_common.operations.results import DependencyCycle
 from floorsync_common.operations.service import find_dependency_cycle
@@ -193,10 +194,11 @@ class JobDefinitionService:
         """Replace a job's name, priority, operations and routes wholesale, atomically.
 
         Every check below runs, and can fail, before anything is written -- a failed save must
-        leave every table exactly as it was. Refuses the whole save when: a supplied operation id
-        belongs to another job; a route names an unknown or inactive machine; the save would
-        remove an operation a generated schedule already recorded (every other edit is covered by
-        the schedule's own snapshot, so a job that has been scheduled stays editable; see
+        leave every table exactly as it was. Refuses the whole save when: the job is not open
+        (`JobHasLeftBacklog`, decisions 0018 and 0019: duplicate it instead); a supplied
+        operation id belongs to another job; a route names an unknown or inactive machine; the
+        save would remove an operation a draft schedule already recorded (every other edit is
+        covered by the draft's own snapshot, so a job a draft plans stays editable; see
         `JobDefinitionIsScheduled`); removing an omitted operation would cascade-delete an edge
         another job's own operation still depends on (`before_operation_id` may cross jobs by
         design, and `ON DELETE CASCADE` does not know that edge belongs to someone else); or the
@@ -214,6 +216,9 @@ class JobDefinitionService:
         job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if job is None:
             return JobNotFound(job_id=job_id)
+        refused = await refuse_unless_open(db, job)
+        if refused is not None:
+            return refused
 
         existing_operations = (
             await db.scalars(select(Operation).where(Operation.job_id == job_id))

@@ -11,9 +11,11 @@ take, so a scoped run that is refused reaches the client through exactly the pat
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping
+from typing import assert_never
 from uuid import UUID
 
+from floorsync_common.jobs.backlog import JobBacklog
 from floorsync_common.jobs.dependency_graph import JobEdge, prerequisite_job_ids
 from floorsync_common.scheduling.contracts import SchedulingIssue
 
@@ -27,7 +29,10 @@ UNSCHEDULED_PREREQUISITE_JOB = "unscheduled_prerequisite_job"
 """The selection leaves out a job that a selected job waits on."""
 
 ARCHIVED_JOB = "archived_job"
-"""The selection names a job that has left the backlog."""
+"""The selection names a job a manager retired by hand."""
+
+PLANNED_JOB = "planned_job"
+"""The selection names a job a confirmed schedule already plans (or has already run)."""
 
 
 def selection_issues(
@@ -35,16 +40,17 @@ def selection_issues(
     *,
     known_job_ids: Collection[UUID],
     job_edges: Iterable[JobEdge],
-    archived_job_ids: Collection[UUID] = (),
+    backlog: Mapping[UUID, JobBacklog],
 ) -> tuple[SchedulingIssue, ...]:
     """Report everything wrong with a job selection, before any of it reaches the scheduler.
 
     Unknown jobs are reported alone: a prerequisite walk over a selection containing ids that do not
     exist would report missing prerequisites for jobs the caller has already got wrong, which is
-    noise. Archived jobs likewise: they exist, but have finished or been cancelled, so asking to
-    schedule one is a mistake in the request rather than a gap in it. Each issue names its job in
-    `job_id` so a client can mark the offending row rather than parse the message, and issues are
-    ordered by id so the same bad request always reads the same.
+    noise. Jobs that have left the backlog likewise: an archived job was retired by hand, and a
+    planned or done job is already claimed by a confirmed schedule (`backlog`, decision 0019), so
+    asking to schedule either is a mistake in the request rather than a gap in it. Each issue
+    names its job in `job_id`, a planned one names the schedule too, and issues are ordered by id
+    so the same bad request always reads the same.
     """
 
     if not selected:
@@ -66,16 +72,9 @@ def selection_issues(
             for job_id in unknown
         )
 
-    archived = sorted(set(selected) & set(archived_job_ids))
-    if archived:
-        return tuple(
-            SchedulingIssue(
-                ARCHIVED_JOB,
-                "This job has been archived, so it is no longer offered for scheduling.",
-                job_id=job_id,
-            )
-            for job_id in archived
-        )
+    claimed = sorted(job_id for job_id in selected if backlog[job_id].status != "open")
+    if claimed:
+        return tuple(_claimed_issue(job_id, backlog[job_id]) for job_id in claimed)
 
     missing = sorted(prerequisite_job_ids(selected, job_edges) - set(selected))
     return tuple(
@@ -86,6 +85,34 @@ def selection_issues(
         )
         for job_id in missing
     )
+
+
+def _claimed_issue(job_id: UUID, backlog: JobBacklog) -> SchedulingIssue:
+    match backlog.status:
+        case "archived":
+            return SchedulingIssue(
+                ARCHIVED_JOB,
+                "This job has been archived, so it is no longer offered for scheduling.",
+                job_id=job_id,
+            )
+        case "done":
+            return SchedulingIssue(
+                PLANNED_JOB,
+                "This job has already been run by a confirmed schedule.",
+                job_id=job_id,
+                schedule_id=backlog.schedule_ids[-1],
+            )
+        case "planned":
+            return SchedulingIssue(
+                PLANNED_JOB,
+                "A confirmed schedule already plans this job; discard it to plan the job again.",
+                job_id=job_id,
+                schedule_id=backlog.schedule_ids[-1],
+            )
+        case "open":
+            raise ValueError("An open job is not a claimed one.")
+        case _:
+            assert_never(backlog.status)
 
 
 def no_schedulable_work_issue() -> SchedulingIssue:

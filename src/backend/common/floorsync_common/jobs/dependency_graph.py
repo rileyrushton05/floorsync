@@ -22,6 +22,7 @@ from sqlalchemy.orm import aliased
 from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
+from floorsync_common.jobs.backlog import planned_job_ids_statement
 
 type JobEdge = tuple[UUID, UUID]
 """One derived job-level edge: the `before` job must finish before the `after` job starts."""
@@ -31,9 +32,10 @@ def job_dependency_edges_statement() -> Select[JobEdge]:
     """Select every distinct cross-job edge between open jobs, as (before_job_id, after_job_id).
 
     Edges inside a single job are excluded: they order that job's own steps and say nothing about
-    whether some *other* job has to be scheduled alongside it. Edges touching an archived job are
-    excluded too: an archived prerequisite has finished or been cancelled and cannot be scheduled,
-    so it is treated as satisfied rather than demanded, and an archived dependant is nobody's
+    whether some *other* job has to be scheduled alongside it. Edges touching a job that has left
+    the backlog are excluded too, whether it was archived by hand or claimed by a confirmed
+    schedule (decision 0019): such a prerequisite is already taken care of and cannot be scheduled
+    again, so it is treated as satisfied rather than demanded, and such a dependant is nobody's
     concern. Both callers need that same reading, or the backlog would auto-tick a job the
     scheduler then refuses. Ordered so two calls agree, which matters for a response body a client
     may diff.
@@ -43,6 +45,7 @@ def job_dependency_edges_statement() -> Select[JobEdge]:
     after = aliased(Operation)
     before_job = aliased(Job)
     after_job = aliased(Job)
+    planned = planned_job_ids_statement()
     return (
         select(before.job_id, after.job_id)
         .select_from(Dependency)
@@ -54,6 +57,8 @@ def job_dependency_edges_statement() -> Select[JobEdge]:
             before.job_id != after.job_id,
             before_job.archived_at.is_(None),
             after_job.archived_at.is_(None),
+            before.job_id.not_in(planned),
+            after.job_id.not_in(planned),
         )
         .distinct()
         .order_by(before.job_id, after.job_id)

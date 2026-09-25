@@ -11,21 +11,23 @@ from floorsync_api.features.jobs.schemas import (
     JobDependencyEdgeResponse,
     JobDependencyGraphResponse,
     JobDetailResponse,
-    JobOperationResponse,
     JobResponse,
     JobUpdateRequest,
 )
 from floorsync_api.problems import (
     ProblemDetail,
+    job_has_left_backlog_problem,
     problem_response,
     schedule_references_hint,
     schedule_references_members,
 )
 from floorsync_api.schemas import CursorPage
 from floorsync_common.database.models.user import User
+from floorsync_common.jobs.backlog import OPEN, BacklogService
 from floorsync_common.jobs.results import (
     JobDeleted,
     JobFound,
+    JobHasLeftBacklog,
     JobIsScheduled,
     JobNotFound,
     JobUpdated,
@@ -54,7 +56,8 @@ async def create_job(
     async with db.begin():
         job = await JobService.create_job(db, name=command.name)
         response.headers["Location"] = f"/api/v1/jobs/{job.id}"
-        return JobResponse.model_validate(job)
+        # A job that did not exist a moment ago is in no schedule; no need to ask.
+        return JobResponse.from_job(job, OPEN)
 
 
 @router.get(
@@ -80,9 +83,10 @@ async def list_jobs(
         page = await JobService.list_jobs(
             db, limit=limit, cursor=cursor, include_archived=include_archived
         )
+        backlog = await BacklogService.load(db, page.jobs)
 
     return CursorPage[JobResponse](
-        items=[JobResponse.model_validate(job) for job in page.jobs],
+        items=[JobResponse.from_job(job, backlog[job.id]) for job in page.jobs],
         next_cursor=page.next_cursor,
     )
 
@@ -130,12 +134,8 @@ async def get_job(job_id: UUID, db: DbSession, _: Manager) -> JobDetailResponse:
 
         match result:
             case JobFound(job=job, operations=operations):
-                return JobDetailResponse(
-                    **JobResponse.model_validate(job).model_dump(),
-                    operations=[
-                        JobOperationResponse.model_validate(operation) for operation in operations
-                    ],
-                )
+                backlog = await BacklogService.load(db, [job])
+                return JobDetailResponse.from_job_and_operations(job, backlog[job.id], operations)
             case JobNotFound():
                 raise _job_not_found()
             case _:
@@ -146,18 +146,23 @@ async def get_job(job_id: UUID, db: DbSession, _: Manager) -> JobDetailResponse:
     "/{job_id}",
     response_model=JobResponse,
     summary="Update a job",
+    responses={
+        409: {"description": "The job has left the backlog and is read-only"},
+    },
 )
 async def update_job(
     job_id: UUID,
     command: JobUpdateRequest,
+    request: Request,
     db: DbSession,
     _: Manager,
-) -> JobResponse:
+) -> JobResponse | JSONResponse:
     """Apply a partial update, so a later schedule is generated from the corrected job.
 
-    `archived: true` retires the job from the backlog by hand, for a job that finished without a
-    simulation running or one that was cancelled; `archived: false` brings it back. Neither touches
-    any schedule, and neither makes the job deletable.
+    `archived: true` retires a job by hand: an open one that was cancelled, or a planned one the
+    manager is pulling from its plan. It touches no schedule and does not make the job deletable.
+    Only an open job can be renamed (decisions 0018, 0019); a planned job comes back when its
+    schedule is discarded, and archiving is one way.
     """
 
     changes = command.model_dump(exclude_unset=True)
@@ -172,9 +177,12 @@ async def update_job(
 
         match result:
             case JobUpdated(job=job):
-                return JobResponse.model_validate(job)
+                backlog = await BacklogService.load(db, [job])
+                return JobResponse.from_job(job, backlog[job.id])
             case JobNotFound():
                 raise _job_not_found()
+            case JobHasLeftBacklog(job_id=job_id, backlog=backlog, archived_at=archived_at):
+                return job_has_left_backlog_problem(request, job_id, backlog, archived_at)
             case _:
                 assert_never(result)
 

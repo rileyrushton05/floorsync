@@ -45,21 +45,21 @@ def _issues_payload(result: SchedulingInputInvalid) -> list[dict[str, str]]:
             **({"operation_id": str(issue.operation_id)} if issue.operation_id is not None else {}),
             **({"machine_id": str(issue.machine_id)} if issue.machine_id is not None else {}),
             **({"job_id": str(issue.job_id)} if issue.job_id is not None else {}),
+            **({"schedule_id": str(issue.schedule_id)} if issue.schedule_id is not None else {}),
         }
         for issue in result.issues
     ]
 
 
 @celery_app.task(name=SCHEDULE_GENERATION_TASK, queue="scheduling")  # type: ignore[untyped-decorator]
-def generate_schedule(starts_at: str, job_ids: list[str] | None = None) -> dict[str, object]:
+def generate_schedule(starts_at: str, job_ids: list[str]) -> dict[str, object]:
     """Generate and persist a draft without holding a database transaction during inference.
 
-    `job_ids` arrives as strings because a Celery argument has to survive JSON. It defaults to
-    `None`, so a task queued by an API that predates #231 still means the whole floor and no
-    in-flight message is invalidated by this deploy.
+    `job_ids` arrives as strings because a Celery argument has to survive JSON. It is the
+    manager's selection and is required (#270): a run always plans a chosen part of the backlog.
     """
 
-    selection = [UUID(job_id) for job_id in job_ids] if job_ids is not None else None
+    selection = [UUID(job_id) for job_id in job_ids]
 
     with worker_session_scope() as db:
         loaded = SchedulingService.load_input(
@@ -111,11 +111,12 @@ def generate_schedule(starts_at: str, job_ids: list[str] | None = None) -> dict[
     soft_time_limit=_EXACT_SOFT_TIME_LIMIT,
     time_limit=_EXACT_HARD_TIME_LIMIT,
 )
-def generate_schedule_exact(starts_at: str, job_ids: list[str] | None = None) -> dict[str, object]:
+def generate_schedule_exact(starts_at: str, job_ids: list[str]) -> dict[str, object]:
     """Generate and persist a draft with the exact Gurobi solver.
 
     Loads through the same `SchedulingService.load_input` as `generate_schedule`, so `job_ids`
-    scoping and its refusals (`unknown_job`, `empty_selection`, `unscheduled_prerequisite_job`)
+    scoping and its refusals (`unknown_job`, `empty_selection`, `planned_job`,
+    `unscheduled_prerequisite_job`)
     behave identically regardless of which engine solves the result -- there is no second, exact-
     solver-only read path to keep in sync with #231's rules.
 
@@ -128,7 +129,7 @@ def generate_schedule_exact(starts_at: str, job_ids: list[str] | None = None) ->
     `ReSchedRuntimeUnavailable`.
     """
 
-    selection = [UUID(job_id) for job_id in job_ids] if job_ids is not None else None
+    selection = [UUID(job_id) for job_id in job_ids]
 
     with worker_session_scope() as db:
         loaded = SchedulingService.load_input(

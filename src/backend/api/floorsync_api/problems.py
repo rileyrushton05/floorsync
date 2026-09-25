@@ -1,5 +1,8 @@
 from collections.abc import Mapping
+from datetime import datetime
 from http import HTTPStatus
+from typing import assert_never
+from uuid import UUID
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -7,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from floorsync_common.jobs.backlog import JobBacklog
 from floorsync_common.scheduling.references import ScheduleReferences
 
 PROBLEM_MEDIA_TYPE = "application/problem+json"
@@ -84,6 +88,55 @@ def schedule_references_hint(references: ScheduleReferences) -> str:
     return (
         f"Only draft schedules ({drafts}) reference it: delete them through "
         "DELETE /api/v1/schedules/{schedule_id} and retry."
+    )
+
+
+def job_has_left_backlog_problem(
+    request: Request, job_id: UUID, backlog: JobBacklog, archived_at: datetime | None
+) -> JSONResponse:
+    """The 409 every write to a job that is not open returns (decisions 0018, 0019).
+
+    Six routes across three features refuse for the same reason, so the type, title and the way
+    out are defined once. The extension members say why (`backlog_status`), which schedules hold
+    the job (`planned_by_schedule_ids`) and, for an archived job, since when.
+    """
+
+    match backlog.status:
+        case "planned":
+            detail = (
+                "A confirmed schedule already plans this job, so its definition is read-only. "
+                "Discard that schedule to bring the job back, or duplicate the job and edit the "
+                "copy."
+            )
+        case "done":
+            detail = (
+                "This job has been run, so its definition is read-only. Duplicate it and edit "
+                "the copy."
+            )
+        case "archived":
+            detail = (
+                "This job is archived, so its definition is read-only. Duplicate it and edit the "
+                "copy."
+            )
+        case "open":
+            raise ValueError("An open job is not refused.")
+        case _:
+            assert_never(backlog.status)
+
+    return problem_response(
+        ProblemDetail(
+            type="urn:floorsync:problem:job-has-left-backlog",
+            title="Job has left the backlog",
+            status=HTTPStatus.CONFLICT,
+            detail=detail,
+            instance=request.url.path,
+        ),
+        extensions={
+            "job_id": str(job_id),
+            "backlog_status": backlog.status,
+            "planned_by_schedule_ids": [str(schedule_id) for schedule_id in backlog.schedule_ids],
+            "archived_at": None if archived_at is None else archived_at.isoformat(),
+        },
     )
 
 

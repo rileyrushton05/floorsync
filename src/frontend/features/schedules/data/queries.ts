@@ -1,16 +1,21 @@
 "use client";
 
 import { useAuth } from "@/core/auth/AuthProvider";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import type { ScheduleSummary } from "./api";
 import {
+    deleteSchedule,
     fetchScheduleGeneration,
     fetchScheduleTimeline,
     fetchSchedules,
     requestSchedule,
+    updateScheduleStatus,
+    validateSchedule,
     type ScheduleGenerationStatus,
     type ScheduleStrategy,
 } from "./api";
-import { useEffect, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { jobKeys } from "@/features/jobs/data/keys";
 import { scheduleKeys } from "./keys";
 
 const GENERATION_POLL_MS = 1_000;
@@ -41,6 +46,17 @@ export function useScheduleTimeline(scheduleId: string | null) {
         enabled: token !== null && scheduleId !== null,
         queryFn: ({ signal }) => fetchScheduleTimeline(scheduleId!, requireToken(token), signal),
         refetchOnMount: "always",
+    });
+}
+
+/** Read the backend's preflight result for exactly the jobs the manager ticked. */
+export function useScheduleValidation(jobIds: readonly string[]) {
+    const { token } = useAuth();
+    const selected = [...jobIds].sort();
+    return useQuery({
+        queryKey: scheduleKeys.validation(selected),
+        enabled: token !== null && selected.length > 0,
+        queryFn: ({ signal }) => validateSchedule(selected, requireToken(token), signal),
     });
 }
 
@@ -76,8 +92,46 @@ export function useScheduleGeneration(generation: { id: string; deadline: number
 export function useRequestSchedule() {
     const { token } = useAuth();
     return useMutation({
-        mutationFn: ({ startsAt, strategy }: { startsAt: string; strategy: ScheduleStrategy }) =>
-            requestSchedule(startsAt, requireToken(token), strategy),
+        mutationFn: ({ startsAt, jobIds, strategy }: { startsAt: string; jobIds: string[]; strategy: ScheduleStrategy }) =>
+            requestSchedule(startsAt, jobIds, requireToken(token), strategy),
+    });
+}
+
+/** Move a schedule through the lifecycle the API owns. */
+export function useUpdateScheduleStatus() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, status }: { id: string; status: "confirmed" | "discarded" }) =>
+            updateScheduleStatus(id, status, requireToken(token)),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
+            ]);
+        },
+    });
+}
+
+/**
+ * Permanently remove a schedule.
+ *
+ * The API only accepts this for a draft; the caller makes that restriction
+ * visible, while a stale screen still receives the API's 409 detail.
+ */
+export function useDeleteSchedule() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id }: { id: string }) => deleteSchedule(id, requireToken(token)),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
+            ]);
+        },
     });
 }
 

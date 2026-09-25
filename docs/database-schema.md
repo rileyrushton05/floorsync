@@ -140,13 +140,19 @@ Jobs are independent of one another: there is no job-to-job dependency table or 
 Precedence is an operation-level fact on `dependencies`, and an edge may cross jobs only at that
 level. `priority` is lower-case in the database and API; the frontend maps to its own labels.
 
-`archived_at` is how a job leaves the backlog without being deleted (decision 0015). NULL means the
-job is open; a timestamp means it finished or was cancelled then. It is set for every job in a
-schedule whose simulation completes, or by hand through the jobs API. Listing and whole-floor
-generation skip archived jobs, and a precedence edge touching one is treated as satisfied. It is a
+`archived_at` is how a manager retires a job by hand without deleting it (decisions 0015, 0019).
+NULL means the manager has not; a timestamp means they did, then. Nothing else writes it. Whether a
+job is *planned* (a confirmed schedule has entries for it) or *done* (that schedule's simulation
+completed) is not stored here at all: it is derived from `schedule_entries`, `schedules.status` and
+`simulations.status` at read time and reported as `backlog_status` on every job response, so the
+column cannot drift from the schedules. Listing hides archived jobs, generation refuses archived,
+planned and done jobs, and a precedence edge touching any of them is treated as satisfied. It is a
 timestamp rather than a flag because *when* a job left the backlog is the fact worth keeping, and
 the flag is derivable from it. Archiving never unlocks deletion: a job a confirmed schedule planned
 stays undeletable, which is the whole reason archiving exists.
+Only an open job can be changed: a planned, done or archived job answers 409 to every write that
+changes what it is, and there is no `archived: false` (decisions 0018, 0019). Duplicate is the way
+to continue; a planned job also comes back when its schedule is discarded.
 
 ## operations
 
@@ -236,7 +242,9 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 migration to add later. A draft is deleted outright when abandoned, entries and all, because a draft
 nobody confirmed records nothing and the FK on its entries would otherwise keep blocking edits to
 the jobs it named; `discarded` is reserved for a confirmed schedule that is later withdrawn
-(decision 0015, see Deletion policy below). `confirmed_by_user_id` / `confirmed_at` are the audit trail for
+(decision 0015, see Deletion policy below). Both transitions are `PATCH /api/v1/schedules/{id}`
+with `status`; a discarded schedule can be confirmed again, and a confirmed one cannot be
+discarded once its simulation has recorded a control (#268). `confirmed_by_user_id` / `confirmed_at` are the audit trail for
 who actually handed a schedule off to simulation and when; `ondelete SET NULL` so a later change to
 the confirming user's account never threatens the schedule record itself. `total_energy` /
 `total_labour_cost` are written once at generation, summed from `schedule_entries` below — the same
@@ -430,6 +438,10 @@ everything else a save can change is already snapshotted on the schedule's own r
 - **Data explicitly designed to be disposable** — `schedule_dependencies` (rebuilt from scratch every
   generation, per #125) and `simulation_events` (meaningless detached from its simulation). Cascading
   these isn't a loophole, it's the documented design.
+- **A simulation nobody has controlled.** Withdrawing a confirmed schedule (`PATCH` with
+  `status: discarded`) removes a simulation that was created for it but has no events, because
+  such a row records nothing; one with any event is the floor acting on the plan and blocks the
+  withdrawal instead (#268).
 
 The practical effect: a `Machine`, `Job`, `Operation`, `Schedule`, or `Simulation` that has ever been
 used for anything real cannot be hard-deleted at all — the FK graph refuses it. That's intentional.

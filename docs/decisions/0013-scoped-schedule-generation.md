@@ -6,7 +6,8 @@
 
 ## Status
 
-Accepted.
+Accepted. Amended by decision 0019: `job_ids` is now required, so the unscoped whole-floor run
+described below no longer exists (#270).
 
 ## Context
 
@@ -96,8 +97,8 @@ than the job the manager actually got wrong.
   matches on it and never runs inference on a refused selection.
 - `SchedulingIssue` has a fifth field. It is appended, so the adapter's positional construction
   (`SchedulingIssue(code, message, operation_id, machine_id)`) is unchanged.
-- `generate_schedule` takes an optional second argument. A task queued before this deploy still
-  carries one argument and still means the whole floor, so no in-flight message is invalidated.
+- `generate_schedule` takes a second argument. *(Since decision 0019 it is required; there is no
+  whole-floor run for its absence to mean.)*
 - A job named by any schedule's selection cannot be deleted (`ON DELETE RESTRICT`). In practice this
   rarely fires alone: a job whose operations reached a schedule is already undeletable through
   `schedule_entries.operation_id`.
