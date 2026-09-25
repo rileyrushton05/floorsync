@@ -1,0 +1,63 @@
+name: Integration
+
+# Real-PostgreSQL tests (tests/integration). They prove what a faked session cannot, such as two
+# writes committing together, a row lock making a second transaction wait, and SKIP LOCKED. They
+# only run when a pull request touches code those guarantees depend on, so the shared Actions
+# minutes are spent where they can catch something.
+on:
+  pull_request:
+    paths:
+      - "src/database/migrations/**"
+      - "src/backend/common/floorsync_common/database/**"
+      - "src/backend/common/floorsync_common/live_updates/**"
+      - "src/backend/common/floorsync_common/simulation/**"
+      - "src/backend/api/floorsync_api/features/live_updates/**"
+      - "tests/integration/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/integration.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: floorsync
+          POSTGRES_PASSWORD: floorsync
+          POSTGRES_DB: floorsync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U floorsync -d floorsync_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FLOORSYNC_TEST_DATABASE_URL: postgresql+asyncpg://floorsync:floorsync@localhost:5432/floorsync_test
+      FLOORSYNC_REQUIRE_TEST_DATABASE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration
