@@ -28,6 +28,19 @@ export type ScheduleGenerationStatus =
     | { id: string; status: "completed"; schedule_id: string; schedule_url: string }
     | { id: string; status: "rejected"; issues: SchedulingIssue[] }
     | { id: string; status: "unavailable" | "failed"; detail: string };
+export type SimulationStatus = "not_started" | "running" | "paused" | "complete";
+export type SimulationEventType = "started" | "paused" | "resumed" | "speed_changed" | "reset" | "completed";
+export interface SimulationPosition {
+    id: string;
+    schedule_id: string;
+    status: SimulationStatus;
+    speed: string;
+    simulated_time: number;
+    makespan: number;
+    is_running: boolean;
+    is_complete: boolean;
+    derived_at: string;
+}
 
 export function fetchSchedules(token: string, signal?: AbortSignal) {
     return apiRequest<ScheduleSummary[]>("/api/v1/schedules", token, { signal });
@@ -75,4 +88,38 @@ export function deleteSchedule(scheduleId: string, token: string): Promise<void>
 }
 export function fetchScheduleGeneration(generationId: string, token: string, signal?: AbortSignal) {
     return apiRequest<ScheduleGenerationStatus>(`/api/v1/schedules/generations/${encodeURIComponent(generationId)}`, token, { signal });
+}
+
+/** Recover the schedule's single event-sourced simulation, if one has been started. */
+export function fetchScheduleSimulation(scheduleId: string, token: string, signal?: AbortSignal) {
+    return apiRequest<SimulationPosition>(
+        `/api/v1/schedules/${encodeURIComponent(scheduleId)}/simulation`,
+        token,
+        { signal },
+    );
+}
+
+export function createSimulation(scheduleId: string, token: string) {
+    return apiRequest<SimulationPosition>("/api/v1/simulations", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule_id: scheduleId }),
+    });
+}
+
+export function recordSimulationEvent(
+    simulationId: string,
+    eventType: SimulationEventType,
+    speed: number | undefined,
+    token: string,
+) {
+    return apiRequest<SimulationPosition>(
+        `/api/v1/simulations/${encodeURIComponent(simulationId)}/events`,
+        token,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event_type: eventType, ...(speed === undefined ? {} : { speed }) }),
+        },
+    );
 }

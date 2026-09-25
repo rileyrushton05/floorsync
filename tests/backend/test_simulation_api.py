@@ -35,6 +35,7 @@ from floorsync_common.simulation.results import (
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -314,6 +315,32 @@ def test_get_simulation_clamps_at_the_makespan() -> None:
     assert result.position.is_complete is True
 
 
+def test_get_schedule_simulation_recovers_the_position_from_a_schedule_id() -> None:
+    session = FakeSession(
+        schedule=FakeSchedule(),
+        simulation=FakeSimulation(status="running"),
+        event_rows=[("started", NOW, Decimal("1"))],
+    )
+
+    result = run(
+        SimulationService.get_simulation_for_schedule(
+            session, schedule_id=SCHEDULE_ID, at=NOW + timedelta(seconds=2)
+        )
+    )
+
+    assert isinstance(result, SimulationPositionResolved)
+    assert result.simulation.id == SIMULATION_ID
+    assert result.position.time == pytest.approx(2.0)
+
+
+def test_get_schedule_simulation_reports_that_it_has_not_been_started() -> None:
+    session = FakeSession(schedule=FakeSchedule(), simulation=None)
+
+    result = run(SimulationService.get_simulation_for_schedule(session, schedule_id=SCHEDULE_ID))
+
+    assert result == SimulationForScheduleNotFound(schedule_id=SCHEDULE_ID)
+
+
 # -- recording control actions -------------------------------------------
 
 
@@ -499,6 +526,21 @@ def test_simulation_route_returns_the_derived_position() -> None:
     assert body["makespan"] == 5
     assert body["status"] == "running"
     assert body["speed"] == "1"
+
+
+def test_schedule_simulation_route_recovers_the_derived_position() -> None:
+    client = build_client(
+        FakeSession(
+            schedule=FakeSchedule(),
+            simulation=FakeSimulation(status="running"),
+            event_rows=[("started", NOW, Decimal("1"))],
+        )
+    )
+
+    response = client.get(f"/api/v1/schedules/{SCHEDULE_ID}/simulation")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(SIMULATION_ID)
 
 
 def test_event_route_records_a_control_action() -> None:
