@@ -97,12 +97,6 @@ export default function MachinesPage() {
     /** Retire an active machine, or restore an inactive one; no confirm needed to re-activate. */
     function requestDeactivate() {
         if (!selected || saving) return;
-        if (machineInUse && selected.active) {
-            reportBackendFailure(
-                `${selected.name} cannot be removed: ${assignedOperationCount} operation${assignedOperationCount === 1 ? " is" : "s are"} still assigned to it. Unassign or re-route those operations first.`,
-            );
-            return;
-        }
         if (selected.active) setConfirmDeactivate(true);
         else void toggleActive();
     }
@@ -185,7 +179,7 @@ export default function MachinesPage() {
             {confirmDeactivate && selected && (
                 <ConfirmDialog
                     title={`Deactivate ${selected.name}?`}
-                    description={<>The machine will be kept as history but excluded from scheduling.</>}
+                    description={<>The machine and its existing operation routes stay in history, but it will be excluded from future scheduling.</>}
                     confirmLabel="Deactivate machine"
                     danger
                     onConfirm={() => void toggleActive()}
