@@ -35,13 +35,19 @@ class OutboxPublisher:
         row it only knows by id. Silently returns for a row that is already published or has
         vanished (both mean there is nothing left to do), and swallows any Redis error rather than
         raising: the caller's REST response must still report the control that already committed.
+
+        `db` arrives here right after the caller's own `db.begin()` block has already closed, and
+        this session's `autobegin=False` means any statement outside an explicit `begin()` raises
+        -- so even the read needs its own transaction, not just the mark-published write.
         """
-        row = await db.get(LiveUpdateOutbox, outbox_id)
-        if row is None or row.published_at is not None:
-            return
+        async with db.begin():
+            row = await db.get(LiveUpdateOutbox, outbox_id)
+            if row is None or row.published_at is not None:
+                return
+            payload = json.dumps(row.payload)
 
         try:
-            await get_redis_client().publish(SIMULATION_CHANGED_CHANNEL, json.dumps(row.payload))
+            await get_redis_client().publish(SIMULATION_CHANGED_CHANNEL, payload)
         except RedisError:
             logger.warning(
                 "Could not publish outbox row %s to Redis; leaving it for the relay.",

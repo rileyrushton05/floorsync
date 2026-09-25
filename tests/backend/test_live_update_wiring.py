@@ -208,25 +208,34 @@ class FakeOutboxRow:
 
 
 class FakePublisherTransaction:
+    def __init__(self, session: "FakePublisherSession") -> None:
+        self._session = session
+
     async def __aenter__(self) -> None:
-        return None
+        self._session.in_transaction = True
 
     async def __aexit__(self, *_: object) -> None:
-        return None
+        self._session.in_transaction = False
 
 
 class FakePublisherSession:
+    """Mimics `autobegin=False`: reading or writing outside an active `begin()` block raises,
+    the same way the real session would once the router's own transaction has already closed."""
+
     def __init__(self, row: FakeOutboxRow | None) -> None:
         self.row = row
         self.executed: list[Any] = []
+        self.in_transaction = False
 
     async def get(self, _model: Any, _id: UUID) -> FakeOutboxRow | None:
+        assert self.in_transaction, "get() called outside an active transaction"
         return self.row
 
     def begin(self) -> FakePublisherTransaction:
-        return FakePublisherTransaction()
+        return FakePublisherTransaction(self)
 
     async def execute(self, statement: Any) -> None:
+        assert self.in_transaction, "execute() called outside an active transaction"
         self.executed.append(statement)
         assert self.row is not None
         self.row.published_at = datetime.now(UTC)
