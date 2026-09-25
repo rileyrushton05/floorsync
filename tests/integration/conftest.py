@@ -9,9 +9,9 @@ The database is `FLOORSYNC_TEST_DATABASE_URL`, defaulting to `floorsync_test` on
 Postgres published on the host (port 5433). It is created if missing, migrated to head once per
 run, and emptied after every test that used it. The fixture refuses any database whose name does
 not end in `_test`, because emptying it is the point. When no Postgres answers, the tests that
-need it skip, so a plain `uv run pytest` without a database still passes. CI's integration job sets
-`FLOORSYNC_REQUIRE_TEST_DATABASE=1`, which turns that skip into a failure: a job whose whole purpose
-is these tests must not pass green by skipping them.
+need it skip, so a plain `uv run pytest` without a database still passes. Setting
+`FLOORSYNC_REQUIRE_TEST_DATABASE=1` turns that skip into a failure, for a CI run that has started a
+database precisely to run these tests and must not pass green by skipping them.
 """
 
 from __future__ import annotations

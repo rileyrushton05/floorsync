@@ -106,7 +106,7 @@ of every operator's browser, which a frontend-side filter cannot promise.
   (`get_simulation`) do not lock, so a dashboard poll never queues behind a control.
 - The guarantees above that only Postgres can give (decision 1's shared commit and rollback, the
   row lock, `SKIP LOCKED`, first-writer-wins marking) are proven against a real database in
-  `tests/integration/test_live_update_outbox.py`, which CI runs when these paths change.
+  `tests/integration/test_live_update_outbox.py` (`make test-integration`).
 - Published rows accumulate. Retention is a separate maintenance task and must not precede
   delivery verification (#148).
 - Bumping `ENVELOPE_VERSION` is a breaking change for every subscriber; adding an optional field
