@@ -1,7 +1,7 @@
 """record each schedule's manager-selected start time
 
 Revision ID: 20260921_0001
-Revises: 20260916_0001
+Revises: 20260916_0002
 Create Date: 2026-09-21
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260921_0001"
-down_revision: str | Sequence[str] | None = "20260916_0001"
+down_revision: str | Sequence[str] | None = "20260916_0002"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
