@@ -217,10 +217,13 @@ class SimulationService:
         ``simulations`` are updated alongside it as a readable projection, not as
         a second source of truth. Completion writes nothing onto the schedule's
         jobs: that they are done is read from this simulation (decision 0019).
+
+        The simulation row is locked for the rest of the transaction, so concurrent
+        controls are applied one at a time against the status the previous one left.
         """
         occurred_at = at or datetime.now(UTC)
 
-        simulation = await queries.load_simulation(db, simulation_id)
+        simulation = await queries.lock_simulation(db, simulation_id)
         if simulation is None:
             return SimulationNotFound(simulation_id=simulation_id)
 

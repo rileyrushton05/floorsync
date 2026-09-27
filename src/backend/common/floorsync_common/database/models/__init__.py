@@ -7,6 +7,7 @@ from floorsync_common.database.models.category import Category
 from floorsync_common.database.models.compatibility import Compatibility
 from floorsync_common.database.models.dependency import Dependency
 from floorsync_common.database.models.job import Job
+from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 from floorsync_common.database.models.operation import Operation
@@ -25,6 +26,7 @@ __all__ = [
     "Compatibility",
     "Dependency",
     "Job",
+    "LiveUpdateOutbox",
     "Machine",
     "Operation",
     "Schedule",

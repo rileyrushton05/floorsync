@@ -63,8 +63,21 @@ async def load_schedule_entries(db: AsyncSession, schedule_id: UUID) -> list[Sch
 
 
 async def load_simulation(db: AsyncSession, simulation_id: UUID) -> Simulation | None:
-    """Load one simulation by identifier."""
+    """Load one simulation by identifier, for reading."""
     result = await db.execute(select(Simulation).where(Simulation.id == simulation_id))
+    return result.scalar_one_or_none()
+
+
+async def lock_simulation(db: AsyncSession, simulation_id: UUID) -> Simulation | None:
+    """Load one simulation by identifier and hold its row until the transaction ends.
+
+    The control path's read. Two managers pressing buttons at once queue here, and the second
+    sees the row as the first left it, so `control_is_applicable` judges the real current status
+    and the live sequence the change is announced with follows the event order (decision 0017).
+    """
+    result = await db.execute(
+        select(Simulation).where(Simulation.id == simulation_id).with_for_update()
+    )
     return result.scalar_one_or_none()
 
 
