@@ -230,6 +230,7 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 |---|---|---|
 | status | Text | not null, CHECK status IN ('draft', 'confirmed', 'discarded') |
 | strategy | Text | not null |
+| starts_at | DateTime(timezone=True) | not null, indexed — requested schedule start time |
 | runtime_ms | Integer | nullable — elapsed engine time only, excluding database/API work |
 | input_operation_count | Integer | nullable — number of operations in this run's input |
 | makespan | Integer | nullable — set once generation completes |
