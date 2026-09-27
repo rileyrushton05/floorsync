@@ -1,6 +1,6 @@
 PNPM := corepack pnpm --dir src/frontend
 
-.PHONY: bootstrap check format-check lint typecheck test frontend-build install-hooks openapi openapi-check db-upgrade db-revision db-seed db-seed-list
+.PHONY: bootstrap check format-check lint typecheck test test-integration frontend-build install-hooks openapi openapi-check db-upgrade db-revision db-seed db-seed-list
 
 bootstrap:
 	git submodule update --init --recursive
@@ -22,6 +22,10 @@ typecheck:
 
 test:
 	uv run pytest
+
+# Real-Postgres tests; needs the Compose database up (docker compose up -d postgres).
+test-integration:
+	uv run pytest tests/integration
 
 frontend-build:
 	$(PNPM) build

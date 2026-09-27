@@ -105,6 +105,8 @@ class FakeSession:
         self.event_rows = event_rows if event_rows is not None else []
         self.added: list[Any] = []
         self.flushes = 0
+        self.simulation_reads: list[bool] = []
+        """Whether each read of `simulations` asked for the row lock."""
 
     def begin(self) -> FakeTransaction:
         return FakeTransaction()
@@ -126,6 +128,7 @@ class FakeSession:
         if "FROM schedules" in rendered:
             return FakeResult(scalar=self.schedule)
         if "FROM simulations" in rendered:
+            self.simulation_reads.append("FOR UPDATE" in rendered)
             return FakeResult(scalar=self.simulation)
         if "FROM simulation_events" in rendered:
             return FakeResult(rows=self.event_rows)
@@ -339,6 +342,34 @@ def test_record_control_appends_an_event_and_projects_status() -> None:
     assert simulation.status == "running"
     assert simulation.started_at == NOW
     assert simulation.speed == Decimal("2")
+
+
+def test_record_control_holds_the_simulation_row_for_the_transaction() -> None:
+    """Two managers pressing buttons at once must queue on the row (decision 0017), so the
+    second judges the status the first left and announces the next sequence in event order."""
+
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation())
+
+    run(
+        SimulationService.record_control(
+            session,
+            simulation_id=SIMULATION_ID,
+            event_type=SimulationEventType.STARTED,
+            speed=Decimal("2"),
+        )
+    )
+
+    assert session.simulation_reads == [True]
+
+
+def test_get_simulation_reads_without_locking() -> None:
+    """A dashboard poll must never queue behind a manager's control."""
+
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="running"))
+
+    run(SimulationService.get_simulation(session, simulation_id=SIMULATION_ID))
+
+    assert session.simulation_reads == [False]
 
 
 def test_record_control_rejects_an_inapplicable_transition() -> None:
