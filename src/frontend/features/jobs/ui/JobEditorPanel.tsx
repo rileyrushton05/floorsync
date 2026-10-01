@@ -304,7 +304,7 @@ export function JobEditorPanel({
                                 : "No operations yet — a job needs at least one."}
                         </div>
                     ) : (
-                        <div className="mt-3 grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)]">
+                        <div className="mt-3 flex flex-col gap-3">
                             <JobGraphDiagram
                                 operations={graphOperations}
                                 selectedId={selectedOperationId}

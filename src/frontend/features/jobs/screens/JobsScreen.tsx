@@ -640,7 +640,7 @@ function JobsPageInner() {
                 </Button>
             }
         >
-            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_2fr]">
+            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
                 <JobBacklogPanel
                     jobs={jobs}
                     visibleJobs={visibleJobs}
@@ -775,7 +775,7 @@ function JobsPageInner() {
             {confirmingArchive && draft.id && (
                 <ConfirmDialog
                     title={`Archive “${draft.name.trim() || "this job"}”?`}
-                    description={`Archiving takes the job out of the backlog, so it is no longer offered for scheduling and becomes read-only. There is no un-archive — duplicating it is the way to a version you can edit.${dirty ? " Unsaved changes here are discarded." : ""}`}
+                    description={`Archiving takes the job out of the backlog, so it is no longer offered for scheduling and becomes read-only. There is no un-archive duplicating it is the way to a version you can edit.${dirty ? " Unsaved changes here are discarded." : ""}`}
                     confirmLabel="Archive job"
                     cancelLabel="Keep it open"
                     onCancel={() => setConfirmingArchive(false)}
