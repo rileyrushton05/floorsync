@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/core/auth/AuthProvider";
 import {
+    archiveJob,
     createJobDefinition,
     deleteJob,
     fetchJobDefinitions,
@@ -216,6 +217,28 @@ export function useUpdateJobDefinition() {
                 queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.all }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.dependenciesAll }),
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+            ]);
+        },
+    });
+}
+
+/**
+ * Retire a job from the backlog by hand.
+ *
+ * Invalidates the same keys a delete does: the job leaves every list that shows
+ * the backlog, and no run can be generated from it any more. One way — the API
+ * has no un-archive (decision 0018) — so there is no paired hook to write.
+ */
+export function useArchiveJob() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => archiveJob(id, requireToken(token)),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.all }),
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
             ]);
         },

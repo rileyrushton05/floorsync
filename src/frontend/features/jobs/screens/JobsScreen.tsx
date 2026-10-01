@@ -9,12 +9,15 @@ import { buildJobColors } from "@/domains/scheduling/colors";
 import type { JobDef, OperationDef } from "@/domains/scheduling/types";
 import {
     JobGraphWriteError,
+    useArchiveJob,
     useCreateJobDefinition,
     useDeleteJobDefinition,
     useJobDefinitions,
     useJobDependencies,
     useUpdateJobDefinition,
 } from "@/features/jobs/data/queries";
+import { scheduleReferences, type ScheduleReferences } from "@/features/jobs/data/api";
+import { useDeleteSchedule } from "@/features/schedules/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
@@ -69,6 +72,11 @@ function JobsPageInner() {
     const createJob = useCreateJobDefinition();
     const updateJob = useUpdateJobDefinition();
     const deleteJob = useDeleteJobDefinition();
+    const archiveJob = useArchiveJob();
+    // Deleting a job the scheduler has only proposed means clearing the
+    // proposals first: schedule entries are what the API refuses the delete
+    // over, and a draft is the one kind it will let go of.
+    const deleteSchedule = useDeleteSchedule();
     const machines = useMemo(
         () =>
             (machineQuery.data ?? []).map((machine) => ({
@@ -82,7 +90,12 @@ function JobsPageInner() {
     const jobs = useMemo(() => jobQuery.data ?? [], [jobQuery.data]);
     const loading = machineQuery.isPending || jobQuery.isPending;
     const loadError = machineQuery.error ?? jobQuery.error;
-    const saving = createJob.isPending || updateJob.isPending || deleteJob.isPending;
+    const saving =
+        createJob.isPending ||
+        updateJob.isPending ||
+        deleteJob.isPending ||
+        archiveJob.isPending ||
+        deleteSchedule.isPending;
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<JobDraft>(() => (jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT));
     // The job as the API has it. Anything the draft says differently is unsaved
@@ -118,6 +131,16 @@ function JobsPageInner() {
     const [focusOperationId, setFocusOperationId] = useState<string | null>(null);
     /** A step removal held back until it is confirmed — the edit is not undoable. */
     const [pendingOperationRemoval, setPendingOperationRemoval] = useState<number | null>(null);
+    /** An archive held back until it is confirmed — there is no un-archive. */
+    const [confirmingArchive, setConfirmingArchive] = useState(false);
+    /**
+     * A delete the API refused, with the draft schedules standing in its way.
+     *
+     * Only set when every blocker is a draft: that is the one case the page can
+     * do something about, by deleting the proposals and asking again. A
+     * confirmed schedule in the way is reported as the refusal it is.
+     */
+    const [blockingDrafts, setBlockingDrafts] = useState<ScheduleReferences | null>(null);
 
     // The floor definition arrives after authentication. Select its first job
     // only while the editor is pristine, so a delayed API response never
@@ -508,20 +531,81 @@ function JobsPageInner() {
         }
     }
 
-    async function removeJob() {
+    /**
+     * Delete the open job, optionally clearing the drafts that block it first.
+     *
+     * The API refuses the delete while any schedule entry points at the job's
+     * work, and says which schedules those are. A draft is a proposal nobody
+     * has committed to, so the page can offer to delete it and ask again —
+     * which is the whole of `clearDrafts`. A confirmed schedule is a record of
+     * what the floor was told to do and is reported as the refusal it is.
+     */
+    async function removeJob(clearDrafts: readonly string[] = []) {
         if (!draft.id) return;
         const removedName = draft.name;
         try {
+            for (const scheduleId of clearDrafts) {
+                await deleteSchedule.mutateAsync({ id: scheduleId });
+            }
             await deleteJob.mutateAsync(draft.id);
             setIsCreating(false);
             openDraft(EMPTY_JOB_DRAFT);
-            setConfirmingDelete(false);
-            setDeleteClosing(false);
-            toast.success(`“${removedName}” deleted.`);
+            closeDeletePrompts();
+            toast.success(
+                clearDrafts.length === 0
+                    ? `“${removedName}” deleted.`
+                    : `“${removedName}” deleted, along with ${clearDrafts.length} draft ${clearDrafts.length === 1 ? "schedule" : "schedules"}.`,
+            );
         } catch (error) {
+            // Asking a second time would only be the same refusal: the drafts
+            // this round already deleted are gone, so whatever is in the way now
+            // is something the page cannot clear.
+            const references = clearDrafts.length === 0 ? scheduleReferences(error) : null;
+            if (references !== null && references.confirmedScheduleIds.length === 0) {
+                setConfirmingDelete(false);
+                setDeleteClosing(false);
+                setBlockingDrafts(references);
+                return;
+            }
             reportMutationError(error);
-            setConfirmingDelete(false);
-            setDeleteClosing(false);
+            closeDeletePrompts();
+        }
+    }
+
+    function closeDeletePrompts() {
+        setConfirmingDelete(false);
+        setDeleteClosing(false);
+        setBlockingDrafts(null);
+    }
+
+    /**
+     * Retire the open job from the backlog by hand.
+     *
+     * One way, so it is confirmed first (decision 0018). The editor is reopened
+     * on the job as the API now has it — read-only, and from the *saved*
+     * baseline rather than the draft: an archived job cannot be saved, so
+     * keeping unsaved edits on screen would only offer work that can no longer
+     * go anywhere.
+     */
+    async function archiveJobInEditor() {
+        if (!draft.id) return;
+        const archivedName = draft.name;
+        try {
+            const archived = await archiveJob.mutateAsync(draft.id);
+            setConfirmingArchive(false);
+            setIsCreating(false);
+            openDraft({
+                ...baselineDraft,
+                archivedAt: archived.archived_at,
+                backlogStatus: archived.backlog_status,
+                plannedByScheduleIds: archived.planned_by_schedule_ids,
+            });
+            setSelectedOperationId(null);
+            setFocusOperationId(null);
+            toast.success(`“${archivedName}” archived.`);
+        } catch (error) {
+            setConfirmingArchive(false);
+            reportMutationError(error);
         }
     }
 
@@ -603,6 +687,7 @@ function JobsPageInner() {
                     canDuplicate={canDuplicate}
                     onDuplicate={duplicateJob}
                     onRequestDelete={() => setConfirmingDelete(true)}
+                    onRequestArchive={() => setConfirmingArchive(true)}
                 />
             </main>
 
@@ -661,8 +746,40 @@ function JobsPageInner() {
                     jobName={draft.name}
                     sequenceNumber={sequenceNumbers.get(draft.id)}
                     closing={deleteClosing}
-                    onConfirm={removeJob}
+                    onConfirm={() => void removeJob()}
                     onDismiss={dismissDelete}
+                />
+            )}
+
+            {/* The delete was refused, and everything in the way is a draft.
+                Asked as its own question rather than folded into the first
+                confirmation: deleting someone's proposed schedules is a
+                separate consequence, and until the API refused there was no way
+                to know it applied. */}
+            {blockingDrafts !== null && (
+                <ConfirmDialog
+                    title={
+                        blockingDrafts.draftScheduleIds.length === 1
+                            ? "Delete the draft schedule too?"
+                            : `Delete ${blockingDrafts.draftScheduleIds.length} draft schedules too?`
+                    }
+                    description={`“${draft.name.trim() || "This job"}” appears in ${blockingDrafts.draftScheduleIds.length === 1 ? "a draft schedule" : `${blockingDrafts.draftScheduleIds.length} draft schedules`}, which is why it cannot be removed on its own. Deleting ${blockingDrafts.draftScheduleIds.length === 1 ? "that draft" : "those drafts"} clears the way, and then the job goes. Neither can be undone, and nothing confirmed is touched.`}
+                    confirmLabel="Delete drafts and job"
+                    cancelLabel="Keep everything"
+                    danger
+                    onCancel={() => setBlockingDrafts(null)}
+                    onConfirm={() => void removeJob(blockingDrafts.draftScheduleIds)}
+                />
+            )}
+
+            {confirmingArchive && draft.id && (
+                <ConfirmDialog
+                    title={`Archive “${draft.name.trim() || "this job"}”?`}
+                    description={`Archiving takes the job out of the backlog, so it is no longer offered for scheduling and becomes read-only. There is no un-archive — duplicating it is the way to a version you can edit.${dirty ? " Unsaved changes here are discarded." : ""}`}
+                    confirmLabel="Archive job"
+                    cancelLabel="Keep it open"
+                    onCancel={() => setConfirmingArchive(false)}
+                    onConfirm={() => void archiveJobInEditor()}
                 />
             )}
         </ManagerShell>
