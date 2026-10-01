@@ -38,8 +38,7 @@ export function MachineEditor({
     onRemove: () => void;
 }) {
     const editing = Boolean(draft.id) && draft.id === selected?.id;
-    const canToggleActive = editing && !saving;
-    const blockedByOperations = canToggleActive && assignedOperationCount > 0;
+    const blockedByOperations = editing && assignedOperationCount > 0;
     const machineActive = draft.active;
     return (
         <Card className="min-h-full">
@@ -91,7 +90,7 @@ export function MachineEditor({
                 {draft.id && <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t pt-4 text-sm"><dt className="text-muted-fg">Created</dt><dd>{new Date(selected?.created_at ?? "").toLocaleString()}</dd><dt className="text-muted-fg">Category</dt><dd>{draft.categoryId ? categoryNames.get(draft.categoryId) ?? draft.categoryId : "None"}</dd></dl>}
                 {blockedByOperations && (
                     <Note intent="warning" className="mt-auto">
-                        This machine has {assignedOperationCount} assigned operation{assignedOperationCount === 1 ? "" : "s"}. Unassign or re-route them before removing it.
+                        This machine has {assignedOperationCount} assigned operation{assignedOperationCount === 1 ? "" : "s"}. You can deactivate it to keep the history and exclude it from future scheduling; unassign or re-route it before removing the machine.
                     </Note>
                 )}
                 <div className="flex flex-wrap items-center justify-end gap-2.5 border-t pt-5">

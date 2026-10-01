@@ -88,6 +88,13 @@ class SimulationNotFound(ExpectedOutcome):
 
 
 @dataclass(frozen=True, slots=True)
+class SimulationForScheduleNotFound(ExpectedOutcome):
+    """No simulation has been started for this schedule yet."""
+
+    schedule_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationPositionResolved:
     """Where a simulation sits, derived from its event log."""
 
@@ -97,6 +104,12 @@ class SimulationPositionResolved:
 
 
 type GetSimulationResult = SimulationPositionResolved | SimulationNotFound | ScheduleNotGenerated
+type GetScheduleSimulationResult = (
+    SimulationPositionResolved
+    | ScheduleNotFound
+    | SimulationForScheduleNotFound
+    | ScheduleNotGenerated
+)
 
 
 # -- recording a control action ------------------------------------------

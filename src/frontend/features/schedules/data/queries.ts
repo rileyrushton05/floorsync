@@ -1,19 +1,24 @@
 "use client";
 
 import { useAuth } from "@/core/auth/AuthProvider";
+import { ApiError } from "@/core/http/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import type { ScheduleSummary } from "./api";
 import {
     deleteSchedule,
+    createSimulation,
+    fetchScheduleSimulation,
     fetchScheduleGeneration,
     fetchScheduleTimeline,
     fetchSchedules,
     requestSchedule,
+    recordSimulationEvent,
     updateScheduleStatus,
     validateSchedule,
     type ScheduleGenerationStatus,
     type ScheduleStrategy,
+    type SimulationEventType,
 } from "./api";
 import { jobKeys } from "@/features/jobs/data/keys";
 import { scheduleKeys } from "./keys";
@@ -46,6 +51,63 @@ export function useScheduleTimeline(scheduleId: string | null) {
         enabled: token !== null && scheduleId !== null,
         queryFn: ({ signal }) => fetchScheduleTimeline(scheduleId!, requireToken(token), signal),
         refetchOnMount: "always",
+    });
+}
+
+/**
+ * Read a schedule's durable simulation position. A 404 means no manager has
+ * started it yet, which is a normal empty state rather than a query failure.
+ */
+export function useScheduleSimulation(scheduleId: string | null) {
+    const { token } = useAuth();
+    return useQuery({
+        queryKey: scheduleKeys.simulation(scheduleId ?? "none"),
+        enabled: token !== null && scheduleId !== null,
+        queryFn: async ({ signal }) => {
+            try {
+                return await fetchScheduleSimulation(scheduleId!, requireToken(token), signal);
+            } catch (error) {
+                if (error instanceof ApiError && error.status === 404) return null;
+                throw error;
+            }
+        },
+        refetchInterval: (query) => query.state.data?.is_running ? GENERATION_POLL_MS : false,
+        refetchOnMount: "always",
+    });
+}
+
+export function useCreateSimulation() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (scheduleId: string) => createSimulation(scheduleId, requireToken(token)),
+        onSuccess: (simulation) => {
+            queryClient.setQueryData(scheduleKeys.simulation(simulation.schedule_id), simulation);
+        },
+    });
+}
+
+export function useRecordSimulationEvent() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({
+            simulationId,
+            eventType,
+            speed,
+        }: {
+            simulationId: string;
+            eventType: SimulationEventType;
+            speed?: number;
+        }) => recordSimulationEvent(simulationId, eventType, speed, requireToken(token)),
+        onSuccess: async (simulation) => {
+            queryClient.setQueryData(scheduleKeys.simulation(simulation.schedule_id), simulation);
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+            ]);
+        },
     });
 }
 

@@ -59,7 +59,7 @@ export function ScheduleDetailPane({
                         </div>
                         <p className="text-muted-fg text-xs">{shortScheduleId(schedule.id)}</p>
                     </div>
-                    {summary && (
+                    {schedule.status === "confirmed" && summary && (
                         <Link
                             href={`/manager/simulation?schedule=${encodeURIComponent(schedule.id)}`}
                             className={buttonStyles({ intent: "success", size: "sm" })}

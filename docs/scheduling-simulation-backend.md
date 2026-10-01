@@ -67,6 +67,7 @@ Every product endpoint requires a bearer token. Manager-only access applies to g
 | `DELETE /api/v1/schedules/{id}` | manager | Removes a draft and everything under it, `204`. A confirmed or discarded schedule answers `409 schedule-is-not-draft`. |
 | `PATCH /api/v1/schedules/{id}` | manager | `{"status": "confirmed"}` makes a draft the plan (records `confirmed_by_user_id`, `confirmed_at`) or restores a discarded one; `{"status": "discarded"}` withdraws a confirmed schedule. Repeating the current status is a no-op `200`. A draft answers `409 schedule-is-draft` (delete it instead); a schedule whose simulation has recorded a control answers `409 schedule-simulation-started`; a never-controlled simulation is removed with the withdrawal. |
 | `GET /api/v1/schedules/{id}/timeline` | signed-in user | Gantt-ready, derived timeline. It currently permits drafts as well as confirmed schedules. |
+| `GET /api/v1/schedules/{id}/simulation` | signed-in user | The schedule's persisted simulation position, replayed at server time; returns `404` until a manager starts it. |
 | `POST /api/v1/simulations` | manager | Creates one simulation for a confirmed schedule; `201` with `Location`. |
 | `GET /api/v1/simulations/{id}` | signed-in user | Authoritative position, replayed at server time. |
 | `POST /api/v1/simulations/{id}/events` | manager | Appends a control event and returns its derived position. |
@@ -194,7 +195,7 @@ Managers should be able to transition only `draft -> confirmed` or `draft -> dis
 
 ## Required shared simulation flow
 
-The backend already supports event-sourced shared playback. The current browser consumes only the timeline endpoint and instead drives `setInterval` locally; it does not create simulations or post events. Replace that split with the flow below.
+The manager UI uses the event-sourced playback API. It reads an immutable timeline for geometry, recovers the simulation by schedule on entry, and records every control action rather than treating browser time as authoritative.
 
 ```mermaid
 sequenceDiagram
@@ -210,7 +211,7 @@ sequenceDiagram
     API-->>MUI: 201 not_started simulation
     MUI->>API: GET /schedules/{schedule_id}/timeline
     API-->>MUI: Immutable operations and lanes
-    OUI->>API: GET /simulations/{simulation_id}
+    OUI->>API: GET /schedules/{schedule_id}/simulation
     API->>DB: Replay event log at server time
     API-->>OUI: Authoritative position
     Manager->>MUI: Start at speed
@@ -222,8 +223,8 @@ sequenceDiagram
         OUI->>OUI: Animate from last anchor
     end
     loop Join/reconnect/focus/short resync interval
-        MUI->>API: GET /simulations/{id}
-        OUI->>API: GET /simulations/{id}
+        MUI->>API: GET /schedules/{schedule_id}/simulation
+        OUI->>API: GET /schedules/{schedule_id}/simulation
         API->>DB: Replay events
         API-->>MUI: Correct position
         API-->>OUI: Correct position
@@ -236,18 +237,18 @@ sequenceDiagram
 
 Client rules:
 
-1. Fetch the timeline once per selected schedule; never poll it for frames.
-2. Create a simulation after confirmation, and treat an existing-session `409` as an invitation to open that session—not to create another.
-3. Use every control response as the clock anchor. Do not send browser elapsed time back as authority.
-4. On join/reconnect, read `GET /simulations/{id}` and seek the local player to that value.
-5. At or beyond the returned makespan, render complete and permit a new run only after `reset`.
+1. Fetch the timeline once per selected confirmed schedule; never poll it for frames.
+2. Recover with `GET /schedules/{id}/simulation`; a `404` is the normal not-started state.
+3. Create a simulation only after confirmation, then send start, pause, resume, speed, reset, and completion controls to the API.
+4. Use every returned position as the clock authority. Do not send browser elapsed time back to the server.
+5. At or beyond the returned makespan, record completion and permit a new run only after `reset`.
 
 ## Issues and remediation
 
 | Priority | Finding | Evidence and user impact | Remediation |
 | --- | --- | --- | --- |
 | Done | Confirmation/discard endpoint | `PATCH /api/v1/schedules/{id}` with `status` (#268). | Frontend wiring is #271. |
-| P0 | Frontend bypasses backend lifecycle | Scheduler generates a browser plan; simulation reads timeline but plays via a local React interval. The frontend API client lacks generation/control calls. | Wire queue/poll/review/confirm/create/control flow; mark the local planner as preview until replaced. |
+| Done | Frontend simulation bypassed backend lifecycle | The manager simulation used a local React interval and scrubber, so a refresh lost playback. | The screen now creates and recovers simulations by schedule, records controls, and displays the replayed server position (#247). |
 | P1 | Snapshot happens at worker start, not request acceptance | Queue command contains only `starts_at`; the worker loads the configuration when it claims the task. A changed floor can yield a different plan from the one the manager requested. | Persist a generation request and input snapshot before enqueueing; publish via an outbox. |
 | P1 | Concurrent simulation commands can race | Create and control services check state then write without a row lock. Concurrent calls can both pass a transition test or collide on the unique schedule ID. | Lock the schedule/simulation row; catch unique violation and return a deterministic `409`; test concurrent create/play. |
 | P1 | Non-positive speed is accepted | Presence is validated but `Decimal <= 0` is not. Replay then raises an invariant error. | Apply `gt=0` request validation and DB checks to event/simulation speed. |
@@ -257,14 +258,14 @@ Client rules:
 | P2 | Timeline access policy is ambiguous | Code permits any signed-in user and drafts; documentation repeatedly describes confirmed-schedule playback. | Decide and enforce: managers review drafts; authorised viewers play confirmed schedules, or explicitly document broad access. |
 | P2 | Resolver invariant failures are not mapped at the HTTP edge | A cyclic/mismatched stored graph can propagate as a generic server error. | Return stable client-safe Problem Details with private contextual logs. |
 | P3 | Existing scheduling prose overstates calendar support | The code rejects every unavailability window. | Describe downtime as unsupported until a calendar-aware scheduler/projection exists. |
-| P3 | Joining a known existing simulation is awkward | One simulation is unique per schedule but no schedule-to-simulation lookup exists, and event rows do not identify the actor. | Return existing resource details on conflict or add `GET /schedules/{id}/simulation`; add actor metadata if audit is required. |
+| Done | Joining a known existing simulation was awkward | One simulation is unique per schedule, but clients started from a schedule ID rather than a simulation ID. | `GET /schedules/{id}/simulation` returns the persisted position or a normal `404` before it starts. |
 
 ## Delivery order
 
 1. Add schedule confirmation/discard and connect frontend generation, polling, review, and confirmation.
-2. Connect frontend simulation creation/events; add positive speed validation and row locking.
+2. Add positive speed validation and row locking for concurrent simulation controls.
 3. Persist generation requests/snapshots/outcomes and use an outbox for reliable task publication.
-4. Add pagination, reliable join/discovery, and authenticated realtime updates or bounded polling.
+4. Add pagination and authenticated realtime updates or bounded polling.
 5. Only then add downtime-aware scheduling, disruption events, or rescheduling as a new draft version—not a mutation of a confirmed plan.
 
 ## Verification checklist

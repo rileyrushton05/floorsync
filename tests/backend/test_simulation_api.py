@@ -35,6 +35,7 @@ from floorsync_common.simulation.results import (
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -105,6 +106,8 @@ class FakeSession:
         self.event_rows = event_rows if event_rows is not None else []
         self.added: list[Any] = []
         self.flushes = 0
+        self.simulation_reads: list[bool] = []
+        """Whether each read of `simulations` asked for the row lock."""
 
     def begin(self) -> FakeTransaction:
         return FakeTransaction()
@@ -126,6 +129,7 @@ class FakeSession:
         if "FROM schedules" in rendered:
             return FakeResult(scalar=self.schedule)
         if "FROM simulations" in rendered:
+            self.simulation_reads.append("FOR UPDATE" in rendered)
             return FakeResult(scalar=self.simulation)
         if "FROM simulation_events" in rendered:
             return FakeResult(rows=self.event_rows)
@@ -314,6 +318,32 @@ def test_get_simulation_clamps_at_the_makespan() -> None:
     assert result.position.is_complete is True
 
 
+def test_get_schedule_simulation_recovers_the_position_from_a_schedule_id() -> None:
+    session = FakeSession(
+        schedule=FakeSchedule(),
+        simulation=FakeSimulation(status="running"),
+        event_rows=[("started", NOW, Decimal("1"))],
+    )
+
+    result = run(
+        SimulationService.get_simulation_for_schedule(
+            session, schedule_id=SCHEDULE_ID, at=NOW + timedelta(seconds=2)
+        )
+    )
+
+    assert isinstance(result, SimulationPositionResolved)
+    assert result.simulation.id == SIMULATION_ID
+    assert result.position.time == pytest.approx(2.0)
+
+
+def test_get_schedule_simulation_reports_that_it_has_not_been_started() -> None:
+    session = FakeSession(schedule=FakeSchedule(), simulation=None)
+
+    result = run(SimulationService.get_simulation_for_schedule(session, schedule_id=SCHEDULE_ID))
+
+    assert result == SimulationForScheduleNotFound(schedule_id=SCHEDULE_ID)
+
+
 # -- recording control actions -------------------------------------------
 
 
@@ -339,6 +369,34 @@ def test_record_control_appends_an_event_and_projects_status() -> None:
     assert simulation.status == "running"
     assert simulation.started_at == NOW
     assert simulation.speed == Decimal("2")
+
+
+def test_record_control_holds_the_simulation_row_for_the_transaction() -> None:
+    """Two managers pressing buttons at once must queue on the row (decision 0017), so the
+    second judges the status the first left and announces the next sequence in event order."""
+
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation())
+
+    run(
+        SimulationService.record_control(
+            session,
+            simulation_id=SIMULATION_ID,
+            event_type=SimulationEventType.STARTED,
+            speed=Decimal("2"),
+        )
+    )
+
+    assert session.simulation_reads == [True]
+
+
+def test_get_simulation_reads_without_locking() -> None:
+    """A dashboard poll must never queue behind a manager's control."""
+
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="running"))
+
+    run(SimulationService.get_simulation(session, simulation_id=SIMULATION_ID))
+
+    assert session.simulation_reads == [False]
 
 
 def test_record_control_rejects_an_inapplicable_transition() -> None:
@@ -499,6 +557,21 @@ def test_simulation_route_returns_the_derived_position() -> None:
     assert body["makespan"] == 5
     assert body["status"] == "running"
     assert body["speed"] == "1"
+
+
+def test_schedule_simulation_route_recovers_the_derived_position() -> None:
+    client = build_client(
+        FakeSession(
+            schedule=FakeSchedule(),
+            simulation=FakeSimulation(status="running"),
+            event_rows=[("started", NOW, Decimal("1"))],
+        )
+    )
+
+    response = client.get(f"/api/v1/schedules/{SCHEDULE_ID}/simulation")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(SIMULATION_ID)
 
 
 def test_event_route_records_a_control_action() -> None:
