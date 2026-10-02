@@ -8,6 +8,7 @@
  */
 
 export type Priority = "High" | "Med" | "Low";
+export type BacklogStatus = "open" | "planned" | "done" | "archived";
 
 export interface Machine {
     id: string;
@@ -36,6 +37,28 @@ export interface JobDef {
     id: string;
     name: string;
     priority: Priority;
+    /**
+     * When the API created the job, if the source carries it.
+     *
+     * The backend lists jobs by `(name, id)`, so array position is a *name* rank
+     * and changes whenever any job is renamed. Creation time is the one ordering
+     * that belongs to the job itself, which is why colour identity and the
+     * backlog's sequence numbers are both keyed off it — see `stableJobOrder`.
+     * Optional because the schedule timeline contract does not carry it.
+     */
+    createdAt?: string;
+    /**
+     * When the job left the backlog, or null while it is still open.
+     *
+     * An archived job has finished or been cancelled: it is no longer offered
+     * for scheduling, and the builder shows it read-only. Optional for the same
+     * reason as `createdAt` — the schedule timeline contract does not carry it.
+     */
+    archivedAt?: string | null;
+    /** Derived from confirmed schedules and the job's archive state. */
+    backlogStatus?: BacklogStatus;
+    /** Confirmed schedules that plan this job, oldest first. */
+    plannedByScheduleIds?: string[];
     /** Ordered chain — operation n+1 cannot start until operation n finishes. */
     operations: OperationDef[];
 }

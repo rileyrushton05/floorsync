@@ -50,3 +50,7 @@ export function updateMachine(machineId: string, input: Partial<MachineInput>, t
         body: JSON.stringify(input),
     });
 }
+
+export function deleteMachine(machineId: string, token: string): Promise<void> {
+    return apiRequest<void>(`/api/v1/machines/${encodeURIComponent(machineId)}`, token, { method: "DELETE" });
+}

@@ -208,7 +208,7 @@ class FakeOutboxRow:
 
 
 class FakePublisherTransaction:
-    def __init__(self, session: "FakePublisherSession") -> None:
+    def __init__(self, session: FakePublisherSession) -> None:
         self._session = session
 
     async def __aenter__(self) -> None:

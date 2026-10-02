@@ -4,6 +4,7 @@ import { useAuth } from "@/core/auth/AuthProvider";
 import { fetchEveryPage } from "@/core/query/pagination";
 import {
     createMachine,
+    deleteMachine,
     fetchMachineCategories,
     fetchMachines,
     updateMachine,
@@ -42,6 +43,21 @@ export function useMachineCategories() {
         queryFn: ({ signal }) => fetchMachineCategories(requireToken(token), signal),
         staleTime: 5 * 60 * 1000,
         refetchOnMount: "always",
+    });
+}
+
+export function useDeleteMachine() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => deleteMachine(id, requireToken(token)),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: machineKeys.all }),
+                queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+            ]);
+        },
     });
 }
 

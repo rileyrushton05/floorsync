@@ -3,6 +3,7 @@
 import { UserMenu } from "@/core/auth/UserMenu";
 import { Wordmark } from "./Logo";
 import { ManagerNavigation } from "./ManagerNavigation";
+import { ReportingDatePicker } from "./ReportingDatePicker";
 
 /**
  * Shared topbar chrome for every manager route.
@@ -13,7 +14,7 @@ import { ManagerNavigation } from "./ManagerNavigation";
  */
 export function ManagerTopbar({ children }: { children?: React.ReactNode }) {
     return (
-        <header className="flex flex-nowrap items-center gap-5 border-b bg-navbar px-7 py-3.5">
+        <header className="flex flex-nowrap items-center gap-5 border-b bg-navbar px-7 py-3.5 whitespace-nowrap">
             <div className="flex items-center gap-5 flex-shrink-0">
                 <Wordmark />
                 {/* Not clickable — a static section label, deliberately given a
@@ -26,7 +27,11 @@ export function ManagerTopbar({ children }: { children?: React.ReactNode }) {
                 </span>
             </div>
             <ManagerNavigation />
-            <div className="flex-1" />
+            {/* The reporting-date calendar sits dead-centre of the bar on every
+                manager page, between the section tabs and the page actions. */}
+            <div className="flex min-w-fit flex-1 items-center justify-center">
+                <ReportingDatePicker />
+            </div>
             {children}
             <UserMenu />
         </header>

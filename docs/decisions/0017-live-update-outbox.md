@@ -58,6 +58,14 @@ crosses the wire.
    NULL` is the relay's only query, and the index stays the size of the backlog rather than the
    history. This narrows the ticket's `(published_at, next_attempt_at, created_at)` to the rows
    that are ever read.
+9. **Delivery bookkeeping lives beside the write.** Every other read and write of the outbox is a
+   `LiveUpdateOutboxService` method too, so the API's publisher, relay and health signal hold
+   Redis and sockets but no SQL. `claim_due` locks due rows with `FOR UPDATE SKIP LOCKED`, so
+   several relays never hold the same row and never wait on each other. `mark_published` only
+   marks a row that is still unpublished, so when the immediate publisher and a relay both send a
+   row, exactly one of them records it and the other is told it was already settled. The client
+   discards the duplicate message by `event_id` and `sequence` (decision 2). `record_failure`
+   stores the retry time the relay chose; the backoff policy stays with the relay.
 
 ## Rationale
 
@@ -96,6 +104,9 @@ of every operator's browser, which a frontend-side filter cannot promise.
   before validating a control, so two managers pressing buttons at once are applied one after the
   other against the status the previous one left, and sequence order matches event order. Reads
   (`get_simulation`) do not lock, so a dashboard poll never queues behind a control.
+- The guarantees above that only Postgres can give (decision 1's shared commit and rollback, the
+  row lock, `SKIP LOCKED`, first-writer-wins marking) are proven against a real database in
+  `tests/integration/test_live_update_outbox.py` (`make test-integration`).
 - Published rows accumulate. Retention is a separate maintenance task and must not precede
   delivery verification (#148).
 - Bumping `ENVELOPE_VERSION` is a breaking change for every subscriber; adding an optional field

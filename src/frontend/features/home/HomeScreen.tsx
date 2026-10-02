@@ -19,8 +19,8 @@ const SECTIONS: { href: string; title: string; blurb: string; tag: string }[][] 
   ],
   [
     {
-      href: "/manager/scheduler",
-      title: "Scheduler",
+      href: "/manager/planner",
+      title: "Planner",
       blurb: "Release jobs and generate a plan from operation order and machine load.",
       tag: "Plan · not clock-driven",
     },

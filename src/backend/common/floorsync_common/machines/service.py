@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Select, select, tuple_
+from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.category import Category
@@ -28,10 +28,13 @@ from floorsync_common.machines.results import (
     CategoryNotFound,
     CreateCategoryResult,
     CreateMachineResult,
+    DeleteMachineResult,
     GetMachineResult,
     ListCapabilitiesResult,
     MachineCreated,
+    MachineDeleted,
     MachineFound,
+    MachineHasOperations,
     MachineNameAlreadyExists,
     MachineNotFound,
     MachineUpdated,
@@ -168,6 +171,32 @@ class MachineService:
         # await. An INSERT is unaffected, because it returns server defaults inline.
         await db.refresh(machine)
         return MachineUpdated(machine=machine)
+
+    @staticmethod
+    async def remove_machine(db: AsyncSession, machine_id: UUID) -> DeleteMachineResult:
+        """Remove a machine that no operation is assigned to.
+
+        Compatibilities and unavailability windows cascade with the machine, and no operator login
+        may still point at it by the time it has no capabilities left. Operations do not: the
+        route says which machines can run an operation, so a machine still named there is load
+        bearing and the delete is refused with a reason instead of an integrity error.
+        """
+
+        machine = await db.get(Machine, machine_id)
+        if machine is None:
+            return MachineNotFound(machine_id=machine_id)
+
+        assigned_operations = await db.scalar(
+            select(func.count())
+            .select_from(Compatibility)
+            .where(Compatibility.machine_id == machine_id)
+        )
+        if assigned_operations:
+            return MachineHasOperations(machine_id=machine_id, operation_count=assigned_operations)
+
+        await db.delete(machine)
+        await db.flush()
+        return MachineDeleted(machine_id=machine_id)
 
     @staticmethod
     async def list_capabilities(db: AsyncSession, machine_id: UUID) -> ListCapabilitiesResult:

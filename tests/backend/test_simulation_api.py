@@ -36,6 +36,7 @@ from floorsync_common.simulation.results import (
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -318,6 +319,32 @@ def test_get_simulation_clamps_at_the_makespan() -> None:
     assert result.position.is_complete is True
 
 
+def test_get_schedule_simulation_recovers_the_position_from_a_schedule_id() -> None:
+    session = FakeSession(
+        schedule=FakeSchedule(),
+        simulation=FakeSimulation(status="running"),
+        event_rows=[("started", NOW, Decimal("1"))],
+    )
+
+    result = run(
+        SimulationService.get_simulation_for_schedule(
+            session, schedule_id=SCHEDULE_ID, at=NOW + timedelta(seconds=2)
+        )
+    )
+
+    assert isinstance(result, SimulationPositionResolved)
+    assert result.simulation.id == SIMULATION_ID
+    assert result.position.time == pytest.approx(2.0)
+
+
+def test_get_schedule_simulation_reports_that_it_has_not_been_started() -> None:
+    session = FakeSession(schedule=FakeSchedule(), simulation=None)
+
+    result = run(SimulationService.get_simulation_for_schedule(session, schedule_id=SCHEDULE_ID))
+
+    assert result == SimulationForScheduleNotFound(schedule_id=SCHEDULE_ID)
+
+
 # -- recording control actions -------------------------------------------
 
 
@@ -421,20 +448,10 @@ def test_record_control_reset_clears_the_projection() -> None:
     assert simulation.started_at is None
 
 
-def test_record_control_completion_archives_the_schedules_jobs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The floor has done the work, so its jobs leave the backlog in the same transaction."""
+def test_record_control_completion_writes_nothing_onto_jobs() -> None:
+    """The floor has done the work; that the jobs are done is read from this simulation
+    (decision 0019), so completion touches no job row."""
 
-    from floorsync_common.jobs.service import JobService
-
-    archived: list[tuple[UUID, datetime]] = []
-
-    async def fake(_: object, *, schedule_id: UUID, archived_at: datetime) -> int:
-        archived.append((schedule_id, archived_at))
-        return 1
-
-    monkeypatch.setattr(JobService, "archive_scheduled_jobs", staticmethod(fake))
     simulation = FakeSimulation(status="running")
     session = FakeSession(schedule=FakeSchedule(), simulation=simulation)
 
@@ -446,29 +463,8 @@ def test_record_control_completion_archives_the_schedules_jobs(
 
     assert isinstance(result, ControlRecorded)
     assert simulation.status == "complete"
-    assert archived == [(SCHEDULE_ID, NOW)]
-
-
-def test_record_control_reset_leaves_archived_jobs_alone(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A reset replays the simulation; it does not un-finish the jobs (decision 0015)."""
-
-    from floorsync_common.jobs.service import JobService
-
-    async def fake(_: object, **__: object) -> int:
-        raise AssertionError("reset must not touch job archival")
-
-    monkeypatch.setattr(JobService, "archive_scheduled_jobs", staticmethod(fake))
-    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="complete"))
-
-    result = run(
-        SimulationService.record_control(
-            session, simulation_id=SIMULATION_ID, event_type=SimulationEventType.RESET, at=NOW
-        )
-    )
-
-    assert isinstance(result, ControlRecorded)
+    assert all(type(item).__name__ != "Job" for item in session.added)
+    assert not any("UPDATE jobs" in str(item) for item in session.added)
 
 
 # -- schema mapping ------------------------------------------------------
@@ -584,6 +580,21 @@ def test_simulation_route_returns_the_derived_position() -> None:
     assert body["makespan"] == 5
     assert body["status"] == "running"
     assert body["speed"] == "1"
+
+
+def test_schedule_simulation_route_recovers_the_derived_position() -> None:
+    client = build_client(
+        FakeSession(
+            schedule=FakeSchedule(),
+            simulation=FakeSimulation(status="running"),
+            event_rows=[("started", NOW, Decimal("1"))],
+        )
+    )
+
+    response = client.get(f"/api/v1/schedules/{SCHEDULE_ID}/simulation")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(SIMULATION_ID)
 
 
 def test_event_route_records_a_control_action(monkeypatch: pytest.MonkeyPatch) -> None:

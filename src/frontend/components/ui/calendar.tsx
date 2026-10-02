@@ -88,6 +88,11 @@ const CalendarCell = ({ className, ...props }: CalendarCellProps) => (
       'hover:bg-secondary pressed:bg-secondary-fg/10',
       'focus-visible:ring-2 focus-visible:ring-ring',
       'selected:bg-primary selected:font-semibold selected:text-primary-fg selected:hover:bg-primary',
+      // Today (when not selected): blue ring on the unfilled cell, so moving
+      // the selection elsewhere keeps the current day findable. The arbitrary
+      // `data-[today]` variant reads React Aria's own attribute, so it needs
+      // no plugin support.
+      'data-[today]:border-2 data-[today]:border-primary',
       'outside-month:text-muted-fg/60 unavailable:text-muted-fg/40 unavailable:line-through',
       className
     )}

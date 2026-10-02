@@ -17,6 +17,7 @@ from floorsync_api.features.schedules.schemas import (
     ScheduleGenerationStatusResponse,
     ScheduleResponse,
     ScheduleSummaryResponse,
+    ScheduleUpdateRequest,
     ScheduleValidationResponse,
     SchedulingIssueResponse,
     StrategyLimitResponse,
@@ -28,10 +29,14 @@ from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
 from floorsync_common.scheduling.contracts import SchedulingIssue
 from floorsync_common.scheduling.lifecycle import (
+    ScheduleConfirmed,
     ScheduleDeleted,
+    ScheduleDiscarded,
+    ScheduleIsDraft,
     ScheduleLifecycleService,
     ScheduleNotDraft,
     ScheduleNotFound,
+    ScheduleSimulationStarted,
 )
 from floorsync_common.scheduling.task_names import (
     EXACT_SCHEDULE_GENERATION_TASK,
@@ -83,7 +88,7 @@ async def create_schedule(
             _GENERATION_TASK_BY_STRATEGY[command.strategy],
             args=(
                 command.starts_at.isoformat(),
-                None if command.job_ids is None else [str(job_id) for job_id in command.job_ids],
+                [str(job_id) for job_id in command.job_ids],
             ),
             queue="scheduling",
         )
@@ -148,19 +153,19 @@ async def get_schedule_generation(
 @router.get(
     "/validation",
     response_model=ScheduleValidationResponse,
-    summary="Check the floor is ready to schedule",
+    summary="Check a job selection is ready to schedule",
 )
 async def validate_schedule_input(
     db: DbSession,
     _: Manager,
-    job_ids: Annotated[list[UUID] | None, Query()] = None,
+    job_ids: Annotated[list[UUID], Query(min_length=1)],
 ) -> ScheduleValidationResponse:
     """Report what would stop a generation run, before queueing one (#133).
 
-    Reads the floor exactly as `POST /api/v1/schedules` would, selection included, and runs the
-    same data checks every strategy runs. Always `200`: a floor with problems is a successful
-    answer to "what is wrong", and the report says per strategy whether Generate would succeed.
-    Nothing is written.
+    Reads the selection exactly as `POST /api/v1/schedules` would, refusals included, and runs
+    the same data checks every strategy runs. `job_ids` is required for the same reason it is on
+    generation (#270). Always `200`: a selection with problems is a successful answer to "what is
+    wrong", and the report says per strategy whether Generate would succeed. Nothing is written.
     """
 
     async with db.begin():
@@ -214,6 +219,107 @@ async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> Schedule
         return schedule_response(schedule, entries, dependencies)
 
 
+@router.patch(
+    "/{schedule_id}",
+    response_model=ScheduleSummaryResponse,
+    summary="Confirm or discard a schedule",
+    responses={
+        404: {"description": "The schedule does not exist"},
+        409: {
+            "description": (
+                "A draft cannot be discarded (delete it instead), or the schedule's simulation "
+                "has started so it cannot be withdrawn"
+            )
+        },
+    },
+)
+async def update_schedule(
+    schedule_id: UUID,
+    command: ScheduleUpdateRequest,
+    request: Request,
+    db: DbSession,
+    manager: Manager,
+) -> ScheduleSummaryResponse | JSONResponse:
+    """Move a schedule through its lifecycle (decision 0015).
+
+    `{"status": "confirmed"}` makes a draft the plan and records who confirmed it and when; on a
+    discarded schedule it restores it. `{"status": "discarded"}` withdraws a confirmed schedule
+    the floor has not acted on: a simulation created for it but never started is removed with it,
+    one with any control recorded refuses the withdrawal. Neither touches the jobs the schedule
+    planned; the backlog reads what a plan claims from the schedule itself (#269).
+    """
+
+    async with db.begin():
+        match command.status:
+            case "confirmed":
+                return await _confirm(db, schedule_id, manager)
+            case "discarded":
+                return await _discard(db, schedule_id, request)
+            case _:
+                assert_never(command.status)
+
+
+async def _confirm(
+    db: DbSession, schedule_id: UUID, manager: User
+) -> ScheduleSummaryResponse | JSONResponse:
+    result = await ScheduleLifecycleService.confirm(db, schedule_id, confirmed_by=manager.id)
+    match result:
+        case ScheduleConfirmed(schedule=schedule):
+            return ScheduleSummaryResponse.model_validate(schedule)
+        case ScheduleNotFound():
+            raise _schedule_not_found()
+        case _:
+            assert_never(result)
+
+
+async def _discard(
+    db: DbSession, schedule_id: UUID, request: Request
+) -> ScheduleSummaryResponse | JSONResponse:
+    result = await ScheduleLifecycleService.discard(db, schedule_id)
+    match result:
+        case ScheduleDiscarded(schedule=schedule):
+            return ScheduleSummaryResponse.model_validate(schedule)
+        case ScheduleNotFound():
+            raise _schedule_not_found()
+        case ScheduleIsDraft():
+            return problem_response(
+                ProblemDetail(
+                    type="urn:floorsync:problem:schedule-is-draft",
+                    title="Schedule is a draft",
+                    status=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "A draft was never the plan, so it cannot be discarded. Delete it with "
+                        "DELETE /api/v1/schedules/{schedule_id} instead."
+                    ),
+                    instance=request.url.path,
+                ),
+            )
+        case ScheduleSimulationStarted(
+            simulation_id=simulation_id, simulation_status=simulation_status
+        ):
+            return problem_response(
+                ProblemDetail(
+                    type="urn:floorsync:problem:schedule-simulation-started",
+                    title="Schedule has been simulated",
+                    status=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "The floor has started acting on this schedule, so it cannot be withdrawn."
+                    ),
+                    instance=request.url.path,
+                ),
+                extensions={
+                    "simulation_id": str(simulation_id),
+                    "simulation_status": simulation_status,
+                },
+            )
+        case _:
+            assert_never(result)
+
+
+def _schedule_not_found() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+
+
 @router.delete(
     "/{schedule_id}",
     # 204 on success and 409 when the schedule is no longer a draft, so the route returns a
@@ -246,9 +352,7 @@ async def delete_schedule(
             case ScheduleDeleted():
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
             case ScheduleNotFound():
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found."
-                )
+                raise _schedule_not_found()
             case ScheduleNotDraft(status=schedule_status):
                 return problem_response(
                     ProblemDetail(
@@ -366,6 +470,7 @@ def _issue_response(issue: SchedulingIssue) -> SchedulingIssueResponse:
         operation_id=issue.operation_id,
         machine_id=issue.machine_id,
         job_id=issue.job_id,
+        schedule_id=issue.schedule_id,
     )
 
 

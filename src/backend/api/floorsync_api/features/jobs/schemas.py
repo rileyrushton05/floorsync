@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -5,6 +6,9 @@ from uuid import UUID
 from pydantic import StringConstraints, model_validator
 
 from floorsync_api.schemas import RequestSchema, ResponseSchema
+from floorsync_common.database.models.job import Job
+from floorsync_common.database.models.operation import Operation
+from floorsync_common.jobs.backlog import BacklogStatus, JobBacklog
 
 type JobName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 type JobPriority = Literal["high", "med", "low"]
@@ -25,13 +29,14 @@ class JobCreateRequest(RequestSchema):
 class JobUpdateRequest(RequestSchema):
     """A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.
 
-    `archived` retires the job from the backlog (`true`) or brings it back (`false`). It is a
-    boolean here rather than the timestamp the row stores, because the caller decides *whether* the
+    `archived: true` retires the job from the backlog. Only `true` is accepted: archiving is one
+    way (decision 0018), and a job a plan claimed comes back when that plan is discarded. It is a
+    flag here rather than the timestamp the row stores, because the caller decides *whether* the
     job is archived and the server records *when*.
     """
 
     name: JobName | None = None
-    archived: bool | None = None
+    archived: Literal[True] | None = None
 
     @model_validator(mode="after")
     def reject_explicit_nulls(self) -> "JobUpdateRequest":
@@ -54,18 +59,51 @@ class JobOperationResponse(ResponseSchema):
 
 
 class JobResponse(ResponseSchema):
+    """A job and where it stands in the backlog.
+
+    `backlog_status` is derived from the schedules that reference the job, never stored on it
+    (decision 0019): `open` until a confirmed schedule plans it, `planned` once one does, `done`
+    once that schedule's simulation completed, `archived` when a manager retired it by hand.
+    `planned_by_schedule_ids` lists the confirmed schedules that plan it, oldest first, so a client
+    can link to them.
+    """
+
     id: UUID
     name: str
     priority: JobPriority
     archived_at: datetime | None
+    backlog_status: BacklogStatus
+    planned_by_schedule_ids: list[UUID]
     created_at: datetime
     updated_at: datetime
+
+    @classmethod
+    def from_job(cls, job: Job, backlog: JobBacklog) -> "JobResponse":
+        return cls(
+            id=job.id,
+            name=job.name,
+            priority=job.priority,
+            archived_at=job.archived_at,
+            backlog_status=backlog.status,
+            planned_by_schedule_ids=list(backlog.schedule_ids),
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+        )
 
 
 class JobDetailResponse(JobResponse):
     """A single job with the operations it contains, in position order."""
 
     operations: list[JobOperationResponse]
+
+    @classmethod
+    def from_job_and_operations(
+        cls, job: Job, backlog: JobBacklog, operations: Iterable[Operation]
+    ) -> "JobDetailResponse":
+        return cls(
+            **JobResponse.from_job(job, backlog).model_dump(),
+            operations=[JobOperationResponse.model_validate(operation) for operation in operations],
+        )
 
 
 class JobDependencyEdgeResponse(ResponseSchema):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Numeric, Text, Uuid, text
@@ -13,6 +13,14 @@ from floorsync_common.database.models.mixins import TimestampMixin, UUIDPrimaryK
 
 if TYPE_CHECKING:
     from floorsync_common.database.models.schedule import Schedule
+
+type SimulationStatus = Literal["not_started", "running", "paused", "complete"]
+
+SIMULATION_NOT_STARTED: SimulationStatus = "not_started"
+SIMULATION_RUNNING: SimulationStatus = "running"
+SIMULATION_PAUSED: SimulationStatus = "paused"
+SIMULATION_COMPLETE: SimulationStatus = "complete"
+"""The values of the `status_valid` check constraint below, defined once beside it."""
 
 
 class Simulation(UUIDPrimaryKeyMixin, TimestampMixin, Base):

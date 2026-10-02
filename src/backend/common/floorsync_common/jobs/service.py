@@ -8,15 +8,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import Select, select, tuple_, update
+from sqlalchemy import Select, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.jobs.dependency_graph import JobEdge, job_dependency_edges_statement
+from floorsync_common.jobs.guards import refuse_unless_open
 from floorsync_common.jobs.results import (
     DeleteJobResult,
     GetJobResult,
@@ -128,15 +129,19 @@ class JobService:
         job_id: UUID,
         *,
         name: str | Unset = UNSET,
-        archived: bool | Unset = UNSET,
+        archived: Literal[True] | Unset = UNSET,
     ) -> UpdateJobResult:
         """Apply a partial update, leaving omitted fields untouched.
 
-        `archived` is the manager's way to retire a job by hand: a finished job the simulation
-        never ran, or a cancelled one. `True` stamps `archived_at` now, and leaves an earlier stamp
-        alone so the original leaving time survives a repeated request; `False` clears it and the
-        job rejoins the backlog. Archiving never touches schedules, and never makes a job
-        deletable (decision 0015).
+        `archived: true` is the manager's way to retire an unplanned job by hand, a cancelled one
+        or one that finished without a plan. It stamps `archived_at` now and leaves an earlier
+        stamp alone, so the original leaving time survives a repeated request. Archiving never
+        touches schedules, and never makes a job deletable (decision 0015).
+
+        Only an open job can be changed (decisions 0018, 0019). A planned, done or archived job
+        accepts nothing but `archived: true`: archiving a planned job is how a manager cancels it,
+        and repeating it on an archived one is a harmless no-op, so a stale form cannot rename
+        either. Archiving is one way; a planned job comes back when its schedule is discarded.
         """
 
         job = await db.get(Job, job_id)
@@ -144,42 +149,20 @@ class JobService:
             return JobNotFound(job_id=job_id)
 
         if is_set(name):
+            refused = await refuse_unless_open(db, job)
+            if refused is not None:
+                return refused
+
+        if is_set(name):
             job.name = name.strip()
-        if is_set(archived):
-            if archived and job.archived_at is None:
-                job.archived_at = datetime.now(UTC)
-            elif not archived:
-                job.archived_at = None
+        if is_set(archived) and job.archived_at is None:
+            job.archived_at = datetime.now(UTC)
 
         await db.flush()
         # `updated_at` is database-computed through `onupdate`, so an UPDATE expires it and reading
         # it during serialisation would need a lazy reload that async SQLAlchemy cannot await.
         await db.refresh(job)
         return JobUpdated(job=job)
-
-    @staticmethod
-    async def archive_scheduled_jobs(
-        db: AsyncSession, *, schedule_id: UUID, archived_at: datetime
-    ) -> int:
-        """Retire every still-open job a schedule planned, once that schedule has run.
-
-        Called when a simulation completes: the floor has done the work, so the jobs leave the
-        backlog. A job archived earlier keeps its own stamp, and a job the manager later brings
-        back is not touched again by a replay of the same simulation, because a reset does not
-        undo this. Returns how many jobs were archived, for the caller's log.
-        """
-
-        planned_job_ids = (
-            select(Operation.job_id)
-            .join(ScheduleEntry, ScheduleEntry.operation_id == Operation.id)
-            .where(ScheduleEntry.schedule_id == schedule_id)
-        )
-        result = await db.execute(
-            update(Job)
-            .where(Job.id.in_(planned_job_ids), Job.archived_at.is_(None))
-            .values(archived_at=archived_at)
-        )
-        return int(getattr(result, "rowcount", 0))
 
     @staticmethod
     async def delete_job(db: AsyncSession, job_id: UUID) -> DeleteJobResult:

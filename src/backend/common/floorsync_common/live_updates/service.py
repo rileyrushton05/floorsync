@@ -1,11 +1,16 @@
-"""Record that a simulation changed, durably, alongside the change itself."""
+"""Record that a simulation changed, durably, alongside the change itself, and track its delivery.
+
+Every read and write of `live_update_outbox` lives here, so the API's publisher, relay and health
+signal hold Redis and sockets but no SQL.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -17,15 +22,22 @@ from floorsync_common.live_updates.contracts import (
     SimulationAnchor,
     SimulationChangedEnvelope,
 )
-from floorsync_common.live_updates.results import SimulationChangeEnqueued
+from floorsync_common.live_updates.results import (
+    MarkPublishedResult,
+    OutboxBacklog,
+    OutboxRowAlreadySettled,
+    OutboxRowPublished,
+    SimulationChangeEnqueued,
+)
 from floorsync_common.simulation.events import SimulatedTimePoint
 
 
 class LiveUpdateOutboxService:
-    """Write the outbox row for a change, in the caller's transaction. Stateless.
+    """Write outbox rows and record their delivery, in the caller's transaction. Stateless.
 
     Never commits, never publishes, never opens a socket: the route that recorded the change
-    commits both together and only then hands the row's id to the publisher.
+    commits both together and only then hands the row's id to the publisher. Every method takes
+    the caller's session and leaves the transaction to it.
     """
 
     @staticmethod
@@ -86,6 +98,100 @@ class LiveUpdateOutboxService:
         )
         await db.flush()
         return SimulationChangeEnqueued(outbox_id=outbox_id, envelope=envelope)
+
+    @staticmethod
+    async def load_unpublished(db: AsyncSession, outbox_id: UUID) -> LiveUpdateOutbox | None:
+        """The row to publish straight after commit, or `None` if it is already settled.
+
+        No lock: the immediate publisher and the relay may both send the same row, which the
+        envelope's `event_id` and `sequence` let a client discard. Blocking the request path on a
+        relay's lock would cost more than a duplicate message.
+        """
+        result = await db.execute(
+            select(LiveUpdateOutbox).where(
+                LiveUpdateOutbox.id == outbox_id,
+                LiveUpdateOutbox.published_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def claim_due(
+        db: AsyncSession, *, now: datetime, limit: int
+    ) -> Sequence[LiveUpdateOutbox]:
+        """Lock up to `limit` unpublished rows whose next attempt is due, oldest due first.
+
+        `SKIP LOCKED` is what makes several relays safe: a row another relay holds is passed over
+        rather than waited for, so no two relays ever hold the same row and none blocks the
+        other. The locks last until the caller's transaction ends, so the caller publishes and
+        settles each row before committing.
+        """
+        return (
+            await db.scalars(
+                select(LiveUpdateOutbox)
+                .where(
+                    LiveUpdateOutbox.published_at.is_(None),
+                    LiveUpdateOutbox.next_attempt_at <= now,
+                )
+                .order_by(LiveUpdateOutbox.next_attempt_at, LiveUpdateOutbox.created_at)
+                .limit(limit)
+                .with_for_update(skip_locked=True)
+            )
+        ).all()
+
+    @staticmethod
+    async def mark_published(
+        db: AsyncSession, outbox_id: UUID, *, at: datetime
+    ) -> MarkPublishedResult:
+        """Record that Redis accepted the row. Only the first caller to mark a row wins."""
+        marked = await db.scalar(
+            update(LiveUpdateOutbox)
+            .where(
+                LiveUpdateOutbox.id == outbox_id,
+                LiveUpdateOutbox.published_at.is_(None),
+            )
+            .values(published_at=at)
+            .returning(LiveUpdateOutbox.id)
+            .execution_options(synchronize_session=False)
+        )
+        if marked is None:
+            return OutboxRowAlreadySettled(outbox_id=outbox_id)
+        return OutboxRowPublished(outbox_id=outbox_id)
+
+    @staticmethod
+    async def record_failure(
+        db: AsyncSession, outbox_id: UUID, *, error_code: str, retry_at: datetime
+    ) -> None:
+        """Count a failed publish and hold the row back until `retry_at`.
+
+        The retry policy (how far to back off) belongs to the relay; this only records what it
+        decided. A row that was published or pruned in the meantime is left alone.
+        """
+        await db.execute(
+            update(LiveUpdateOutbox)
+            .where(
+                LiveUpdateOutbox.id == outbox_id,
+                LiveUpdateOutbox.published_at.is_(None),
+            )
+            .values(
+                attempt_count=LiveUpdateOutbox.attempt_count + 1,
+                next_attempt_at=retry_at,
+                last_error_code=error_code,
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+    @staticmethod
+    async def backlog(db: AsyncSession) -> OutboxBacklog:
+        """How many rows are still unpublished, and when the oldest was written."""
+        count, oldest = (
+            await db.execute(
+                select(func.count(), func.min(LiveUpdateOutbox.created_at)).where(
+                    LiveUpdateOutbox.published_at.is_(None)
+                )
+            )
+        ).one()
+        return OutboxBacklog(unpublished_count=count, oldest_created_at=oldest)
 
 
 __all__ = ["LiveUpdateOutboxService"]

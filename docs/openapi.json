@@ -26,6 +26,15 @@
         "title": "AccessTokenResponse",
         "type": "object"
       },
+      "BacklogStatus": {
+        "enum": [
+          "open",
+          "planned",
+          "done",
+          "archived"
+        ],
+        "type": "string"
+      },
       "Body_create_access_token_api_v1_auth_token_post": {
         "properties": {
           "client_id": {
@@ -620,6 +629,9 @@
             ],
             "title": "Archived At"
           },
+          "backlog_status": {
+            "$ref": "#/components/schemas/BacklogStatus"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -641,6 +653,14 @@
             "title": "Operations",
             "type": "array"
           },
+          "planned_by_schedule_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Planned By Schedule Ids",
+            "type": "array"
+          },
           "priority": {
             "$ref": "#/components/schemas/JobPriority"
           },
@@ -655,6 +675,8 @@
           "name",
           "priority",
           "archived_at",
+          "backlog_status",
+          "planned_by_schedule_ids",
           "created_at",
           "updated_at",
           "operations"
@@ -750,6 +772,9 @@
             ],
             "title": "Archived At"
           },
+          "backlog_status": {
+            "$ref": "#/components/schemas/BacklogStatus"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -771,6 +796,14 @@
             "title": "Operations",
             "type": "array"
           },
+          "planned_by_schedule_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Planned By Schedule Ids",
+            "type": "array"
+          },
           "priority": {
             "$ref": "#/components/schemas/JobPriority"
           },
@@ -785,6 +818,8 @@
           "name",
           "priority",
           "archived_at",
+          "backlog_status",
+          "planned_by_schedule_ids",
           "created_at",
           "updated_at",
           "operations"
@@ -831,6 +866,7 @@
         "type": "string"
       },
       "JobResponse": {
+        "description": "A job and where it stands in the backlog.\n\n`backlog_status` is derived from the schedules that reference the job, never stored on it\n(decision 0019): `open` until a confirmed schedule plans it, `planned` once one does, `done`\nonce that schedule's simulation completed, `archived` when a manager retired it by hand.\n`planned_by_schedule_ids` lists the confirmed schedules that plan it, oldest first, so a client\ncan link to them.",
         "properties": {
           "archived_at": {
             "anyOf": [
@@ -843,6 +879,9 @@
               }
             ],
             "title": "Archived At"
+          },
+          "backlog_status": {
+            "$ref": "#/components/schemas/BacklogStatus"
           },
           "created_at": {
             "format": "date-time",
@@ -858,6 +897,14 @@
             "title": "Name",
             "type": "string"
           },
+          "planned_by_schedule_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Planned By Schedule Ids",
+            "type": "array"
+          },
           "priority": {
             "$ref": "#/components/schemas/JobPriority"
           },
@@ -872,6 +919,8 @@
           "name",
           "priority",
           "archived_at",
+          "backlog_status",
+          "planned_by_schedule_ids",
           "created_at",
           "updated_at"
         ],
@@ -880,11 +929,12 @@
       },
       "JobUpdateRequest": {
         "additionalProperties": false,
-        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.\n\n`archived` retires the job from the backlog (`true`) or brings it back (`false`). It is a\nboolean here rather than the timestamp the row stores, because the caller decides *whether* the\njob is archived and the server records *when*.",
+        "description": "A partial update. `name` is NOT NULL, so an explicit null is rejected rather than stored.\n\n`archived: true` retires the job from the backlog. Only `true` is accepted: archiving is one\nway (decision 0018), and a job a plan claimed comes back when that plan is discarded. It is a\nflag here rather than the timestamp the row stores, because the caller decides *whether* the\njob is archived and the server records *when*.",
         "properties": {
           "archived": {
             "anyOf": [
               {
+                "const": true,
                 "type": "boolean"
               },
               {
@@ -1340,22 +1390,16 @@
       },
       "ScheduleCreateRequest": {
         "additionalProperties": false,
-        "description": "Request a draft schedule from the current floor configuration.\n\n`job_ids` scopes the run to a chosen part of the backlog (#231). Omitting it plans the whole\nfloor, which is what this request has always meant, so no existing caller changes behaviour.\n\nA selection is validated where the dependency graph is already being read, not here: an unknown\njob, a selection with no schedulable work, and a selection missing a job that a selected job\nwaits on each come back through the generation status resource as a `rejected` outcome with its\nown issue code. See `GET /api/v1/jobs/dependency-graph` for working out what a selection\nimplies before sending one.",
+        "description": "Request a draft schedule for a chosen set of jobs.\n\n`job_ids` is the manager's selection and is required (#231, #270): a run always plans a\nchosen part of the backlog, never \"everything\", so the backlog page is the one place that\ndecides what a run contains.\n\nA selection is validated where the dependency graph is already being read, not here: an unknown\njob, an archived or already planned job, a selection with no schedulable work, and a selection\nmissing a job that a selected job waits on each come back through the generation status\nresource as a `rejected` outcome with its own issue code. See\n`GET /api/v1/jobs/dependency-graph` for working out what a selection implies before sending\none.",
         "properties": {
           "job_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Job Ids"
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Job Ids",
+            "type": "array"
           },
           "starts_at": {
             "format": "date-time",
@@ -1373,7 +1417,8 @@
           }
         },
         "required": [
-          "starts_at"
+          "starts_at",
+          "job_ids"
         ],
         "title": "ScheduleCreateRequest",
         "type": "object"
@@ -1726,6 +1771,18 @@
             ],
             "title": "Confirmed At"
           },
+          "confirmed_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed By User Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1779,9 +1836,29 @@
           "makespan",
           "input_operation_count",
           "created_at",
+          "confirmed_by_user_id",
           "confirmed_at"
         ],
         "title": "ScheduleSummaryResponse",
+        "type": "object"
+      },
+      "ScheduleUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A lifecycle transition (decision 0015).\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.",
+        "properties": {
+          "status": {
+            "enum": [
+              "confirmed",
+              "discarded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ScheduleUpdateRequest",
         "type": "object"
       },
       "ScheduleValidationResponse": {
@@ -1832,7 +1909,7 @@
         "type": "object"
       },
       "SchedulingIssueResponse": {
-        "description": "One unsupported or invalid scheduling input reported by the adapter.\n\nAt most one of the three ids is set, naming whichever the issue is about, so a client can mark\nthe offending row rather than parse `message`.",
+        "description": "One unsupported or invalid scheduling input reported by the adapter.\n\nThe ids name whichever record the issue is about, so a client can mark the offending row\nrather than parse `message`. `schedule_id` accompanies `job_id` on `planned_job`: the confirmed\nschedule that already plans the job.",
         "properties": {
           "code": {
             "title": "Code",
@@ -1877,6 +1954,18 @@
               }
             ],
             "title": "Operation Id"
+          },
+          "schedule_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Id"
           }
         },
         "required": [
@@ -2715,7 +2804,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires the job from the backlog by hand, for a job that finished without a\nsimulation running or one that was cancelled; `archived: false` brings it back. Neither touches\nany schedule, and neither makes the job deletable.",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected job.\n\n`archived: true` retires a job by hand: an open one that was cancelled, or a planned one the\nmanager is pulling from its plan. It touches no schedule and does not make the job deletable.\nOnly an open job can be renamed (decisions 0018, 0019); a planned job comes back when its\nschedule is discarded, and archiving is one way.",
         "operationId": "update_job_api_v1_jobs__job_id__patch",
         "parameters": [
           {
@@ -2749,6 +2838,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "The job has left the backlog and is read-only"
           },
           "422": {
             "content": {
@@ -2821,7 +2913,7 @@
         ]
       },
       "put": {
-        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict only when the save would remove an operation a generated schedule\nalready recorded; every other edit is covered by the schedule's own snapshot, so a scheduled\njob stays editable. The conflict names the schedules in the way. An archived job is editable\ntoo: archiving takes a job out of the backlog, it does not freeze it (decision 0015).",
+        "description": "Replace a job's name, priority, operations and routes wholesale, atomically.\n\nOmit an existing operation's id to delete it; omit id entirely for a new operation. The array\nindex becomes each operation's 1-based position. Only this job's own `builder_sequence`\nordering edges are rebuilt; externally owned edges are never touched.\n\nRefused with a conflict when the job is not open (planned, done or archived: duplicate it\ninstead, decisions 0018 and 0019) or when the save would remove an operation a draft\nschedule already recorded; every other edit is covered by the draft's own snapshot. The\nscheduled conflict names the schedules in the way.",
         "operationId": "replace_definition_api_v1_jobs__job_id__definition_put",
         "parameters": [
           {
@@ -2860,7 +2952,7 @@
             "description": "The job does not exist"
           },
           "409": {
-            "description": "The save would remove an operation that appears in a schedule; the body names the draft and confirmed schedules involved"
+            "description": "The job has left the backlog and is read-only, or the save would remove an operation that appears in a schedule; the body names the schedules involved"
           },
           "422": {
             "description": "A route names an unknown or inactive machine, an operation id does not belong to this job, removing an operation would delete another job's edge to it, or the new ordering would form a cycle"
@@ -2961,6 +3053,9 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "description": "The job has left the backlog and is read-only"
+          },
           "422": {
             "description": "An edge names an unknown operation, orders an operation belonging to another job, or the ordering would form a cycle"
           }
@@ -2978,7 +3073,7 @@
     },
     "/api/v1/jobs/{job_id}/operations": {
       "post": {
-        "description": "Add a step to a job. Its durations and its ordering are recorded separately.",
+        "description": "Add a step to a job. Its durations and its ordering are recorded separately.\n\nRefused unless the job is open (decisions 0018, 0019).",
         "operationId": "create_operation_api_v1_jobs__job_id__operations_post",
         "parameters": [
           {
@@ -3012,6 +3107,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "The job has left the backlog and is read-only"
           },
           "422": {
             "content": {
@@ -3171,6 +3269,57 @@
       }
     },
     "/api/v1/machines/{machine_id}": {
+      "delete": {
+        "description": "Remove a machine no operation is assigned to.\n\nA machine that any job definition's routes still name cannot be removed: the scheduler would be\nleft planning work onto a machine that no longer exists. Unassign or re-route those operations\nfirst, or deactivate the machine to keep it out of new plans while retaining history.",
+        "operationId": "delete_machine_api_v1_machines__machine_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The machine was removed"
+          },
+          "409": {
+            "description": "Operations are still assigned to the machine"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove a machine",
+        "tags": [
+          "machines"
+        ]
+      },
       "get": {
         "description": "Read one machine together with the operations it can run.",
         "operationId": "get_machine_api_v1_machines__machine_id__get",
@@ -3473,7 +3622,7 @@
             "description": "The operation, its capabilities and its ordering were removed"
           },
           "409": {
-            "description": "The operation already appears in a schedule"
+            "description": "The operation already appears in a schedule, or its job has left the backlog and is read-only"
           },
           "422": {
             "content": {
@@ -3544,7 +3693,7 @@
         ]
       },
       "patch": {
-        "description": "Apply a partial update, so a later schedule is generated from the corrected step.",
+        "description": "Apply a partial update, so a later schedule is generated from the corrected step.\n\nRefused unless the operation's job is open (decisions 0018, 0019).",
         "operationId": "update_operation_api_v1_operations__operation_id__patch",
         "parameters": [
           {
@@ -3578,6 +3727,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "The operation's job has left the backlog and is read-only"
           },
           "422": {
             "content": {
@@ -3731,27 +3883,21 @@
     },
     "/api/v1/schedules/validation": {
       "get": {
-        "description": "Report what would stop a generation run, before queueing one (#133).\n\nReads the floor exactly as `POST /api/v1/schedules` would, selection included, and runs the\nsame data checks every strategy runs. Always `200`: a floor with problems is a successful\nanswer to \"what is wrong\", and the report says per strategy whether Generate would succeed.\nNothing is written.",
+        "description": "Report what would stop a generation run, before queueing one (#133).\n\nReads the selection exactly as `POST /api/v1/schedules` would, refusals included, and runs\nthe same data checks every strategy runs. `job_ids` is required for the same reason it is on\ngeneration (#270). Always `200`: a selection with problems is a successful answer to \"what is\nwrong\", and the report says per strategy whether Generate would succeed. Nothing is written.",
         "operationId": "validate_schedule_input_api_v1_schedules_validation_get",
         "parameters": [
           {
             "in": "query",
             "name": "job_ids",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "items": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Job Ids"
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Job Ids",
+              "type": "array"
             }
           }
         ],
@@ -3782,7 +3928,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Check the floor is ready to schedule",
+        "summary": "Check a job selection is ready to schedule",
         "tags": [
           "schedules"
         ]
@@ -3886,11 +4032,123 @@
         "tags": [
           "schedules"
         ]
+      },
+      "patch": {
+        "description": "Move a schedule through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269).",
+        "operationId": "update_schedule_api_v1_schedules__schedule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The schedule does not exist"
+          },
+          "409": {
+            "description": "A draft cannot be discarded (delete it instead), or the schedule's simulation has started so it cannot be withdrawn"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Confirm or discard a schedule",
+        "tags": [
+          "schedules"
+        ]
+      }
+    },
+    "/api/v1/schedules/{schedule_id}/simulation": {
+      "get": {
+        "description": "Recover the one simulation for a schedule, including its replayed clock.\n\nA manager normally reaches the simulation screen with a schedule id, not a\nsimulation id. Returning 404 when no simulation has been created keeps\n\"start simulation\" an explicit action while allowing a refresh to recover\nany existing event log.",
+        "operationId": "get_schedule_simulation_api_v1_schedules__schedule_id__simulation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get a schedule's persisted simulation position",
+        "tags": [
+          "simulation"
+        ]
       }
     },
     "/api/v1/schedules/{schedule_id}/timeline": {
       "get": {
-        "description": "Resolve a schedule's entries and dependencies into start and end times.\n\nThe result is immutable for a confirmed schedule, so a client should fetch it\nonce per schedule and animate locally rather than polling.",
+        "description": "Resolve a schedule's entries and dependencies into start and end times.\n\nThe result is immutable for a confirmed schedule. Clients use it to draw the\nplan, then read the schedule's simulation endpoint for a durable position.",
         "operationId": "get_schedule_timeline_api_v1_schedules__schedule_id__timeline_get",
         "parameters": [
           {

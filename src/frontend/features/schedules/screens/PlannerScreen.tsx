@@ -1,27 +1,7 @@
-"use client";
+﻿"use client";
 
-import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    type ScheduleStrategy,
-    type ScheduleTimeline,
-    type SchedulingIssue,
-} from "../data/api";
-import { ApiError } from "@/core/http/client";
-import { errorMessage } from "@/core/http/errors";
-import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
-import { useAuth } from "@/core/auth/AuthProvider";
-import { useJobSummaries } from "@/features/jobs/data/queries";
-import { useMachines } from "@/features/machines/data/queries";
-import {
-    GenerationTimeout,
-    useRequestSchedule,
-    useScheduleGeneration,
-    useScheduleSummaries,
-    useScheduleTimeline,
-} from "@/features/schedules/data/queries";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { Link } from "@/components/ui/link";
@@ -37,15 +17,39 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
+import { useAuth } from "@/core/auth/AuthProvider";
+import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
+import { ApiError } from "@/core/http/client";
+import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { buildJobColors, jobColor } from "@/domains/scheduling/colors";
+import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
+import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
+import { JobDot } from "@/domains/scheduling/ui/JobDot";
+import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
+import { useJobSummaries } from "@/features/jobs/data/queries";
+import { useMachines } from "@/features/machines/data/queries";
+import {
+    GenerationTimeout,
+    useRequestSchedule,
+    useScheduleGeneration,
+    useScheduleSummaries,
+    useScheduleTimeline,
+    useScheduleValidation,
+} from "@/features/schedules/data/queries";
+import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+    type ScheduleStrategy,
+    type ScheduleTimeline,
+    type SchedulingIssue,
+} from "../data/api";
 
 /**
- * Schedule builder.
+ * Planner (schedule builder).
  *
  * This page answers "what would the plan look like?" — the simulation answers
  * "what does the shop look like N minutes in?". It has no playback controls and
@@ -108,7 +112,13 @@ function formatCreated(iso: string): string {
     });
 }
 
-/** The first segment of a UUID: enough to quote a run, short enough to read. */
+/**
+ * The first segment of a UUID: enough to quote a run, short enough to read.
+ *
+ * Runs only. A *job* is never identified this way — a manager picks jobs by
+ * name, while a generation id is an operational handle they may have to quote
+ * to someone looking at the worker.
+ */
 function shortId(id: string): string {
     return id.split("-")[0] ?? id;
 }
@@ -194,6 +204,21 @@ function GenerationState({ generation }: { generation: Generation }) {
                     ) : (
                         <p className="mt-2">The engine reported no specific reason.</p>
                     )}
+                    {/* This issue names no operation, and a run covers the whole
+                        database, so without this the manager is told the floor
+                        failed with no way to find the job responsible. */}
+                    {generation.issues.some((issue) => issue.code === "unsupported_dependency_shape") && (
+                        <p className="mt-2">
+                            This selection includes a job whose steps branch —
+                            two steps waiting on the same earlier one, or one step waiting on
+                            several — stops the whole floor being planned.{" "}
+                            <Link href="/manager/jobs" className="underline">
+                                Open the job backlog
+                            </Link>{" "}
+                            and look for a job whose graph splits or merges rather than running as
+                            one line.
+                        </p>
+                    )}
                 </Note>
             );
 
@@ -235,8 +260,8 @@ function GenerationState({ generation }: { generation: Generation }) {
                     <h3 className="font-semibold text-lg">No plan yet</h3>
                     <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
                         Press <strong className="text-fg">Generate schedule</strong>. The scheduling
-                        engine assigns every operation in the database to a compatible machine and
-                        places it on the earliest slot that respects the dependencies between them.
+                        engine assigns the selected jobs&apos; operations to compatible machines and
+                        places them on the earliest slots that respect their dependencies.
                         The run happens on a worker, so this page will wait for it.
                     </p>
                 </div>
@@ -244,7 +269,7 @@ function GenerationState({ generation }: { generation: Generation }) {
     }
 }
 
-export default function SchedulerPage() {
+export default function PlannerPage() {
     const { user } = useAuth();
     const jobsQuery = useJobSummaries();
     const machinesQuery = useMachines();
@@ -253,6 +278,29 @@ export default function SchedulerPage() {
     const [generationRequest, setGenerationRequest] = useState<{ id: string; deadline: number } | null>(null);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
     const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
+    const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+    const openJobs = useMemo(
+        () => (jobsQuery.data ?? []).filter((job) => job.backlogStatus === "open"),
+        [jobsQuery.data],
+    );
+    const openJobIds = useMemo(() => new Set(openJobs.map((job) => job.id)), [openJobs]);
+    const validationQuery = useScheduleValidation(selectedJobIds);
+    const validationFeedback = useMemo(
+        () => [
+            ...(validationQuery.data?.issues ?? []),
+            ...(validationQuery.data?.unsupported
+                .filter((limit) => limit.strategy === strategy)
+                .map((limit) => limit.issue) ?? []),
+        ],
+        [strategy, validationQuery.data],
+    );
+    const validationIssuesByJobId = useMemo(() => {
+        const issues = new Map<string, SchedulingIssue>();
+        for (const issue of validationFeedback) {
+            if (issue.job_id) issues.set(issue.job_id, issue);
+        }
+        return issues;
+    }, [validationFeedback]);
     const generationQuery = useScheduleGeneration(generationRequest);
     const reportedGenerationFailure = useRef<string | null>(null);
     const latestSchedule = schedulesQuery.data?.[0] ?? null;
@@ -314,8 +362,9 @@ export default function SchedulerPage() {
     ]);
 
     const generate = () => {
+        if (!canGenerate) return;
         setHighlightedJobId(null);
-        requestSchedule.mutate({ startsAt: new Date().toISOString(), strategy }, {
+        requestSchedule.mutate({ startsAt: new Date().toISOString(), jobIds: selectedJobIds, strategy }, {
             onSuccess: (accepted) => {
                 setGenerationRequest({ id: accepted.id, deadline: Date.now() + 180_000 });
             },
@@ -327,6 +376,10 @@ export default function SchedulerPage() {
         () => (generation.status === "ready" ? timelineToPlan(generation.timeline) : null),
         [generation],
     );
+    // Zoom state for the plan chart: one number (pixels of track per hour) plus
+    // the visible window, shared between the navigator bar in the header and
+    // the chart's scroll container below.
+    const timelineZoom = useTimelineZoom(plan?.schedule?.makespanMins ?? 0);
 
     // Colour is keyed to a job's position in the backlog rather than to its
     // position in a plan, so the swatch beside a job on the left is the colour
@@ -340,6 +393,16 @@ export default function SchedulerPage() {
     );
 
     const busy = requestSchedule.isPending || IN_FLIGHT.has(generation.status);
+    const canGenerate =
+        selectedJobIds.length > 0 && validationQuery.data?.schedulable[strategy] !== false;
+
+    // A job can leave the backlog while this page is open. Settle the selection
+    // during render so the next Generate press cannot send an id the page can
+    // already see is no longer open.
+    const currentSelection = selectedJobIds.filter((id) => openJobIds.has(id));
+    if (currentSelection.length !== selectedJobIds.length) {
+        setSelectedJobIds(currentSelection);
+    }
 
     // The poll endpoint is a successful HTTP read even when the queued command
     // failed. Surface its API-authored failure once as feedback, while the
@@ -362,6 +425,23 @@ export default function SchedulerPage() {
         reportedGenerationFailure.current = reportKey;
         reportBackendFailure(outcome.detail);
     }, [generationQuery.data]);
+
+    // Every completed run is persisted by the backend before it reports success,
+    // so once a plan drawn in this session resolves, tell the manager where to
+    // find it again. Keyed to the schedule id so a re-render never repeats it.
+    const savedToastFor = useRef<string | null>(null);
+    useEffect(() => {
+        if (generation.status !== "ready" || generation.createdAt !== null) return;
+        if (savedToastFor.current === generation.scheduleId) return;
+        savedToastFor.current = generation.scheduleId;
+        toast.success(
+            `Schedule ${shortId(generation.scheduleId)} was generated and automatically saved to Schedules.`,
+            {
+                description:
+                    "Open the Schedules page to view its details or run it in the simulation.",
+            },
+        );
+    }, [generation]);
 
     function toggleHighlight(jobId: string) {
         setHighlightedJobId((previous) => (previous === jobId ? null : jobId));
@@ -439,12 +519,13 @@ export default function SchedulerPage() {
                 </ToggleGroup>
 
                 {/* `isPending` rather than `isDisabled`: React Aria already stops
+            {/* `isPending` rather than `isDisabled`: React Aria already stops
                     onPress firing while pending, and keeps the control focusable
                     and announced as busy instead of silently going dead. */}
-                <Button onPress={generate} isPending={busy}>
-                    {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
-                </Button>
-            </>}>
+            <Button onPress={generate} isPending={busy} isDisabled={!canGenerate}>
+                {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
+            </Button>
+        </>}>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,2.2fr)_minmax(260px,0.9fr)]">
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
@@ -452,59 +533,77 @@ export default function SchedulerPage() {
                     <CardHeader className="flex-row items-center gap-2.5">
                         <CardTitle>Released to schedule</CardTitle>
                         <Badge intent="secondary">
-                            {jobs.length} / {jobs.length}
+                            {selectedJobIds.length} / {openJobs.length}
                         </Badge>
                     </CardHeader>
                     <CardContent>
                         <Note intent="info">
-                            Generation runs over <strong>every operation in the database</strong>.
-                            Scoping a run to a chosen subset of jobs is not something the API
-                            supports yet, so the list below is what will be planned rather than a
-                            choice.
+                            Select the open jobs to include in this run. Jobs already planned,
+                            completed or archived cannot be selected again.
                         </Note>
 
                         <CheckboxGroup
-                            aria-label="Jobs that will be scheduled"
-                            value={jobs.map((job) => job.id)}
-                            isDisabled
+                            aria-label="Jobs to schedule"
+                            value={selectedJobIds}
+                            isDisabled={busy}
+                            onChange={(values) => setSelectedJobIds([...values])}
                             className="mt-3"
                         >
-                            {jobs.map((job) => (
-                                <CheckboxField
-                                    key={job.id}
-                                    value={job.id}
-                                    className="rounded-lg p-2 transition-colors hover:bg-secondary"
-                                >
-                                    <Checkbox>
-                                        <span className="flex min-w-0 flex-col gap-0.5">
-                                            <span className="flex items-center gap-2">
-                                                <span
-                                                    className="size-3 shrink-0 rounded-full"
-                                                    style={{ background: jobColor(colors, job.id).fill }}
-                                                />
-                                                <span className="font-semibold text-sm">{job.name}</span>
+                            {openJobs.map((job) => {
+                                const issue = validationIssuesByJobId.get(job.id);
+                                return (
+                                    <CheckboxField
+                                        key={job.id}
+                                        value={job.id}
+                                        className="rounded-lg p-2 transition-colors hover:bg-secondary"
+                                    >
+                                        <Checkbox>
+                                            <span className="flex min-w-0 flex-col gap-0.5">
+                                                <span className="flex items-center gap-2">
+                                                    <JobDot colors={colors} jobId={job.id} />
+                                                    <span className="font-semibold text-sm">{job.name}</span>
+                                                </span>
+                                                {issue && (
+                                                    <span className="text-danger text-xs">
+                                                        {issue.message}
+                                                    </span>
+                                                )}
                                             </span>
-                                            <span className="text-muted-fg text-xs">
-                                                {shortId(job.id)}
-                                            </span>
-                                        </span>
-                                    </Checkbox>
-                                </CheckboxField>
-                            ))}
+                                        </Checkbox>
+                                    </CheckboxField>
+                                );
+                            })}
                         </CheckboxGroup>
 
-                        {jobs.length === 0 && (
+                        {validationFeedback.length > 0 && (
+                            <Note intent="warning" className="mt-3">
+                                <strong>
+                                    {validationQuery.data?.schedulable[strategy] === false
+                                        ? `${strategy === "resched" ? "ReSched" : "Exact"} cannot schedule this selection.`
+                                        : "This selection needs attention before it can be scheduled."}
+                                </strong>
+                                <ul className="mt-1 list-disc space-y-1 ps-5 text-sm">
+                                    {validationFeedback.map((issue, index) => (
+                                        <li key={`${issue.code}-${issue.job_id ?? index}`}>
+                                            {issue.message}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </Note>
+                        )}
+
+                        {openJobs.length === 0 && (
                             <p className="mt-3 text-muted-fg text-sm">
-                                No jobs in the database.{" "}
+                                No open jobs are available to schedule. {jobs.length === 0 && "Add a job first. "}
                                 <Link href="/manager/jobs" className="text-primary">
-                                    Add one →
+                                    Open the backlog →
                                 </Link>
                             </p>
                         )}
 
                         <Separator className="my-3" />
                         <div className="text-muted-fg text-sm">
-                            {jobs.length} {jobs.length === 1 ? "job" : "jobs"} ·{" "}
+                            {openJobs.length} open {openJobs.length === 1 ? "job" : "jobs"} ·{" "}
                             {activeMachines.length} of {machines.length} machines active
                         </div>
                         {activeMachines.length === 0 && machines.length > 0 && (
@@ -518,16 +617,18 @@ export default function SchedulerPage() {
 
                 {/* ===== PLAN ===== */}
                 <Card className="min-w-0">
-                    <CardHeader className="flex-row items-center justify-between gap-3">
+                    <CardHeader className="gap-3">
                         <CardTitle>Generated plan</CardTitle>
                         {generation.status === "ready" && schedule && (
-                            <span className="text-muted-fg text-sm">
-                                makespan {formatDuration(schedule.makespanMins)} ·{" "}
-                                {schedule.ops.length} operations ·{" "}
-                                {generation.createdAt === null
-                                    ? "generated just now"
-                                    : formatCreated(generation.createdAt)}
-                            </span>
+                            <div className="flex items-center gap-4">
+                                <span className="shrink-0 text-muted-fg text-xs">
+                                    makespan {formatDuration(schedule.makespanMins)} · {schedule.ops.length} operations ·{" "}
+                                    {generation.createdAt === null ? "generated just now" : formatCreated(generation.createdAt)}
+                                </span>
+                                <div className="ml-auto min-w-0 flex-1 max-w-md">
+                                    <TimelineNavigator controls={timelineZoom} />
+                                </div>
+                            </div>
                         )}
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -540,6 +641,7 @@ export default function SchedulerPage() {
                                 mode="plan"
                                 selectedJobId={highlightedJobId}
                                 onSelectJob={toggleHighlight}
+                                zoom={timelineZoom}
                             />
                         ) : (
                             <GenerationState generation={generation} />
@@ -624,10 +726,7 @@ export default function SchedulerPage() {
                                                 <TableCell className="tabular-nums">{index + 1}</TableCell>
                                                 <TableCell>
                                                     <span className="flex items-center gap-2">
-                                                        <span
-                                                            className="size-3 shrink-0 rounded-full"
-                                                            style={{ background: jobColor(colors, id).fill }}
-                                                        />
+                                                        <JobDot colors={colors} jobId={id} />
                                                         <span>
                                                             {plan.jobs.find((job) => job.id === id)?.name ?? id}
                                                         </span>
@@ -647,7 +746,7 @@ export default function SchedulerPage() {
                                 <Separator className="my-3" />
                                 <Link
                                     href="/manager/simulation"
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#15803D] px-4 py-2 font-semibold text-sm text-[#DCFCE7] transition-colors hover:bg-[#166534] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803D]"
+                                    className={buttonStyles({ intent: "success", className: "w-full" })}
                                 >
                                     Run this plan in the simulation →
                                 </Link>

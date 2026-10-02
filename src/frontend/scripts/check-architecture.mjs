@@ -33,7 +33,7 @@ for (const path of sourceFiles(join(root, "app")).filter((file) => file.endsWith
 }
 
 for (const path of sourceFiles(root)) {
-    const display = relative(root, path);
+    const display = relative(root, path).replaceAll("\\", "/");
     const contents = readFileSync(path, "utf8");
 
     if (/\bfetch\s*\(/.test(contents) && display !== "core/http/client.ts") {

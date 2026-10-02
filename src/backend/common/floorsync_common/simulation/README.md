@@ -112,11 +112,12 @@ there. The `ft*` and `la*` families do not exercise this; `dmu*` and `ta*` do.
 
 ## HTTP surface
 
-`floorsync_api.features.simulation` exposes four endpoints, all under `/api/v1`:
+`floorsync_api.features.simulation` exposes five endpoints, all under `/api/v1`:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /schedules/{schedule_id}/timeline` | The resolved timeline. Immutable for a confirmed schedule, so fetch once and animate locally. |
+| `GET /schedules/{schedule_id}/timeline` | The resolved timeline. Immutable for a confirmed schedule, so fetch once for geometry. |
+| `GET /schedules/{schedule_id}/simulation` | Recover that schedule's persisted simulation position; `404` means it has not been started. |
 | `POST /simulations` | Create the simulation for a confirmed schedule. One per schedule. |
 | `GET /simulations/{simulation_id}` | The position derived from the event log right now. |
 | `POST /simulations/{simulation_id}/events` | Record a control action and return the resulting position. |

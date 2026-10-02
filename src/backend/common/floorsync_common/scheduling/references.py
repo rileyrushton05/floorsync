@@ -18,10 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.operation import Operation
-from floorsync_common.database.models.schedule import Schedule, ScheduleStatus
+from floorsync_common.database.models.schedule import SCHEDULE_DRAFT, Schedule
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 
-SCHEDULE_DRAFT: ScheduleStatus = "draft"
 """The one status a schedule can be deleted in; shared with `lifecycle.py` rather than restated."""
 
 

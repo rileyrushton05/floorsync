@@ -2,17 +2,6 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Calendar,
-  CalendarCell,
-  CalendarGrid,
-  CalendarGridBody,
-  CalendarGridHeader,
-  CalendarHeader,
-  CalendarNavButton,
-  CalendarTitle,
-  CalendarWeekdayHeader,
-} from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/components/ui/link";
 import {
@@ -32,36 +21,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+import { statusIntent } from "@/core/presentation/badge-intent";
+import { ManagerShell } from "@/core/shell/ManagerShell";
+import { useReportingDate } from "@/core/shell/ReportingDate";
 import {
-  ArrowDownTrayIcon,
   BellIcon,
   BriefcaseIcon,
-  CalendarIcon,
   CheckCircleIcon,
   ChevronRightIcon,
   ClipboardDocumentListIcon,
   ClockIcon,
   Cog6ToothIcon,
   InformationCircleIcon,
-  UsersIcon,
+  UsersIcon
 } from "@heroicons/react/24/outline";
-import { getLocalTimeZone, parseDate, today, type CalendarDate } from "@internationalized/date";
+import { getLocalTimeZone } from "@internationalized/date";
 import { useMemo, useState } from "react";
-import type { Key } from "react-aria-components";
 import type { DateValue } from "react-aria-components/Calendar";
-import { toast } from "sonner";
-import { statusIntent } from "@/core/presentation/badge-intent";
-import { ManagerShell } from "@/core/shell/ManagerShell";
 
 interface JobStep { index: number; total: number; name: string; }
-
-const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function formatShortDate(date: Date): string {
-  return `${WEEKDAY_SHORT[date.getDay()]}, ${date.getDate()} ${MONTH_SHORT[date.getMonth()]}`;
-}
 
 interface ManagerJob {
   id: string;
@@ -228,6 +207,13 @@ const weeks: WeekData[] = [
   },
 ];
 
+/** Week bucket for the reporting date — the seeded data is weekly. */
+function weekIdForDate(date: DateValue) {
+  const iso = date.toString();
+  if (iso >= "2025-11-11" && iso <= "2025-11-17") return "w46";
+  return "w47";
+}
+
 const MACHINE_TILES = [
   { key: "machinesRunning", label: "Running", className: "border-success/30 bg-success-subtle text-success-subtle-fg" },
   { key: "machinesIdle", label: "Idle", className: "border-warning/30 bg-warning-subtle text-warning-subtle-fg" },
@@ -236,9 +222,69 @@ const MACHINE_TILES = [
 ] as const;
 
 export default function ManagerDashboard() {
-  const [selectedDate, setSelectedDate] = useState(() => today(getLocalTimeZone()));
-  const [viewMode, setViewMode] = useState<Key | null>("day");
-  const isDayView = viewMode === "day";
+    return (
+        <ManagerShell
+            // A render function so the notifications bell reads the reporting
+            // date from inside the shell's provider rather than crashing.
+            actions={<ManagerTopbarActions />}
+        >
+            <OverviewBody />
+        </ManagerShell>
+    );
+}
+
+/** Notifications bell; the calendar control itself lives in ManagerTopbar. */
+function ManagerTopbarActions() {
+    const { date: selectedDate } = useReportingDate();
+    const weekId = weekIdForDate(selectedDate);
+    const week = weeks.find((w) => w.id === weekId) ?? weeks[0];
+    return (
+        <>
+            {/* React Aria's Popover owns dismissal — Escape, outside clicks and
+                focus restoration all come for free, so the hand-rolled document
+                listeners this page used to carry are gone. */}
+            <Popover>
+                <Button
+                    intent="outline"
+                    size="sq-sm"
+                    className="relative"
+                    aria-label={`Notifications (${week.notifications.length})`}
+                >
+                    <BellIcon />
+                    {week.notifications.length > 0 && (
+                        <span className="-top-1.5 -right-1.5 absolute flex size-4.5 items-center justify-center rounded-full bg-danger font-bold text-[10px] text-danger-fg">
+                            {week.notifications.length}
+                        </span>
+                    )}
+                </Button>
+                <PopoverContent className="sm:max-w-xs">
+                    <PopoverHeader>
+                        <PopoverTitle>Notifications</PopoverTitle>
+                    </PopoverHeader>
+                    <PopoverBody className="pb-4">
+                        {week.notifications.length === 0 ? (
+                            <p className="text-muted-fg text-sm">No new notifications.</p>
+                        ) : (
+                            <ul className="divide-y">
+                                {week.notifications.map((n) => (
+                                    <li key={n} className="py-2.5 text-sm first:pt-0 last:pb-0">
+                                        {n}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </PopoverBody>
+                </PopoverContent>
+            </Popover>
+        </>
+    );
+}
+
+function OverviewBody() {
+  // The topbar's calendar owns the date; this screen reads it and derives the
+  // week bucket from it.
+  const { date: selectedDate, setDate: setSelectedDate } = useReportingDate();
+  const isDayView = true;
 
   // The seeded data is weekly; the calendar picks the reporting date and the
   // week bucket is derived from which seeded range it falls in.
@@ -260,19 +306,6 @@ export default function ManagerDashboard() {
   }, [selectedDate, week.jobs]);
   const visibleJobs = isDayView ? dayJobs : week.jobs;
 
-  function weekIdForDate(date: DateValue) {
-    const iso = date.toString();
-    if (iso >= "2025-11-11" && iso <= "2025-11-17") return "w46";
-    return "w47";
-  }
-
-  function handleDateChange(date: DateValue) {
-    setSelectedDate(date as CalendarDate);
-    const newWeek = weeks.find((w) => w.id === weekIdForDate(date)) ?? weeks[0];
-    setSelectedJobId(newWeek.jobs[0].id);
-    setSequenceExpanded(false);
-  }
-
   function handleSelectJob(id: string) {
     setSelectedJobId(id);
     setSequenceExpanded(false);
@@ -285,114 +318,7 @@ export default function ManagerDashboard() {
   const operatorDots = Array.from({ length: 10 }, (_, i) => i < Math.round((week.activeOperators / week.totalOperators) * 10));
 
   return (
-    <ManagerShell actions={<>
-        <ToggleGroup
-          aria-label="Overview granularity"
-          selectionMode="single"
-          disallowEmptySelection
-          selectedKeys={new Set([isDayView ? "day" : "week"])}
-          onSelectionChange={(keys) => {
-            const [first] = Array.from(keys);
-            if (typeof first === "string") setViewMode(first);
-          }}
-        >
-          <ToggleGroupItem id="day" aria-label="Daily view">Day</ToggleGroupItem>
-          <ToggleGroupItem id="week" aria-label="Weekly view">Week</ToggleGroupItem>
-        </ToggleGroup>
-
-        <Popover>
-          <Button intent="outline" size="sm" aria-label="Pick reporting date">
-            <CalendarIcon />
-            {formatShortDate(selectedDate.toDate(getLocalTimeZone()))}
-          </Button>
-          <PopoverContent className="sm:max-w-none">
-            <Calendar
-              aria-label="Reporting date"
-              value={selectedDate}
-              onChange={handleDateChange}
-              minValue={parseDate("2025-11-11")}
-              maxValue={parseDate("2025-11-24")}
-            >
-              <CalendarHeader>
-                <CalendarNavButton slot="previous" aria-label="Previous month">
-                  <ChevronRightIcon className="size-4 rotate-180" />
-                </CalendarNavButton>
-                <CalendarTitle />
-                <CalendarNavButton slot="next" aria-label="Next month">
-                  <ChevronRightIcon className="size-4" />
-                </CalendarNavButton>
-              </CalendarHeader>
-              <CalendarGrid>
-                <CalendarGridHeader>
-                  {(date) => <CalendarWeekdayHeader />}
-                </CalendarGridHeader>
-                <CalendarGridBody>
-                  {(date) => (
-                    <CalendarCell date={date}>{date.day}</CalendarCell>
-                  )}
-                </CalendarGridBody>
-              </CalendarGrid>
-            </Calendar>
-          </PopoverContent>
-        </Popover>
-
-        <span className="min-w-[220px] font-medium text-muted-fg text-sm text-center">
-          {isDayView
-            ? `${week.label.replace(/\s*\(.*\)/, '')} · ${formatShortDate(selectedDate.toDate(getLocalTimeZone()))}`
-            : week.label}
-        </span>
-
-        <div className="flex-1" />
-
-        {/* React Aria's Popover owns dismissal — Escape, outside clicks and
-            focus restoration all come for free, so the hand-rolled document
-            listeners this page used to carry are gone. */}
-        <Popover>
-          <Button
-            intent="outline"
-            size="sq-sm"
-            className="relative"
-            aria-label={`Notifications (${week.notifications.length})`}
-          >
-            <BellIcon />
-            {week.notifications.length > 0 && (
-              <span className="-top-1.5 -right-1.5 absolute flex size-4.5 items-center justify-center rounded-full bg-danger font-bold text-[10px] text-danger-fg">
-                {week.notifications.length}
-              </span>
-            )}
-          </Button>
-          <PopoverContent className="sm:max-w-xs">
-            <PopoverHeader>
-              <PopoverTitle>Notifications</PopoverTitle>
-            </PopoverHeader>
-            <PopoverBody className="pb-4">
-              {week.notifications.length === 0 ? (
-                <p className="text-muted-fg text-sm">No new notifications.</p>
-              ) : (
-                <ul className="divide-y">
-                  {week.notifications.map((n) => (
-                    <li key={n} className="py-2.5 text-sm first:pt-0 last:pb-0">
-                      {n}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </PopoverBody>
-          </PopoverContent>
-        </Popover>
-
-        <Button
-          intent="outline"
-          onPress={() =>
-            toast.success(
-              `Report for ${week.label} exported at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`,
-            )
-          }
-        >
-          <ArrowDownTrayIcon /> Export Report
-        </Button>
-      </>}>
-
+    <>
       <main className="flex flex-1 flex-col gap-5 p-5">
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           <Card>
@@ -675,6 +601,6 @@ export default function ManagerDashboard() {
         </div>
         <Button intent="outline">View All Machines →</Button>
       </footer>
-    </ManagerShell>
+    </>
   );
 }

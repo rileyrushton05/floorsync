@@ -33,6 +33,7 @@ from floorsync_common.simulation.results import (
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -80,8 +81,8 @@ async def get_schedule_timeline(
 ) -> TimelineResponse:
     """Resolve a schedule's entries and dependencies into start and end times.
 
-    The result is immutable for a confirmed schedule, so a client should fetch it
-    once per schedule and animate locally rather than polling.
+    The result is immutable for a confirmed schedule. Clients use it to draw the
+    plan, then read the schedule's simulation endpoint for a durable position.
     """
     async with db.begin():
         result = await ScheduleTimelineService.get_timeline(db, schedule_id=schedule_id)
@@ -166,6 +167,42 @@ async def create_simulation(
 
     response.headers["Location"] = f"/api/v1/simulations/{simulation.id}"
     return _position_response(resolved)
+
+
+@router.get(
+    "/schedules/{schedule_id}/simulation",
+    response_model=SimulationResponse,
+    summary="Get a schedule's persisted simulation position",
+)
+async def get_schedule_simulation(
+    schedule_id: UUID,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> SimulationResponse:
+    """Recover the one simulation for a schedule, including its replayed clock.
+
+    A manager normally reaches the simulation screen with a schedule id, not a
+    simulation id. Returning 404 when no simulation has been created keeps
+    "start simulation" an explicit action while allowing a refresh to recover
+    any existing event log.
+    """
+    async with db.begin():
+        result = await SimulationService.get_simulation_for_schedule(db, schedule_id=schedule_id)
+
+    match result:
+        case SimulationPositionResolved():
+            return _position_response(result)
+        case ScheduleNotFound(schedule_id=missing):
+            raise schedule_not_found(missing)
+        case SimulationForScheduleNotFound(schedule_id=missing):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No simulation has been started for schedule {missing}.",
+            )
+        case ScheduleNotGenerated(schedule_id=ungenerated):
+            raise schedule_not_generated(ungenerated)
+        case _:
+            assert_never(result)
 
 
 @router.get(
