@@ -1,6 +1,6 @@
 """This API process's local registry of subscribed sockets.
 
-Not shared across API instances: Redis pub/sub (the subscriber, not yet built) is what makes a
+Not shared across API instances: Redis pub/sub (via `RedisLiveUpdateSubscriber`) is what makes a
 control recorded on instance A reach a client connected to instance B. Each instance runs its own
 hub, keyed by exactly what a client is allowed to see, so a broadcast never has to re-check
 authorisation at send time.
@@ -67,7 +67,7 @@ class ConnectionHub:
     def keys_for_simulation(self, simulation_id: UUID) -> tuple[SubscriptionKey, ...]:
         """Every key this process actually has a subscriber for, on one simulation.
 
-        The subscriber (not yet built) uses this to build only the projections someone is
+        The subscriber uses this to build only the projections someone is
         listening for, rather than one for every machine that has ever existed.
         """
         return tuple(key for key in self._sockets if key.simulation_id == simulation_id)
