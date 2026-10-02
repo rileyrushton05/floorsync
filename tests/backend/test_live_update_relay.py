@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from live_update_payloads import valid_payload
 from redis.exceptions import RedisError
 
 from floorsync_api.features.live_updates import outbox_relay as relay_module
@@ -42,13 +43,14 @@ def _row(
     published_at: datetime | None = None,
     attempt_count: int = 0,
     next_attempt_at: datetime = NOW,
+    payload: dict[str, Any] | None = None,
 ) -> LiveUpdateOutbox:
     return LiveUpdateOutbox(
         id=uuid4(),
         topic="simulation.changed",
         aggregate_id=uuid4(),
         sequence=1,
-        payload={"v": 1},
+        payload=payload if payload is not None else valid_payload(),
         published_at=published_at,
         attempt_count=attempt_count,
         next_attempt_at=next_attempt_at,
@@ -174,6 +176,25 @@ def test_run_once_processes_every_row_even_when_one_fails(
     assert claimed == 2
     assert [f["id"] for f in outbox.failures] == [failing_row.id]
     assert outbox.published == [ok_row.id]
+
+
+def test_run_once_parks_an_unreadable_row_instead_of_publishing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = _row(payload={"v": 999})
+    outbox = _stub_outbox(monkeypatch, [row])
+    redis = FakeRedis()
+    _stub_redis(monkeypatch, redis)
+
+    before = datetime.now(UTC)
+    run(OutboxRelay().run_once())
+
+    assert redis.published == []
+    assert outbox.published == []
+    [failure] = outbox.failures
+    assert failure["error_code"] == "UnsupportedEnvelope"
+    # Retrying cannot fix it, so it waits the longest backoff rather than the next poll.
+    assert failure["retry_at"] >= before + timedelta(seconds=MAX_BACKOFF_SECONDS)
 
 
 def test_run_once_with_nothing_due_claims_nothing(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -28,8 +28,9 @@ def run(coroutine: Any) -> Any:
 
 
 class FakeProcess:
-    def __init__(self, *, running: bool) -> None:
+    def __init__(self, *, running: bool, dropped_payloads: int = 0) -> None:
         self.running = running
+        self.dropped_payloads = dropped_payloads
 
 
 class FakeRedis:
@@ -71,13 +72,14 @@ def _build(
     redis_fails: bool = False,
     subscriber_running: bool = True,
     relay_running: bool = True,
+    dropped_payloads: int = 0,
     outbox_row: tuple[int, datetime | None] = (0, None),
     hub: ConnectionHub | None = None,
 ) -> health_module.LiveUpdateHealthReport:
     _stub(monkeypatch, redis_fails=redis_fails, outbox_row=outbox_row)
     return run(
         build_report(
-            subscriber=FakeProcess(running=subscriber_running),
+            subscriber=FakeProcess(running=subscriber_running, dropped_payloads=dropped_payloads),
             relay=FakeProcess(running=relay_running),
             hub=hub if hub is not None else ConnectionHub(),
         )
@@ -147,3 +149,11 @@ def test_reports_the_hubs_socket_and_subscription_gauges(monkeypatch: pytest.Mon
 
     assert report.active_sockets == 1
     assert report.active_subscriptions == 1
+
+
+def test_reports_how_many_unreadable_payloads_the_subscriber_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = _build(monkeypatch, dropped_payloads=3)
+
+    assert report.dropped_invalid_payloads == 3

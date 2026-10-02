@@ -33,6 +33,11 @@ class _RunsInBackground(Protocol):
     def running(self) -> bool: ...
 
 
+class _Subscriber(_RunsInBackground, Protocol):
+    @property
+    def dropped_payloads(self) -> int: ...
+
+
 @dataclass(frozen=True, slots=True)
 class LiveUpdateHealthReport:
     status: str
@@ -43,10 +48,11 @@ class LiveUpdateHealthReport:
     active_subscriptions: int
     unpublished_outbox_count: int
     oldest_unpublished_age_seconds: float | None
+    dropped_invalid_payloads: int
 
 
 async def build_report(
-    *, subscriber: _RunsInBackground, relay: _RunsInBackground, hub: ConnectionHub
+    *, subscriber: _Subscriber, relay: _RunsInBackground, hub: ConnectionHub
 ) -> LiveUpdateHealthReport:
     redis_reachable = await _redis_reachable()
     outbox_count, oldest_age = await _outbox_backlog()
@@ -66,6 +72,7 @@ async def build_report(
         active_subscriptions=hub.subscription_count(),
         unpublished_outbox_count=outbox_count,
         oldest_unpublished_age_seconds=oldest_age,
+        dropped_invalid_payloads=subscriber.dropped_payloads,
     )
 
 

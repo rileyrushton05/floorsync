@@ -65,6 +65,7 @@ def test_live_updates_health_reports_ok(monkeypatch: pytest.MonkeyPatch) -> None
             active_subscriptions=0,
             unpublished_outbox_count=0,
             oldest_unpublished_age_seconds=None,
+            dropped_invalid_payloads=0,
         )
 
     monkeypatch.setattr(health, "build_report", fake_build_report)
@@ -88,6 +89,7 @@ def test_live_updates_health_reports_503_when_degraded(monkeypatch: pytest.Monke
             active_subscriptions=0,
             unpublished_outbox_count=5,
             oldest_unpublished_age_seconds=300.0,
+            dropped_invalid_payloads=0,
         )
 
     monkeypatch.setattr(health, "build_report", fake_build_report)

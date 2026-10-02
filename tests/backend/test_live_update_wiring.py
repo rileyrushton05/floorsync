@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from live_update_payloads import valid_payload
 from redis.exceptions import RedisError
 
 from floorsync_api.dependencies.authentication import get_current_user, require_roles
@@ -278,7 +279,7 @@ class FakeRedis:
 def test_publish_now_publishes_then_marks_the_row_published(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    row = FakeOutboxRow(uuid4(), {"v": 1, "topic": "simulation.changed"})
+    row = FakeOutboxRow(uuid4(), valid_payload())
     session, outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
     monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
@@ -295,7 +296,7 @@ def test_publish_now_leaves_the_row_unpublished_when_redis_fails(
 ) -> None:
     """A control's REST response must still succeed even though Redis is down."""
 
-    row = FakeOutboxRow(uuid4(), {"v": 1})
+    row = FakeOutboxRow(uuid4(), valid_payload())
     session, outbox = _publisher_setup(monkeypatch, row)
     monkeypatch.setattr(publisher_module, "get_redis_client", lambda: FakeRedis(fail=True))
 
@@ -317,6 +318,18 @@ def test_publish_now_is_a_noop_for_an_already_published_row(
 
     assert redis.published == []
     assert outbox.marked == []
+
+
+def test_publish_now_does_not_publish_an_unreadable_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = FakeOutboxRow(uuid4(), {"v": 999})
+    session, outbox = _publisher_setup(monkeypatch, row)
+    redis = FakeRedis()
+    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
+
+    run(OutboxPublisher.publish_now(session, row.id))
+
+    assert redis.published == []
+    assert outbox.marked == []  # left for the relay, which parks it and records why
 
 
 def test_publish_now_is_a_noop_for_a_vanished_row(monkeypatch: pytest.MonkeyPatch) -> None:

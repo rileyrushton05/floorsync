@@ -20,6 +20,7 @@ from typing import Final, assert_never
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from floorsync_api.features.live_updates.publisher import is_publishable
 from floorsync_api.features.live_updates.redis_client import (
     SIMULATION_CHANGED_CHANNEL,
     get_redis_client,
@@ -89,6 +90,28 @@ class OutboxRelay:
 
 async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> None:
     """Publish one claimed row, then settle it: mark it published, or hold it back and say why."""
+    if not is_publishable(row.payload):
+        # Retrying cannot fix a malformed payload, so park it for the longest backoff and record why
+        # instead of publishing something every subscriber would drop. It stays visible in the
+        # outbox backlog (count and age) until someone repairs or prunes it.
+        await LiveUpdateOutboxService.record_failure(
+            db,
+            row.id,
+            error_code="UnsupportedEnvelope",
+            retry_at=datetime.now(UTC) + timedelta(seconds=MAX_BACKOFF_SECONDS),
+        )
+        event_id = row.payload.get("event_id") if isinstance(row.payload, dict) else None
+        logger.error(
+            "Outbox row %s holds an unreadable envelope; parked, not published.",
+            row.id,
+            extra={
+                "outbox_id": str(row.id),
+                "event_id": str(event_id) if event_id is not None else None,
+                "error_code": "UnsupportedEnvelope",
+            },
+        )
+        return
+
     try:
         await get_redis_client().publish(SIMULATION_CHANGED_CHANNEL, json.dumps(row.payload))
     except RedisError as error:

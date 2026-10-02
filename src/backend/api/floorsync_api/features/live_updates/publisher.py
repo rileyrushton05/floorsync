@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import assert_never
+from typing import Any, assert_never
 from uuid import UUID
 
 from redis.exceptions import RedisError
@@ -20,10 +20,24 @@ from floorsync_api.features.live_updates.redis_client import (
     SIMULATION_CHANGED_CHANNEL,
     get_redis_client,
 )
+from floorsync_common.live_updates.contracts import SimulationChangedEnvelope, UnsupportedEnvelope
 from floorsync_common.live_updates.results import OutboxRowAlreadySettled, OutboxRowPublished
 from floorsync_common.live_updates.service import LiveUpdateOutboxService
 
 logger = logging.getLogger(__name__)
+
+
+def is_publishable(payload: Any) -> bool:
+    """Whether `payload` is an envelope subscribers will accept.
+
+    Checked before sending so a broken row is reported at the source, with its event id, instead of
+    being published and then dropped by every subscriber.
+    """
+    try:
+        SimulationChangedEnvelope.from_payload(payload)
+    except UnsupportedEnvelope:
+        return False
+    return True
 
 
 class OutboxPublisher:
@@ -45,6 +59,13 @@ class OutboxPublisher:
         async with db.begin():
             row = await LiveUpdateOutboxService.load_unpublished(db, outbox_id)
             if row is None:
+                return
+            if not is_publishable(row.payload):
+                logger.error(
+                    "Outbox row %s holds an unreadable envelope; not publishing it.",
+                    outbox_id,
+                    extra={"outbox_id": str(outbox_id)},
+                )
                 return
             payload = json.dumps(row.payload)
 

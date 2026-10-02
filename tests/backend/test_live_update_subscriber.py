@@ -18,7 +18,12 @@ from uuid import UUID, uuid4
 import pytest
 
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub, SubscriptionKey
-from floorsync_api.features.live_updates.subscriber import RedisLiveUpdateSubscriber
+from floorsync_api.features.live_updates.subscriber import (
+    RECONNECT_BASE_SECONDS,
+    RECONNECT_MAX_SECONDS,
+    RedisLiveUpdateSubscriber,
+    reconnect_delay,
+)
 from floorsync_common.live_updates.contracts import SimulationAnchor, SimulationChangedEnvelope
 
 SIMULATION_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -109,6 +114,57 @@ def test_route_drops_an_unreadable_payload_without_raising() -> None:
 
     run(subscriber.route("not json"))  # must not raise
     run(subscriber.route(json.dumps({"v": 999})))  # wrong version, must not raise
+
+
+def test_route_counts_every_payload_it_has_to_drop() -> None:
+    subscriber = RedisLiveUpdateSubscriber(ConnectionHub())
+
+    run(subscriber.route("not json"))
+    run(subscriber.route(json.dumps({"v": 999})))
+
+    assert subscriber.dropped_payloads == 2
+
+
+def test_route_logs_the_event_id_of_a_payload_it_drops(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    subscriber = RedisLiveUpdateSubscriber(ConnectionHub())
+    event_id = str(uuid4())
+
+    run(subscriber.route(json.dumps({"v": 999, "event_id": event_id})))
+
+    [record] = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert record.event_id == event_id  # type: ignore[attr-defined]
+
+
+def test_route_does_not_count_a_good_payload() -> None:
+    subscriber = RedisLiveUpdateSubscriber(ConnectionHub())
+
+    run(subscriber.route(json.dumps(_envelope().to_payload())))
+
+    assert subscriber.dropped_payloads == 0
+
+
+# -- reconnect backoff ------------------------------------------------------------------------
+
+
+def test_reconnect_delay_grows_with_each_failure() -> None:
+    # Jitter is 50-100% of the ceiling, so the ceiling of failure n is a floor for n + 1's cap.
+    first = [reconnect_delay(1) for _ in range(50)]
+    third = [reconnect_delay(3) for _ in range(50)]
+
+    assert all(RECONNECT_BASE_SECONDS * 0.5 <= d <= RECONNECT_BASE_SECONDS for d in first)
+    assert all(RECONNECT_BASE_SECONDS * 4 * 0.5 <= d <= RECONNECT_BASE_SECONDS * 4 for d in third)
+
+
+def test_reconnect_delay_is_capped() -> None:
+    delays = [reconnect_delay(50) for _ in range(50)]
+
+    assert all(RECONNECT_MAX_SECONDS * 0.5 <= d <= RECONNECT_MAX_SECONDS for d in delays)
+
+
+def test_reconnect_delay_is_jittered() -> None:
+    assert len({reconnect_delay(5) for _ in range(50)}) > 1
 
 
 def test_route_accepts_bytes_the_same_as_str() -> None:

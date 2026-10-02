@@ -12,7 +12,8 @@ import asyncio
 import contextlib
 import json
 import logging
-from typing import Any
+import random
+from typing import Any, Final
 
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub
 from floorsync_api.features.live_updates.redis_client import (
@@ -23,7 +24,16 @@ from floorsync_common.live_updates.contracts import SimulationChangedEnvelope, U
 
 logger = logging.getLogger(__name__)
 
-_RECONNECT_DELAY_SECONDS: float = 1.0
+RECONNECT_BASE_SECONDS: Final = 1.0
+RECONNECT_MAX_SECONDS: Final = 30.0
+
+
+def reconnect_delay(failures: int) -> float:
+    """Exponential backoff from `RECONNECT_BASE_SECONDS`, capped, with jitter so every instance
+    that lost Redis at once does not reconnect in the same instant."""
+    ceiling: float = min(RECONNECT_BASE_SECONDS * (2 ** (failures - 1)), RECONNECT_MAX_SECONDS)
+    jitter: float = random.uniform(0.5, 1.0)
+    return ceiling * jitter
 
 
 class RedisLiveUpdateSubscriber:
@@ -32,6 +42,8 @@ class RedisLiveUpdateSubscriber:
     def __init__(self, hub: ConnectionHub) -> None:
         self._hub = hub
         self._task: asyncio.Task[None] | None = None
+        self._failures = 0
+        self.dropped_payloads = 0
 
     def start(self) -> None:
         if self._task is None:
@@ -51,22 +63,26 @@ class RedisLiveUpdateSubscriber:
         self._task = None
 
     async def _run_forever(self) -> None:
-        """Reconnect with a fixed delay on any failure; never let the app see this task die."""
+        """Reconnect with bounded, jittered backoff on any failure; never let this task die."""
         while True:
             try:
                 await self._listen_once()
             except asyncio.CancelledError:
                 raise
             except Exception:
+                self._failures += 1
+                delay = reconnect_delay(self._failures)
                 logger.warning(
                     "Live-update subscriber lost its Redis connection; reconnecting.",
+                    extra={"consecutive_failures": self._failures, "retry_in_seconds": delay},
                     exc_info=True,
                 )
-                await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
+                await asyncio.sleep(delay)
 
     async def _listen_once(self) -> None:
         pubsub = get_redis_client().pubsub()
         await pubsub.subscribe(SIMULATION_CHANGED_CHANNEL)
+        self._failures = 0  # subscribed: the next outage starts its backoff from the beginning
         try:
             async for message in pubsub.listen():
                 if message.get("type") != "message":
@@ -84,6 +100,7 @@ class RedisLiveUpdateSubscriber:
         """
         envelope = _decode(raw)
         if envelope is None:
+            self.dropped_payloads += 1
             return
         await self._broadcast(envelope)
 
@@ -97,11 +114,25 @@ class RedisLiveUpdateSubscriber:
 
 
 def _decode(raw: bytes | str) -> SimulationChangedEnvelope | None:
+    """Parse one payload, or log it loudly (with its event id when one can be read) and drop it.
+
+    Never silent: a dropped notification is an operational failure someone should see, so it is an
+    error-level log carrying the event id and is counted on the subscriber for the health signal.
+    """
     try:
         payload = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.error("Dropping a live-update payload that is not JSON.", exc_info=True)
+        return None
+    try:
         return SimulationChangedEnvelope.from_payload(payload)
-    except (json.JSONDecodeError, UnsupportedEnvelope):
-        logger.warning("Dropping an unreadable live-update payload.", exc_info=True)
+    except UnsupportedEnvelope:
+        event_id = payload.get("event_id") if isinstance(payload, dict) else None
+        logger.error(
+            "Dropping an unreadable live-update envelope.",
+            extra={"event_id": str(event_id) if event_id is not None else None},
+            exc_info=True,
+        )
         return None
 
 
