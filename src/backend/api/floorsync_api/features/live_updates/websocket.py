@@ -36,6 +36,7 @@ from floorsync_api.features.live_updates.subscriptions import (
 )
 from floorsync_api.features.live_updates.tickets import LiveUpdateTicketService
 from floorsync_common.database.session import session_scope
+from floorsync_common.observability import reset_request_id, set_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,9 @@ class _ConnectionState:
 async def live_updates(websocket: WebSocket) -> None:
     await websocket.accept()
     state = _ConnectionState()
+    # The request-context middleware only covers HTTP, so a socket's logs would carry no
+    # correlation id. The connection id is the socket's equivalent.
+    request_id_token = set_request_id(str(state.connection_id))
     try:
         if not await check_ip(_client_ip(websocket)):
             await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "ip_rate_limited")
@@ -106,6 +110,7 @@ async def live_updates(websocket: WebSocket) -> None:
     finally:
         for key in state.keys:
             hub.unregister(key, websocket)
+        reset_request_id(request_id_token)
 
 
 async def _authenticate(websocket: WebSocket, state: _ConnectionState) -> None:

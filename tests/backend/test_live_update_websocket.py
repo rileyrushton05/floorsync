@@ -177,6 +177,28 @@ def test_the_wrong_protocol_version_closes_4400(monkeypatch: pytest.MonkeyPatch)
     assert exc_info.value.code == CLOSE_MALFORMED_FRAME
 
 
+def test_a_connections_logs_carry_its_connection_id_as_the_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The request-context middleware only covers HTTP; a socket correlates by connection id."""
+
+    from floorsync_common.observability import request_id_context
+
+    seen: list[str | None] = []
+
+    async def consume(_ticket: str) -> UUID | None:
+        seen.append(request_id_context.get())
+        return USER_ID
+
+    monkeypatch.setattr(LiveUpdateTicketService, "consume", staticmethod(consume))
+
+    with ws_client().websocket_connect("/ws") as ws:
+        ws.send_json({"v": 1, "type": "authenticate", "ticket": "good-ticket"})
+        connection_id = ws.receive_json()["connection_id"]
+
+    assert seen == [connection_id]
+
+
 # -- connection rate limiting -------------------------------------------------------------------
 
 
