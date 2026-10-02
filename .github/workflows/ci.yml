@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -21,6 +22,27 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
+
+      # tests/integration needs a real PostgreSQL and skips without one. It is only worth the
+      # container when this pull request touches code those tests guard, so frontend or unrelated
+      # backend changes pay nothing. Started here, detached, so its boot overlaps the install and
+      # type-check below; the existing pytest step then runs the integration tests too.
+      - name: Start PostgreSQL when database or live-update code changed
+        id: integration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          paths='^(src/database/migrations/|src/backend/common/floorsync_common/(database|live_updates|simulation)/|src/backend/api/floorsync_api/features/(live_updates|simulation)/|tests/integration/|pyproject\.toml$|uv\.lock$|\.github/workflows/ci\.yml$)'
+          if gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only | grep -qE "$paths"; then
+            docker run --detach --name floorsync-test-postgres \
+              --env POSTGRES_USER=floorsync --env POSTGRES_PASSWORD=floorsync \
+              --env POSTGRES_DB=floorsync_test --publish 5432:5432 postgres:16-alpine
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No database or live-update changes; PostgreSQL integration tests will skip."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -39,6 +61,22 @@ jobs:
 
       - name: Type-check backend
         run: uv run mypy src/backend
+
+      # Over TCP on purpose: the image's first-boot init server only listens on a socket, so a
+      # socket check could pass just before the real server restarts.
+      - name: Wait for PostgreSQL
+        if: steps.integration.outputs.run == 'true'
+        run: |
+          for attempt in $(seq 1 30); do
+            if docker exec floorsync-test-postgres pg_isready -h 127.0.0.1 -U floorsync -d floorsync_test; then
+              echo "FLOORSYNC_TEST_DATABASE_URL=postgresql+asyncpg://floorsync:floorsync@localhost:5432/floorsync_test" >> "$GITHUB_ENV"
+              echo "FLOORSYNC_REQUIRE_TEST_DATABASE=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready." >&2
+          exit 1
 
       - name: Run backend tests
         run: uv run pytest
