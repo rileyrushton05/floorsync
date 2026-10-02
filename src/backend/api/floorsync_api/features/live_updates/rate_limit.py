@@ -32,11 +32,16 @@ async def check_account(user_id: UUID) -> bool:
 
 
 async def _check(key: str) -> bool:
-    """Increment `key`, arming its expiry only on the window's first hit, and report the verdict."""
+    """Increment `key`, make sure it has an expiry, and report the verdict.
+
+    `EXPIRE ... NX` only sets a TTL on a key that has none, so asking on every hit is what makes
+    this safe: if the process died between `INCR` and `EXPIRE` the next hit still arms the window,
+    where "expire only when the count is 1" would leave that counter alive forever and lock the
+    caller out for good. Needs Redis 7 (the `nx` option).
+    """
     client = get_redis_client()
     count: int = await client.incr(key)
-    if count == 1:
-        await client.expire(key, WINDOW_SECONDS)
+    await client.expire(key, WINDOW_SECONDS, nx=True)
     return count <= MAX_CONNECTIONS_PER_WINDOW
 
 

@@ -28,14 +28,14 @@ def run(coroutine: Any) -> Any:
 class FakeRedis:
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
-        self.expired: list[str] = []
+        self.expired: list[tuple[str, bool]] = []
 
     async def incr(self, key: str) -> int:
         self.counts[key] = self.counts.get(key, 0) + 1
         return self.counts[key]
 
-    async def expire(self, key: str, _seconds: int) -> None:
-        self.expired.append(key)
+    async def expire(self, key: str, _seconds: int, *, nx: bool = False) -> None:
+        self.expired.append((key, nx))
 
 
 def _stub_redis(monkeypatch: pytest.MonkeyPatch, redis: FakeRedis) -> None:
@@ -61,14 +61,21 @@ def test_denies_once_the_limit_is_exceeded(monkeypatch: pytest.MonkeyPatch) -> N
     assert run(check_ip("1.2.3.4")) is False
 
 
-def test_arms_the_expiry_only_on_the_windows_first_hit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_every_hit_asks_for_an_expiry_that_only_applies_when_there_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Never "expire only on the first hit": a process that died between INCR and EXPIRE would
+    leave a counter that never expires. EXPIRE NX on every hit repairs that and never extends a
+    window that is already running."""
+
     redis = FakeRedis()
     _stub_redis(monkeypatch, redis)
 
     run(check_ip("1.2.3.4"))
     run(check_ip("1.2.3.4"))
 
-    assert redis.expired == ["floorsync:live-ws:ratelimit:ip:1.2.3.4"]
+    key = "floorsync:live-ws:ratelimit:ip:1.2.3.4"
+    assert redis.expired == [(key, True), (key, True)]
 
 
 def test_ip_and_account_counters_are_independent(monkeypatch: pytest.MonkeyPatch) -> None:
