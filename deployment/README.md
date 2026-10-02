@@ -102,6 +102,7 @@ things to fill in.
 | `DATABASE_URL` | asyncpg URL | Used by the API. Hostnames are container names (`postgres`, `redis`), not `localhost`. |
 | `DATABASE_SYNC_URL` | psycopg URL | Used by Celery workers and Alembic. |
 | `REDIS_URL` / `CELERY_BROKER_URL` | db `0` / db `1` | Result backend and broker. |
+| `LIVE_UPDATE_CHANNEL_PREFIX` | `floorsync.live` | Prefix of the live-update Redis pub/sub channel (db `0`); change it if environments share one Redis. |
 | `ENVIRONMENT` | `development` | `production` enables the JWT secret check below. |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `human` | `json` for machine-readable logs. |
 | `JWT_SECRET_KEY` | development placeholder | See [Secrets](#secrets). |

@@ -11,8 +11,9 @@ from redis.asyncio import Redis
 
 from floorsync_common.settings import settings
 
-SIMULATION_CHANGED_CHANNEL = "floorsync.live.simulation.changed"
-"""The one Redis channel this ticket publishes on today."""
+SIMULATION_CHANGED_CHANNEL = f"{settings.live_update_channel_prefix}.simulation.changed"
+"""The one Redis channel this ticket publishes on today; the prefix is configurable so two
+environments sharing one Redis never hear each other."""
 
 _client: Redis | None = None
 
