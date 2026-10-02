@@ -14,12 +14,11 @@ from datetime import UTC, datetime
 from typing import Final, Protocol
 
 from redis.exceptions import RedisError
-from sqlalchemy import func, select
 
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub
 from floorsync_api.features.live_updates.redis_client import get_redis_client
-from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
 from floorsync_common.database.session import session_scope
+from floorsync_common.live_updates.service import LiveUpdateOutboxService
 from floorsync_common.settings import settings
 
 # Above this, an unpublished row is not "mid-retry" any more -- something is actually stuck (the
@@ -84,20 +83,15 @@ async def _outbox_backlog() -> tuple[int, float | None]:
     try:
         async with asyncio.timeout(settings.readiness_timeout_seconds):
             async with session_scope() as db:
-                count, oldest_created_at = (
-                    await db.execute(
-                        select(func.count(), func.min(LiveUpdateOutbox.created_at)).where(
-                            LiveUpdateOutbox.published_at.is_(None)
-                        )
-                    )
-                ).one()
+                backlog = await LiveUpdateOutboxService.backlog(db)
     except Exception:
         # Treat "couldn't even check" the same as "found a very old row": both mean this signal
         # cannot vouch for the backlog right now, which is itself worth surfacing as degraded.
         return 0, DEGRADED_BACKLOG_AGE_SECONDS + 1
-    if oldest_created_at is None:
-        return count, None
-    return count, (datetime.now(UTC) - oldest_created_at).total_seconds()
+    if backlog.oldest_created_at is None:
+        return backlog.unpublished_count, None
+    age = (datetime.now(UTC) - backlog.oldest_created_at).total_seconds()
+    return backlog.unpublished_count, age
 
 
 __all__ = ["DEGRADED_BACKLOG_AGE_SECONDS", "LiveUpdateHealthReport", "build_report"]

@@ -31,6 +31,7 @@ from floorsync_api.features.live_updates.redis_client import SIMULATION_CHANGED_
 from floorsync_api.features.simulation.router import router as simulation_router
 from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.live_updates.contracts import LiveUpdateCause
+from floorsync_common.live_updates.results import OutboxRowPublished
 from floorsync_common.live_updates.service import LiveUpdateOutboxService
 from floorsync_common.simulation.events import SimulatedTimePoint, SimulationEventType
 from floorsync_common.simulation.results import (
@@ -219,26 +220,48 @@ class FakePublisherTransaction:
 
 
 class FakePublisherSession:
-    """Mimics `autobegin=False`: reading or writing outside an active `begin()` block raises,
-    the same way the real session would once the router's own transaction has already closed."""
+    """Mimics `autobegin=False`: the service stubs below assert the session is inside a `begin()`
+    block, the same way a real session raises once the router's own transaction has closed."""
 
-    def __init__(self, row: FakeOutboxRow | None) -> None:
-        self.row = row
-        self.executed: list[Any] = []
+    def __init__(self) -> None:
         self.in_transaction = False
-
-    async def get(self, _model: Any, _id: UUID) -> FakeOutboxRow | None:
-        assert self.in_transaction, "get() called outside an active transaction"
-        return self.row
 
     def begin(self) -> FakePublisherTransaction:
         return FakePublisherTransaction(self)
 
-    async def execute(self, statement: Any) -> None:
-        assert self.in_transaction, "execute() called outside an active transaction"
-        self.executed.append(statement)
+
+class PublisherOutbox:
+    """Stands in for `LiveUpdateOutboxService`'s publish-side methods."""
+
+    def __init__(self, row: FakeOutboxRow | None) -> None:
+        self.row = row
+        self.marked: list[UUID] = []
+
+    async def load_unpublished(self, db: Any, _id: UUID) -> FakeOutboxRow | None:
+        assert db.in_transaction, "load_unpublished() called outside an active transaction"
+        if self.row is None or self.row.published_at is not None:
+            return None
+        return self.row
+
+    async def mark_published(self, db: Any, outbox_id: UUID, *, at: datetime) -> Any:
+        assert db.in_transaction, "mark_published() called outside an active transaction"
+        self.marked.append(outbox_id)
         assert self.row is not None
-        self.row.published_at = datetime.now(UTC)
+        self.row.published_at = at
+        return OutboxRowPublished(outbox_id=outbox_id)
+
+
+def _publisher_setup(
+    monkeypatch: pytest.MonkeyPatch, row: FakeOutboxRow | None
+) -> tuple[FakePublisherSession, PublisherOutbox]:
+    outbox = PublisherOutbox(row)
+    monkeypatch.setattr(
+        LiveUpdateOutboxService, "load_unpublished", staticmethod(outbox.load_unpublished)
+    )
+    monkeypatch.setattr(
+        LiveUpdateOutboxService, "mark_published", staticmethod(outbox.mark_published)
+    )
+    return FakePublisherSession(), outbox
 
 
 class FakeRedis:
@@ -256,7 +279,7 @@ def test_publish_now_publishes_then_marks_the_row_published(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     row = FakeOutboxRow(uuid4(), {"v": 1, "topic": "simulation.changed"})
-    session = FakePublisherSession(row)
+    session, outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
     monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
 
@@ -264,7 +287,7 @@ def test_publish_now_publishes_then_marks_the_row_published(
 
     assert redis.published == [(SIMULATION_CHANGED_CHANNEL, json.dumps(row.payload))]
     assert row.published_at is not None
-    assert len(session.executed) == 1
+    assert outbox.marked == [row.id]
 
 
 def test_publish_now_leaves_the_row_unpublished_when_redis_fails(
@@ -273,33 +296,35 @@ def test_publish_now_leaves_the_row_unpublished_when_redis_fails(
     """A control's REST response must still succeed even though Redis is down."""
 
     row = FakeOutboxRow(uuid4(), {"v": 1})
-    session = FakePublisherSession(row)
+    session, outbox = _publisher_setup(monkeypatch, row)
     monkeypatch.setattr(publisher_module, "get_redis_client", lambda: FakeRedis(fail=True))
 
     run(OutboxPublisher.publish_now(session, row.id))
 
     assert row.published_at is None
-    assert session.executed == []
+    assert outbox.marked == []
 
 
 def test_publish_now_is_a_noop_for_an_already_published_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     row = FakeOutboxRow(uuid4(), {"v": 1}, published_at=datetime.now(UTC))
-    session = FakePublisherSession(row)
+    session, outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
     monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
 
     run(OutboxPublisher.publish_now(session, row.id))
 
     assert redis.published == []
+    assert outbox.marked == []
 
 
 def test_publish_now_is_a_noop_for_a_vanished_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    session = FakePublisherSession(None)
+    session, outbox = _publisher_setup(monkeypatch, None)
     redis = FakeRedis()
     monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
 
     run(OutboxPublisher.publish_now(session, uuid4()))
 
     assert redis.published == []
+    assert outbox.marked == []

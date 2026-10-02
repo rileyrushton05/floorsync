@@ -2,24 +2,26 @@
 
 Called only after the transaction that wrote the row has committed (decision 0017: "the route
 publishes the row to Redis only after commit"). A failure here must never fail the control that
-was already recorded -- the row stays unpublished and a relay (#148, not yet built) retries it.
+was already recorded -- the row stays unpublished and the relay retries it.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
+from typing import assert_never
 from uuid import UUID
 
 from redis.exceptions import RedisError
-from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_api.features.live_updates.redis_client import (
     SIMULATION_CHANGED_CHANNEL,
     get_redis_client,
 )
-from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
+from floorsync_common.live_updates.results import OutboxRowAlreadySettled, OutboxRowPublished
+from floorsync_common.live_updates.service import LiveUpdateOutboxService
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +43,8 @@ class OutboxPublisher:
         -- so even the read needs its own transaction, not just the mark-published write.
         """
         async with db.begin():
-            row = await db.get(LiveUpdateOutbox, outbox_id)
-            if row is None or row.published_at is not None:
+            row = await LiveUpdateOutboxService.load_unpublished(db, outbox_id)
+            if row is None:
                 return
             payload = json.dumps(row.payload)
 
@@ -58,11 +60,15 @@ class OutboxPublisher:
             return
 
         async with db.begin():
-            await db.execute(
-                update(LiveUpdateOutbox)
-                .where(LiveUpdateOutbox.id == outbox_id)
-                .values(published_at=func.now())
+            result = await LiveUpdateOutboxService.mark_published(
+                db, outbox_id, at=datetime.now(UTC)
             )
+        match result:
+            case OutboxRowPublished() | OutboxRowAlreadySettled():
+                # The relay may have published and marked it first; either way nothing is owed.
+                pass
+            case _:
+                assert_never(result)
 
 
 __all__ = ["OutboxPublisher"]

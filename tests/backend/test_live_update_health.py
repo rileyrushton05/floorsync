@@ -1,9 +1,8 @@
 """The live-update readiness signal (#148): a probe independent of `/health/ready`.
 
 Neither Redis nor the database is reachable in this suite (confirmed elsewhere in this session),
-so both are stubbed: a fake Redis client for `ping`, and a fake session whose `.execute(...)`
-returns a canned `(count, oldest_created_at)` row, matching how the relay's tests fake
-`session_scope`.
+so both are stubbed: a fake Redis client for `ping`, and `LiveUpdateOutboxService.backlog` returning
+a canned `OutboxBacklog` (the real query is proven against Postgres in `tests/integration`).
 """
 
 from __future__ import annotations
@@ -20,6 +19,8 @@ from redis.exceptions import RedisError
 from floorsync_api.features.live_updates import health as health_module
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub, SubscriptionKey
 from floorsync_api.features.live_updates.health import DEGRADED_BACKLOG_AGE_SECONDS, build_report
+from floorsync_common.live_updates.results import OutboxBacklog
+from floorsync_common.live_updates.service import LiveUpdateOutboxService
 
 
 def run(coroutine: Any) -> Any:
@@ -40,20 +41,8 @@ class FakeRedis:
             raise RedisError("Redis is unreachable.")
 
 
-class FakeResult:
-    def __init__(self, row: tuple[int, datetime | None]) -> None:
-        self._row = row
-
-    def one(self) -> tuple[int, datetime | None]:
-        return self._row
-
-
 class FakeSession:
-    def __init__(self, row: tuple[int, datetime | None]) -> None:
-        self._row = row
-
-    async def execute(self, _statement: Any) -> FakeResult:
-        return FakeResult(self._row)
+    """`session_scope` yields this; `LiveUpdateOutboxService.backlog` is stubbed, never queried."""
 
 
 def _stub(
@@ -66,9 +55,14 @@ def _stub(
 
     @contextlib.asynccontextmanager
     async def fake_session_scope() -> Any:
-        yield FakeSession(outbox_row)
+        yield FakeSession()
+
+    async def fake_backlog(_db: Any) -> OutboxBacklog:
+        count, oldest = outbox_row
+        return OutboxBacklog(unpublished_count=count, oldest_created_at=oldest)
 
     monkeypatch.setattr(health_module, "session_scope", fake_session_scope)
+    monkeypatch.setattr(LiveUpdateOutboxService, "backlog", staticmethod(fake_backlog))
 
 
 def _build(

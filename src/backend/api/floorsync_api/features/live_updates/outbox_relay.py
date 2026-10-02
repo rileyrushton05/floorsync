@@ -3,9 +3,9 @@
 Redis pub/sub is fire-and-forget: a row can commit but never actually reach Redis if the
 immediate publish attempt failed (Redis was down, or the process crashed between commit and
 publish -- see `OutboxPublisher`). This relay is the durable second path: it claims due,
-unpublished rows with `SELECT ... FOR UPDATE SKIP LOCKED`, safe with more than one relay running
-at once since a locked row is simply skipped rather than contended for, and retries each with a
-doubling backoff so a Redis outage does not turn into a tight retry loop.
+unpublished rows (`LiveUpdateOutboxService.claim_due`, `FOR UPDATE SKIP LOCKED`, so more than one
+relay can run at once), and retries each with a doubling backoff so a Redis outage does not turn
+into a tight retry loop. All SQL lives in the outbox service; this module owns Redis and timing.
 """
 
 from __future__ import annotations
@@ -15,10 +15,9 @@ import contextlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Final, assert_never
 
 from redis.exceptions import RedisError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_api.features.live_updates.redis_client import (
@@ -27,6 +26,8 @@ from floorsync_api.features.live_updates.redis_client import (
 )
 from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
 from floorsync_common.database.session import session_scope
+from floorsync_common.live_updates.results import OutboxRowAlreadySettled, OutboxRowPublished
+from floorsync_common.live_updates.service import LiveUpdateOutboxService
 
 logger = logging.getLogger(__name__)
 
@@ -78,51 +79,45 @@ class OutboxRelay:
         Public so a test, or an operator, can drive one pass without waiting on the poll loop.
         """
         async with session_scope() as db:
-            rows = (
-                await db.scalars(
-                    select(LiveUpdateOutbox)
-                    .where(
-                        LiveUpdateOutbox.published_at.is_(None),
-                        LiveUpdateOutbox.next_attempt_at <= datetime.now(UTC),
-                    )
-                    .order_by(LiveUpdateOutbox.next_attempt_at, LiveUpdateOutbox.created_at)
-                    .limit(BATCH_SIZE)
-                    .with_for_update(skip_locked=True)
-                )
-            ).all()
-
+            rows = await LiveUpdateOutboxService.claim_due(
+                db, now=datetime.now(UTC), limit=BATCH_SIZE
+            )
             for row in rows:
                 await _retry(db, row)
-
             return len(rows)
 
 
 async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> None:
-    """Publish one claimed row; on failure, push its next attempt out and record why.
-
-    `db` is unused directly -- `row` is already an object this transaction owns via the row lock
-    `run_once` took, so mutating it is enough for the surrounding `session_scope()` to persist the
-    change on commit. It stays a parameter so a test can construct `_retry` calls independent of a
-    real session, matching how the rest of this module is exercised without a database.
-    """
+    """Publish one claimed row, then settle it: mark it published, or hold it back and say why."""
     try:
         await get_redis_client().publish(SIMULATION_CHANGED_CHANNEL, json.dumps(row.payload))
     except RedisError as error:
-        row.attempt_count += 1
-        row.next_attempt_at = datetime.now(UTC) + _backoff(row.attempt_count)
-        row.last_error_code = type(error).__name__
+        attempt_count = row.attempt_count + 1
+        error_code = type(error).__name__
+        await LiveUpdateOutboxService.record_failure(
+            db,
+            row.id,
+            error_code=error_code,
+            retry_at=datetime.now(UTC) + _backoff(attempt_count),
+        )
         logger.warning(
             "Outbox row %s failed to publish; will retry.",
             row.id,
             extra={
                 "outbox_id": str(row.id),
-                "attempt_count": row.attempt_count,
-                "error_code": row.last_error_code,
+                "attempt_count": attempt_count,
+                "error_code": error_code,
             },
             exc_info=True,
         )
         return
-    row.published_at = datetime.now(UTC)
+
+    result = await LiveUpdateOutboxService.mark_published(db, row.id, at=datetime.now(UTC))
+    match result:
+        case OutboxRowPublished() | OutboxRowAlreadySettled():
+            pass
+        case _:
+            assert_never(result)
 
 
 def _backoff(attempt_count: int) -> timedelta:
