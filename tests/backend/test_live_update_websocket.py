@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import FastAPI, WebSocketDisconnect
 from fastapi.testclient import TestClient
+from redis.exceptions import RedisError
 
 from floorsync_api.features.live_updates import websocket as websocket_module
 from floorsync_api.features.live_updates.snapshots import SnapshotUnavailable
@@ -29,6 +30,7 @@ from floorsync_api.features.live_updates.websocket import (
     CLOSE_INVALID_TICKET,
     CLOSE_MALFORMED_FRAME,
     CLOSE_TIMEOUT_OR_LIMIT,
+    CLOSE_TRY_AGAIN_LATER,
     MAX_SUBSCRIPTIONS_PER_CONNECTION,
     hub,
     router,
@@ -197,6 +199,39 @@ def test_a_connections_logs_carry_its_connection_id_as_the_request_id(
         connection_id = ws.receive_json()["connection_id"]
 
     assert seen == [connection_id]
+
+
+# -- redis unavailable at the handshake ----------------------------------------------------------
+
+
+def test_redis_failing_during_ticket_redemption_closes_1013(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def consume(_ticket: str) -> UUID | None:
+        raise RedisError("Redis is unreachable.")
+
+    monkeypatch.setattr(LiveUpdateTicketService, "consume", staticmethod(consume))
+
+    with ws_client().websocket_connect("/ws") as ws:
+        ws.send_json({"v": 1, "type": "authenticate", "ticket": "good-ticket"})
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            ws.receive_json()
+
+    assert exc_info.value.code == CLOSE_TRY_AGAIN_LATER
+
+
+def test_redis_failing_during_the_rate_limit_check_closes_1013(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def check(_client_ip: str) -> bool:
+        raise RedisError("Redis is unreachable.")
+
+    monkeypatch.setattr(websocket_module, "check_ip", check)
+
+    with ws_client().websocket_connect("/ws") as ws, pytest.raises(WebSocketDisconnect) as exc_info:
+        ws.receive_json()
+
+    assert exc_info.value.code == CLOSE_TRY_AGAIN_LATER
 
 
 # -- connection rate limiting -------------------------------------------------------------------

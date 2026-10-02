@@ -11,6 +11,7 @@ from uuid import UUID
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from redis.exceptions import RedisError
 
 from floorsync_api.dependencies.authentication import get_current_user
 from floorsync_api.features.live_updates import tickets as tickets_module
@@ -157,6 +158,24 @@ def test_create_ticket_returns_201_never_cached(monkeypatch: pytest.MonkeyPatch)
     assert response.status_code == 201
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["ticket"] == "opaque-value"
+
+
+def test_create_ticket_is_a_503_problem_when_redis_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """So the frontend can fall back to polling instead of treating it as a server bug."""
+
+    async def fake_issue(*, user_id: UUID) -> Any:
+        raise RedisError("Redis is unreachable.")
+
+    monkeypatch.setattr(LiveUpdateTicketService, "issue", staticmethod(fake_issue))
+
+    response = ticket_client().post("/api/v1/live-updates/tickets")
+
+    assert response.status_code == 503
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["type"] == "urn:floorsync:problem:live-updates-unavailable"
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_create_ticket_is_open_to_any_signed_in_role(monkeypatch: pytest.MonkeyPatch) -> None:

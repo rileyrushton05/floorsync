@@ -3147,6 +3147,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "Live updates are unavailable; fall back to polling"
           }
         },
         "security": [

@@ -109,6 +109,13 @@ of every operator's browser, which a frontend-side filter cannot promise.
   accept is not published: the relay parks it for the longest backoff with
   `last_error_code = 'UnsupportedEnvelope'`, and a subscriber that still receives one drops it with
   an error log carrying the event id and counts it (`/health/live-updates`).
+- Redis hanging is handled like Redis being down, not left to the operating system's timeout. The
+  command client (publish, tickets, rate limits, health) connects and reads with
+  `REDIS_SOCKET_TIMEOUT_SECONDS`; the subscriber has its own client without the read timeout (a
+  subscription is idle between messages) and relies on keepalive and health checks instead. A
+  ticket request answers 503 so the frontend can fall back to polling, a socket handshake closes
+  1013, and the relay ends its batch at the first Redis failure rather than waiting out a timeout
+  per row while holding their locks.
 - Redis being down never fails a control and never makes the API unready. `/health/live-updates`
   reports degraded delivery separately from `/health/ready`.
 - For the first release the subscriber and the relay run in the API's lifespan. Before the API is

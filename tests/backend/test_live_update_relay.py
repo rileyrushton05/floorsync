@@ -153,29 +153,37 @@ def test_run_once_backs_off_a_row_that_still_fails(monkeypatch: pytest.MonkeyPat
     assert before + timedelta(seconds=BASE_BACKOFF_SECONDS * 4) <= failure["retry_at"]
 
 
-def test_run_once_processes_every_row_even_when_one_fails(
+def test_run_once_stops_the_batch_at_the_first_redis_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One bad row must not stop the batch -- see the ticket's own error contract for the relay."""
+    """Redis is down for every row, so trying the rest would only wait out a timeout per row while
+    holding their locks. They are left untouched for the next pass."""
 
-    ok_row, failing_row = _row(), _row()
-    call_count = 0
+    failing_row, untouched_row = _row(), _row()
+    outbox = _stub_outbox(monkeypatch, [failing_row, untouched_row])
+    redis = FakeRedis(fail=True)
+    _stub_redis(monkeypatch, redis)
 
-    class SometimesFailingRedis:
-        async def publish(self, _channel: str, _message: str) -> None:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise RedisError("down")
+    handled = run(OutboxRelay().run_once())
 
-    outbox = _stub_outbox(monkeypatch, [failing_row, ok_row])
-    monkeypatch.setattr(relay_module, "get_redis_client", lambda: SometimesFailingRedis())
-
-    claimed = run(OutboxRelay().run_once())
-
-    assert claimed == 2
+    assert handled == 1
     assert [f["id"] for f in outbox.failures] == [failing_row.id]
-    assert outbox.published == [ok_row.id]
+    assert outbox.published == []
+
+
+def test_run_once_carries_on_past_an_unreadable_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A malformed payload is that row's problem, not Redis's, so the next row is still sent."""
+
+    unreadable, good = _row(payload={"v": 999}), _row()
+    outbox = _stub_outbox(monkeypatch, [unreadable, good])
+    redis = FakeRedis()
+    _stub_redis(monkeypatch, redis)
+
+    handled = run(OutboxRelay().run_once())
+
+    assert handled == 2
+    assert [f["id"] for f in outbox.failures] == [unreadable.id]
+    assert outbox.published == [good.id]
 
 
 def test_run_once_parks_an_unreadable_row_instead_of_publishing_it(

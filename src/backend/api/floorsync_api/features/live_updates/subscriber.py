@@ -18,7 +18,7 @@ from typing import Any, Final
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub
 from floorsync_api.features.live_updates.redis_client import (
     SIMULATION_CHANGED_CHANNEL,
-    get_redis_client,
+    get_subscriber_client,
 )
 from floorsync_common.live_updates.contracts import SimulationChangedEnvelope, UnsupportedEnvelope
 
@@ -80,7 +80,7 @@ class RedisLiveUpdateSubscriber:
                 await asyncio.sleep(delay)
 
     async def _listen_once(self) -> None:
-        pubsub = get_redis_client().pubsub()
+        pubsub = get_subscriber_client().pubsub()
         await pubsub.subscribe(SIMULATION_CHANGED_CHANNEL)
         self._failures = 0  # subscribed: the next outage starts its backoff from the beginning
         try:

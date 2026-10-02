@@ -75,21 +75,32 @@ class OutboxRelay:
             await asyncio.sleep(0 if claimed >= BATCH_SIZE else POLL_INTERVAL_SECONDS)
 
     async def run_once(self) -> int:
-        """Claim and retry one batch of due rows. Returns how many were claimed.
+        """Claim and retry one batch of due rows. Returns how many it handled.
 
         Public so a test, or an operator, can drive one pass without waiting on the poll loop.
+
+        The first Redis failure ends the batch. Redis is down or hanging for every row, so trying
+        the rest would only wait out one timeout each while holding their row locks; they are
+        released untouched when this transaction ends and are claimed again on the next pass.
         """
         async with session_scope() as db:
             rows = await LiveUpdateOutboxService.claim_due(
                 db, now=datetime.now(UTC), limit=BATCH_SIZE
             )
+            handled = 0
             for row in rows:
-                await _retry(db, row)
-            return len(rows)
+                handled += 1
+                if not await _retry(db, row):
+                    break
+            return handled
 
 
-async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> None:
-    """Publish one claimed row, then settle it: mark it published, or hold it back and say why."""
+async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> bool:
+    """Publish one claimed row, then settle it: mark it published, or hold it back and say why.
+
+    `False` means Redis itself failed (the caller should stop the batch); an unreadable row is
+    parked and still returns `True`, since the next row may be fine.
+    """
     if not is_publishable(row.payload):
         # Retrying cannot fix a malformed payload, so park it for the longest backoff and record why
         # instead of publishing something every subscriber would drop. It stays visible in the
@@ -110,7 +121,7 @@ async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> None:
                 "error_code": "UnsupportedEnvelope",
             },
         )
-        return
+        return True
 
     try:
         await get_redis_client().publish(SIMULATION_CHANGED_CHANNEL, json.dumps(row.payload))
@@ -133,7 +144,7 @@ async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> None:
             },
             exc_info=True,
         )
-        return
+        return False
 
     result = await LiveUpdateOutboxService.mark_published(db, row.id, at=datetime.now(UTC))
     match result:
@@ -141,6 +152,7 @@ async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> None:
             pass
         case _:
             assert_never(result)
+    return True
 
 
 def _backoff(attempt_count: int) -> timedelta:

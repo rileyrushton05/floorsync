@@ -22,6 +22,7 @@ from typing import Any, Final, NoReturn, assert_never
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from redis.exceptions import RedisError
 
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub, SubscriptionKey
 from floorsync_api.features.live_updates.rate_limit import check_account, check_ip
@@ -52,9 +53,12 @@ CLOSE_MALFORMED_FRAME: Final = 4400
 CLOSE_INVALID_TICKET: Final = 4401
 CLOSE_FORBIDDEN: Final = 4403
 CLOSE_TIMEOUT_OR_LIMIT: Final = 4408
+# The standard "try again later": Redis (tickets, rate limits) is unavailable, so the client
+# should fall back to polling the REST snapshot and retry the socket later.
+CLOSE_TRY_AGAIN_LATER: Final = 1013
 
 # One hub per process: every socket this instance holds is registered here. Cross-instance
-# delivery is the Redis subscriber's job (not yet built), which republishes into this same hub.
+# delivery is `RedisLiveUpdateSubscriber`'s job, which republishes into this same hub.
 hub = ConnectionHub()
 
 
@@ -99,9 +103,17 @@ async def live_updates(websocket: WebSocket) -> None:
     # correlation id. The connection id is the socket's equivalent.
     request_id_token = set_request_id(str(state.connection_id))
     try:
-        if not await check_ip(_client_ip(websocket)):
-            await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "ip_rate_limited")
-        await _authenticate(websocket, state)
+        try:
+            if not await check_ip(_client_ip(websocket)):
+                await _close(websocket, state, CLOSE_TIMEOUT_OR_LIMIT, "ip_rate_limited")
+            await _authenticate(websocket, state)
+        except RedisError:
+            logger.warning(
+                "Redis is unavailable during the live-update handshake.",
+                extra={"connection_id": str(state.connection_id)},
+                exc_info=True,
+            )
+            await _close(websocket, state, CLOSE_TRY_AGAIN_LATER, "redis_unavailable")
         while True:
             frame = await _receive_frame(websocket, state)
             await _handle_frame(websocket, state, frame)

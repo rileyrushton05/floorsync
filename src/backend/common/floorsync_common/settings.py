@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://redis:6379/1"
     redis_url: str = "redis://redis:6379/0"
     live_update_channel_prefix: str = Field(default="floorsync.live", min_length=1)
+    redis_socket_timeout_seconds: float = Field(default=2.0, gt=0)
 
     cors_allowed_origins: list[str] = ["http://localhost:3000"]
     cors_allowed_methods: list[str] = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
