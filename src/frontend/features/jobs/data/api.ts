@@ -1,4 +1,4 @@
-import { apiRequest } from "@/core/http/client";
+import { ApiError, apiRequest } from "@/core/http/client";
 import type { CursorPage } from "@/core/http/contracts";
 import type { BacklogStatus } from "@/domains/scheduling/types";
 
@@ -69,6 +69,56 @@ export function fetchJobs(token: string, limit = 100, cursor?: string, signal?: 
 
 export function deleteJob(jobId: string, token: string): Promise<void> {
     return apiRequest<void>(`/api/v1/jobs/${encodeURIComponent(jobId)}`, token, { method: "DELETE" });
+}
+
+/**
+ * Retire a job from the backlog by hand.
+ *
+ * One way on purpose (decision 0018): the API takes `archived: true` and has no
+ * `false`, because the job a manager most wants back — one a plan claimed — was
+ * never archived in the first place. That one comes back by discarding the
+ * plan, and an archived job comes back as a duplicate.
+ */
+export function archiveJob(jobId: string, token: string): Promise<Job> {
+    return apiRequest<Job>(`/api/v1/jobs/${encodeURIComponent(jobId)}`, token, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: true }),
+    });
+}
+
+/** The schedules standing in the way of deleting a job, as the refusal names them. */
+export interface ScheduleReferences {
+    /** Drafts, which can be deleted to clear the way. */
+    draftScheduleIds: string[];
+    /** Confirmed schedules, which are a record of what the floor was told to do. */
+    confirmedScheduleIds: string[];
+}
+
+function scheduleIds(extensions: Record<string, unknown>, member: string): string[] {
+    const value = extensions[member];
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+}
+
+/**
+ * Read a delete refusal's own account of what is in the way.
+ *
+ * `DELETE /api/v1/jobs/{id}` answers 409 `job-is-scheduled` with the two lists
+ * as problem extension members, because what the manager can do next depends on
+ * which kind is in the way: a draft is a proposal the page can delete for them,
+ * a confirmed schedule is history and leaves archiving as the way out. Returns
+ * null for anything else, including a refusal that names neither.
+ */
+export function scheduleReferences(error: unknown): ScheduleReferences | null {
+    if (!(error instanceof ApiError)) return null;
+    if (error.problem?.type !== "urn:floorsync:problem:job-is-scheduled") return null;
+    const references = {
+        draftScheduleIds: scheduleIds(error.problem.extensions, "draft_schedule_ids"),
+        confirmedScheduleIds: scheduleIds(error.problem.extensions, "confirmed_schedule_ids"),
+    };
+    return references.draftScheduleIds.length + references.confirmedScheduleIds.length > 0
+        ? references
+        : null;
 }
 
 

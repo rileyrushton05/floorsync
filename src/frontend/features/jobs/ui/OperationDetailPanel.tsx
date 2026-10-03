@@ -12,12 +12,16 @@ import { OperationRoutes } from "./OperationRoutes";
 import { PredecessorPicker, type PredecessorOption } from "./PredecessorPicker";
 
 /**
- * The step the graph currently has open, edited beside it.
+ * The step the graph currently has open, edited just below it.
  *
  * A panel rather than a dialog on purpose: the point of editing from the graph
  * is watching the graph answer. A modal would cover the very thing the edit is
- * about — rename a step or change what it waits on and the shape beside you
+ * about — rename a step or change what it waits on and the shape above you
  * redraws as you type, which a dialog would hide behind itself.
+ *
+ * It sits under the graph rather than beside it so both get the card's full
+ * width: the graph scrolls sideways and wants every pixel across, and a step
+ * with many machines reads far better as table rows than as a narrow column.
  *
  * It holds no state — every control writes straight to the job draft, which is
  * what the graph renders from, so the picture and the fields cannot disagree.
@@ -108,36 +112,39 @@ export function OperationDetailPanel({
                 )}
             </div>
 
-            <TextField
-                value={operation.name}
-                isReadOnly={readOnly}
-                onChange={(name) => onPatch({ name })}
-            >
-                <Label className="text-muted-fg text-xs">Step name</Label>
-                <Input ref={nameRef} placeholder="Operation name" autoComplete="off" />
-            </TextField>
+            <div className="grid gap-3 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] lg:items-start">
+                <div className="flex flex-col gap-3">
+                    <TextField
+                        value={operation.name}
+                        isReadOnly={readOnly}
+                        onChange={(name) => onPatch({ name })}
+                    >
+                        <Label className="text-muted-fg text-xs">Step name</Label>
+                        <Input ref={nameRef} placeholder="Operation name" autoComplete="off" />
+                    </TextField>
 
-            <PredecessorPicker
-                label={label}
-                options={predecessorOptions}
-                selected={operation.dependsOn}
-                foreignPredecessors={foreignPredecessors}
-                readOnly={readOnly}
-                onChange={onDependenciesChange}
-            />
+                    <PredecessorPicker
+                        label={label}
+                        options={predecessorOptions}
+                        selected={operation.dependsOn}
+                        foreignPredecessors={foreignPredecessors}
+                        readOnly={readOnly}
+                        onChange={onDependenciesChange}
+                    />
+                </div>
 
-            <OperationRoutes
-                routes={operation.routes}
-                machines={machines}
-                activeMachines={activeMachines}
-                saving={saving}
-                label={label}
-                stacked
-                readOnly={readOnly}
-                onPatchRoute={onPatchRoute}
-                onAddRoute={onAddRoute}
-                onRemoveRoute={onRemoveRoute}
-            />
+                <OperationRoutes
+                    routes={operation.routes}
+                    machines={machines}
+                    activeMachines={activeMachines}
+                    saving={saving}
+                    label={label}
+                    readOnly={readOnly}
+                    onPatchRoute={onPatchRoute}
+                    onAddRoute={onAddRoute}
+                    onRemoveRoute={onRemoveRoute}
+                />
+            </div>
         </div>
     );
 }
