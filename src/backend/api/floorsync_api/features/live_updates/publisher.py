@@ -41,21 +41,33 @@ def is_publishable(payload: Any) -> bool:
 
 
 class OutboxPublisher:
-    """Publish one committed envelope and mark it published. Never raises."""
+    """Publish one committed envelope and mark it published, without ever failing the caller."""
 
     @staticmethod
     async def publish_now(db: AsyncSession, outbox_id: UUID) -> None:
-        """Publish `outbox_id`'s payload verbatim, then mark it published.
+        """Best-effort immediate delivery of a row that has already committed.
 
-        Takes the id rather than the envelope so the relay can call the exact same method for a
-        row it only knows by id. Silently returns for a row that is already published or has
-        vanished (both mean there is nothing left to do), and swallows any Redis error rather than
-        raising: the caller's REST response must still report the control that already committed.
+        Takes the id rather than the envelope so a row can be published knowing only its id. Any
+        failure, Redis or the database, is logged and leaves the durable row for the relay:
+        the caller's response must still report the control that already committed, and an error
+        here would invite a retry of an action that was applied. Only cancellation escapes.
 
-        `db` arrives here right after the caller's own `db.begin()` block has already closed, and
-        this session's `autobegin=False` means any statement outside an explicit `begin()` raises
-        -- so even the read needs its own transaction, not just the mark-published write.
+        `db` arrives right after the caller's own `db.begin()` block has closed, and this session's
+        `autobegin=False` means any statement outside an explicit `begin()` raises -- so the read
+        needs its own transaction, not just the mark-published write.
         """
+        try:
+            await OutboxPublisher._publish(db, outbox_id)
+        except Exception:
+            logger.warning(
+                "Immediate publish of outbox row %s failed; leaving it for the relay.",
+                outbox_id,
+                extra={"outbox_id": str(outbox_id)},
+                exc_info=True,
+            )
+
+    @staticmethod
+    async def _publish(db: AsyncSession, outbox_id: UUID) -> None:
         async with db.begin():
             row = await LiveUpdateOutboxService.load_unpublished(db, outbox_id)
             if row is None:

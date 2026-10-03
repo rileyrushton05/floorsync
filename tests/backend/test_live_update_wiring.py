@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from live_update_payloads import valid_payload
 from redis.exceptions import RedisError
+from sqlalchemy.exc import OperationalError
 
 from floorsync_api.dependencies.authentication import get_current_user, require_roles
 from floorsync_api.dependencies.database import get_db_session
@@ -330,6 +331,84 @@ def test_publish_now_does_not_publish_an_unreadable_row(monkeypatch: pytest.Monk
 
     assert redis.published == []
     assert outbox.marked == []  # left for the relay, which parks it and records why
+
+
+@pytest.mark.parametrize("failing_step", ["load_unpublished", "mark_published"])
+def test_publish_now_never_raises_when_its_own_database_work_fails(
+    monkeypatch: pytest.MonkeyPatch, failing_step: str
+) -> None:
+    """The control already committed; a failure reading or marking the outbox row must not
+    surface, or the caller sees an error for an action that was applied."""
+
+    row = FakeOutboxRow(uuid4(), valid_payload())
+    session, _ = _publisher_setup(monkeypatch, row)
+
+    async def broken(*_: object, **__: object) -> None:
+        raise OperationalError("SELECT 1", {}, Exception("connection lost"))
+
+    monkeypatch.setattr(LiveUpdateOutboxService, failing_step, staticmethod(broken))
+    redis = FakeRedis()
+    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
+
+    run(OutboxPublisher.publish_now(session, row.id))  # must not raise
+
+    assert row.published_at is None  # left for the relay
+
+
+def test_publish_now_lets_cancellation_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = FakeOutboxRow(uuid4(), valid_payload())
+    session, _ = _publisher_setup(monkeypatch, row)
+
+    async def cancelled(*_: object, **__: object) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(LiveUpdateOutboxService, "load_unpublished", staticmethod(cancelled))
+
+    with pytest.raises(asyncio.CancelledError):
+        run(OutboxPublisher.publish_now(session, row.id))
+
+
+@pytest.mark.parametrize("failing_step", ["load_unpublished", "mark_published"])
+def test_a_control_still_reports_its_result_when_post_commit_delivery_fails(
+    monkeypatch: pytest.MonkeyPatch, failing_step: str
+) -> None:
+    """Route level: the response is the committed control's, whatever delivery does afterwards."""
+
+    _stub_outcome(
+        monkeypatch,
+        "record_control",
+        ControlRecorded(
+            simulation=_simulation("running"),
+            event_type=SimulationEventType.PAUSED,
+            position=_position(),
+            makespan=180,
+        ),
+    )
+    row = FakeOutboxRow(uuid4(), valid_payload())
+    outbox = PublisherOutbox(row)
+
+    async def enqueue(_db: Any, **_kwargs: Any) -> Any:
+        return SimpleNamespace(outbox_id=row.id, envelope=None)
+
+    async def broken(*_: object, **__: object) -> None:
+        raise OperationalError("SELECT 1", {}, Exception("connection lost"))
+
+    monkeypatch.setattr(LiveUpdateOutboxService, "enqueue_simulation_change", staticmethod(enqueue))
+    monkeypatch.setattr(
+        LiveUpdateOutboxService, "load_unpublished", staticmethod(outbox.load_unpublished)
+    )
+    monkeypatch.setattr(
+        LiveUpdateOutboxService, "mark_published", staticmethod(outbox.mark_published)
+    )
+    monkeypatch.setattr(LiveUpdateOutboxService, failing_step, staticmethod(broken))
+    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: FakeRedis())
+
+    response = wiring_client().post(
+        f"/api/v1/simulations/{SIMULATION_ID}/events", json={"event_type": "paused"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "running"
 
 
 def test_publish_now_is_a_noop_for_a_vanished_row(monkeypatch: pytest.MonkeyPatch) -> None:
