@@ -7,13 +7,19 @@ each collaborator in isolation, matching how the outbox service and route wiring
 from __future__ import annotations
 
 import asyncio
+import time
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 
-from floorsync_api.features.live_updates.connection_hub import ConnectionHub, SubscriptionKey
+from floorsync_api.features.live_updates import connection_hub as hub_module
+from floorsync_api.features.live_updates.connection_hub import (
+    SLOW_CONSUMER_CLOSE_CODE,
+    ConnectionHub,
+    SubscriptionKey,
+)
 from floorsync_api.features.live_updates.snapshots import (
     LiveUpdateSnapshotService,
     SnapshotUnavailable,
@@ -45,11 +51,15 @@ class FakeSocket:
     def __init__(self, *, fails: bool = False) -> None:
         self.fails = fails
         self.received: list[dict[str, Any]] = []
+        self.closed_with: list[int] = []
 
     async def send_json(self, data: dict[str, Any]) -> None:
         if self.fails:
             raise RuntimeError("socket is gone")
         self.received.append(data)
+
+    async def close(self, code: int = 1000) -> None:
+        self.closed_with.append(code)
 
 
 def _key(**overrides: Any) -> SubscriptionKey:
@@ -121,6 +131,92 @@ def test_socket_count_deduplicates_one_socket_subscribed_to_several_keys() -> No
 
     assert hub.subscription_count() == 2
     assert hub.socket_count() == 1
+
+
+class StalledSocket(FakeSocket):
+    """A send that never finishes, as when a slow client's buffer is full."""
+
+    def __init__(self, *, close_also_stalls: bool = False) -> None:
+        super().__init__()
+        self.close_also_stalls = close_also_stalls
+
+    async def send_json(self, data: dict[str, Any]) -> None:
+        await asyncio.Event().wait()
+
+    async def close(self, code: int = 1000) -> None:
+        if self.close_also_stalls:
+            await asyncio.Event().wait()
+        await super().close(code)
+
+
+def test_a_stalled_socket_cannot_hold_up_the_others_sharing_its_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hub_module, "SEND_TIMEOUT_SECONDS", 0.1)
+    hub = ConnectionHub()
+    key = _key()
+    stalled, healthy = StalledSocket(), FakeSocket()
+    hub.register(key, stalled)
+    hub.register(key, healthy)
+
+    started = time.monotonic()
+    run(hub.broadcast(key, {"hello": "floor"}))
+    elapsed = time.monotonic() - started
+
+    assert healthy.received == [{"hello": "floor"}]
+    assert elapsed < 1.0  # bounded by the send timeout, not by the stalled client
+
+
+def test_a_stalled_socket_is_closed_and_forgotten_everywhere_so_the_client_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hub_module, "SEND_TIMEOUT_SECONDS", 0.1)
+    hub = ConnectionHub()
+    manager_key = _key(audience="manager_floor")
+    operator_key = _key(audience="operator_machine", machine_id=MACHINE_ID)
+    stalled = StalledSocket()
+    hub.register(manager_key, stalled)
+    hub.register(operator_key, stalled)
+
+    run(hub.broadcast(manager_key, {"hello": "floor"}))
+
+    # Dropped from the key that stalled and from every other key it held, and told to reconnect:
+    # merely unregistering would leave a connection that looks subscribed and hears nothing.
+    assert hub.socket_count() == 0
+    assert stalled.closed_with == [SLOW_CONSUMER_CLOSE_CODE]
+
+
+def test_later_broadcasts_no_longer_wait_on_a_socket_that_was_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hub_module, "SEND_TIMEOUT_SECONDS", 0.3)
+    hub = ConnectionHub()
+    key = _key()
+    hub.register(key, StalledSocket())
+    healthy = FakeSocket()
+    hub.register(key, healthy)
+    run(hub.broadcast(key, {"n": 1}))  # pays the timeout once
+
+    started = time.monotonic()
+    run(hub.broadcast(key, {"n": 2}))
+
+    assert time.monotonic() - started < 0.1
+    assert healthy.received == [{"n": 1}, {"n": 2}]
+
+
+def test_a_socket_whose_close_also_stalls_is_still_abandoned_within_a_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hub_module, "SEND_TIMEOUT_SECONDS", 0.1)
+    hub = ConnectionHub()
+    key = _key()
+    hub.register(key, StalledSocket(close_also_stalls=True))
+
+    started = time.monotonic()
+    run(hub.broadcast(key, {"hello": "floor"}))
+
+    assert time.monotonic() - started < 1.0
+    assert hub.socket_count() == 0
 
 
 def test_a_failing_socket_is_dropped_without_stopping_delivery_to_others() -> None:

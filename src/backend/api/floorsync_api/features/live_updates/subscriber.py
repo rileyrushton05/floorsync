@@ -105,12 +105,16 @@ class RedisLiveUpdateSubscriber:
         await self._broadcast(envelope)
 
     async def _broadcast(self, envelope: SimulationChangedEnvelope) -> None:
+        """Send to every subscribed key at once, so a stalled socket costs one bounded wait for
+        the whole fan-out rather than one per key."""
         frame_by_audience: dict[str, dict[str, Any]] = {}
+        sends = []
         for key in self._hub.keys_for_simulation(envelope.simulation_id):
             frame = frame_by_audience.setdefault(
                 key.audience, _frame(envelope, audience=key.audience)
             )
-            await self._hub.broadcast(key, frame)
+            sends.append(self._hub.broadcast(key, frame))
+        await asyncio.gather(*sends)
 
 
 def _decode(raw: bytes | str) -> SimulationChangedEnvelope | None:

@@ -8,20 +8,32 @@ authorisation at send time.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 from uuid import UUID
 
 from floorsync_api.features.live_updates.subscriptions import AudienceScope
 
 logger = logging.getLogger(__name__)
 
+# A healthy browser takes a small frame in milliseconds. A send that has not finished by now is
+# stalled on backpressure, and waiting longer would hold up every other socket and every later
+# update on this process.
+SEND_TIMEOUT_SECONDS: Final = 2.0
+# The code `websocket.py` already uses for "timeout or limit"; the client reconnects and recovers
+# from the REST snapshot.
+SLOW_CONSUMER_CLOSE_CODE: Final = 4408
+
 
 class SendsJSON(Protocol):
-    """The one method the hub needs from a socket. `WebSocket.send_json` satisfies this already."""
+    """What the hub needs from a socket. Starlette's `WebSocket` satisfies both already."""
 
     async def send_json(self, data: Any) -> None: ...
+
+    async def close(self, code: int = 1000) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,21 +93,39 @@ class ConnectionHub:
         return len({socket for sockets in self._sockets.values() for socket in sockets})
 
     async def broadcast(self, key: SubscriptionKey, message: dict[str, Any]) -> None:
-        """Send `message` to every socket subscribed to `key`.
+        """Send `message` to every socket subscribed to `key`, all at once.
 
-        A send failure drops that socket only -- per #148's error contract, one dead connection
-        must never stop delivery to the others sharing its key.
+        Each send is bounded by `SEND_TIMEOUT_SECONDS`, and a socket that fails or stalls is dropped
+        and closed, so one bad connection can neither stop delivery to the others sharing its key
+        nor hold up this process's next update (#148's error contract). Never raises.
         """
-        for socket in list(self._sockets.get(key, ())):
-            try:
+        sockets = list(self._sockets.get(key, ()))
+        await asyncio.gather(*(self._deliver(key, socket, message) for socket in sockets))
+
+    async def _deliver(
+        self, key: SubscriptionKey, socket: SendsJSON, message: dict[str, Any]
+    ) -> None:
+        try:
+            async with asyncio.timeout(SEND_TIMEOUT_SECONDS):
                 await socket.send_json(message)
-            except Exception:
-                logger.warning(
-                    "Dropping a live-update socket that failed to receive a message.",
-                    extra={"simulation_id": str(key.simulation_id), "audience_scope": key.audience},
-                    exc_info=True,
-                )
-                self.unregister(key, socket)
+        except Exception:
+            logger.warning(
+                "Dropping a live-update socket that failed or stalled on a message.",
+                extra={"simulation_id": str(key.simulation_id), "audience_scope": key.audience},
+                exc_info=True,
+            )
+            await self._drop(socket)
+
+    async def _drop(self, socket: SendsJSON) -> None:
+        """Forget `socket` everywhere and close it, so the client knows to reconnect.
+
+        Merely unregistering would leave a live connection that looks subscribed and receives
+        nothing: its heartbeats would still be answered, so the client would never notice.
+        """
+        self.unregister_all(socket)
+        with contextlib.suppress(Exception):
+            async with asyncio.timeout(SEND_TIMEOUT_SECONDS):
+                await socket.close(code=SLOW_CONSUMER_CLOSE_CODE)
 
 
 __all__ = ["ConnectionHub", "SendsJSON", "SubscriptionKey"]

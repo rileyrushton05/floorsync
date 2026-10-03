@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -17,6 +18,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from floorsync_api.features.live_updates import connection_hub as hub_module
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub, SubscriptionKey
 from floorsync_api.features.live_updates.subscriber import (
     RECONNECT_BASE_SECONDS,
@@ -57,6 +59,14 @@ class FakeSocket:
 
     async def send_json(self, data: dict[str, Any]) -> None:
         self.received.append(data)
+
+    async def close(self, code: int = 1000) -> None:
+        return None
+
+
+class StalledSocket(FakeSocket):
+    async def send_json(self, data: dict[str, Any]) -> None:
+        await asyncio.Event().wait()
 
 
 def test_route_broadcasts_to_every_subscriber_of_the_envelopes_simulation() -> None:
@@ -176,6 +186,55 @@ def test_route_accepts_bytes_the_same_as_str() -> None:
     run(subscriber.route(json.dumps(_envelope().to_payload()).encode("utf-8")))
 
     assert len(socket.received) == 1
+
+
+# -- a stalled socket ---------------------------------------------------------------------------
+
+
+def test_a_stalled_socket_delays_an_unrelated_simulation_by_at_most_the_send_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The subscriber awaits each broadcast before reading the next Redis message, so a send that
+    never finished would stop live delivery for every simulation on this process."""
+
+    monkeypatch.setattr(hub_module, "SEND_TIMEOUT_SECONDS", 0.2)
+    other_simulation = uuid4()
+    hub = ConnectionHub()
+    hub.register(
+        SubscriptionKey(simulation_id=SIMULATION_ID, audience="manager_floor"), StalledSocket()
+    )
+    healthy = FakeSocket()
+    hub.register(SubscriptionKey(simulation_id=other_simulation, audience="manager_floor"), healthy)
+    subscriber = RedisLiveUpdateSubscriber(hub)
+
+    started = time.monotonic()
+    run(subscriber.route(json.dumps(_envelope(SIMULATION_ID).to_payload())))
+    run(subscriber.route(json.dumps(_envelope(other_simulation).to_payload())))
+
+    assert len(healthy.received) == 1
+    assert time.monotonic() - started < 1.5
+
+
+def test_stalled_sockets_on_several_keys_cost_one_wait_not_one_per_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hub_module, "SEND_TIMEOUT_SECONDS", 0.3)
+    hub = ConnectionHub()
+    for machine in (uuid4(), uuid4(), uuid4()):
+        key = SubscriptionKey(
+            simulation_id=SIMULATION_ID, audience="operator_machine", machine_id=machine
+        )
+        hub.register(key, StalledSocket())
+    healthy = FakeSocket()
+    hub.register(SubscriptionKey(simulation_id=SIMULATION_ID, audience="manager_floor"), healthy)
+    subscriber = RedisLiveUpdateSubscriber(hub)
+
+    started = time.monotonic()
+    run(subscriber.route(json.dumps(_envelope().to_payload())))
+    elapsed = time.monotonic() - started
+
+    assert len(healthy.received) == 1
+    assert elapsed < 0.3 * 3  # three keys stalled in turn would cost at least this
 
 
 # -- start/stop lifecycle ---------------------------------------------------------------------
