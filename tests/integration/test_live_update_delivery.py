@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from test_live_update_outbox import (
     Sessions,
     a_confirmed_schedule_with_a_simulation,
@@ -34,10 +35,12 @@ from floorsync_api.dependencies.authentication import get_current_user
 from floorsync_api.dependencies.database import get_db_session
 from floorsync_api.features.live_updates import delivery as delivery_module
 from floorsync_api.features.live_updates import outbox_relay as relay_module
+from floorsync_api.features.live_updates import publisher as publisher_module
 from floorsync_api.features.live_updates.outbox_relay import BASE_BACKOFF_SECONDS, OutboxRelay
 from floorsync_api.main import application
 from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
 from floorsync_common.database.models.user import User
+from floorsync_common.live_updates.service import LiveUpdateOutboxService
 
 
 class FakeRedis:
@@ -60,7 +63,7 @@ def redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
 
 
 @pytest.fixture
-def api(database_url: str) -> Iterator[TestClient]:
+def api(database_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """The real app, its sessions bound to the test database and its caller a signed-in manager."""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
@@ -75,6 +78,12 @@ def api(database_url: str) -> Iterator[TestClient]:
     async def manager() -> User:
         return User(id=uuid4(), name="Manager", role="manager")
 
+    @contextlib.asynccontextmanager
+    async def publisher_session_scope() -> AsyncIterator[Any]:
+        async with sessions() as session, session.begin():
+            yield session
+
+    monkeypatch.setattr(publisher_module, "session_scope", publisher_session_scope)
     application.dependency_overrides[get_db_session] = db_session
     application.dependency_overrides[get_current_user] = manager
     try:
@@ -171,6 +180,36 @@ def test_a_refused_control_writes_nothing_and_publishes_nothing(
         assert await counts(sessions, simulation_id) == (0, 0, 0)
 
     run(database_url, check)
+
+
+def test_a_database_failure_after_commit_does_not_fail_the_control_and_the_relay_recovers(
+    database_url: str, api: TestClient, redis: FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control committed; if marking the row published then fails, the caller must still get
+    the committed result, and the row (already sent once) is left for the relay."""
+
+    simulation_id = run(database_url, a_confirmed_schedule_with_a_simulation)
+
+    async def broken(*_: object, **__: object) -> None:
+        raise OperationalError("UPDATE", {}, Exception("connection lost"))
+
+    with monkeypatch.context() as patched:
+        patched.setattr(LiveUpdateOutboxService, "mark_published", staticmethod(broken))
+        response = _start(api, simulation_id)
+
+    assert response.status_code == 201
+    assert len(redis.published) == 1  # it did reach Redis; only the bookkeeping failed
+
+    async def body(sessions: Sessions) -> None:
+        assert await counts(sessions, simulation_id) == (1, 1, 1)
+        assert (await _only_row(sessions, simulation_id)).published_at is None
+        _use_database_for_relay(monkeypatch, sessions)
+
+        assert await OutboxRelay().run_once() == 1  # the relay settles it
+
+        assert (await _only_row(sessions, simulation_id)).published_at is not None
+
+    run(database_url, body)
 
 
 # -- the relay ---------------------------------------------------------------------------------

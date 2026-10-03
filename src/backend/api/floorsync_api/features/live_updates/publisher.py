@@ -12,14 +12,13 @@ from datetime import UTC, datetime
 from typing import assert_never
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from floorsync_api.features.live_updates.delivery import (
     Delivered,
     PayloadUnreadable,
     RedisRefused,
     deliver,
 )
+from floorsync_common.database.session import session_scope
 from floorsync_common.live_updates.results import OutboxRowAlreadySettled, OutboxRowPublished
 from floorsync_common.live_updates.service import LiveUpdateOutboxService
 
@@ -30,19 +29,19 @@ class OutboxPublisher:
     """Publish one committed envelope and mark it published, without ever failing the caller."""
 
     @staticmethod
-    async def publish_now(db: AsyncSession, outbox_id: UUID) -> None:
+    async def publish_now(outbox_id: UUID) -> None:
         """Best-effort immediate delivery of a row that has already committed.
 
         Any failure, Redis or the database, is logged and leaves the durable row for the relay:
         the caller's response must still report the control that already committed, and an error
         here would invite a retry of an action that was applied. Only cancellation escapes.
 
-        `db` arrives right after the caller's own `db.begin()` block has closed, and this session's
-        `autobegin=False` means any statement outside an explicit `begin()` raises -- so the read
-        needs its own transaction, not just the mark-published write.
+        It opens its own sessions rather than borrowing the caller's. A failed transaction on the
+        caller's session would roll back and expire every object it had loaded, and with
+        `autobegin=False` the caller's next attribute read (building its response) would raise.
         """
         try:
-            await OutboxPublisher._publish(db, outbox_id)
+            await OutboxPublisher._publish(outbox_id)
         except Exception:
             logger.warning(
                 "Immediate publish of outbox row %s failed; leaving it for the relay.",
@@ -52,8 +51,8 @@ class OutboxPublisher:
             )
 
     @staticmethod
-    async def _publish(db: AsyncSession, outbox_id: UUID) -> None:
-        async with db.begin():
+    async def _publish(outbox_id: UUID) -> None:
+        async with session_scope() as db:
             row = await LiveUpdateOutboxService.load_unpublished(db, outbox_id)
             if row is None:
                 return
@@ -81,7 +80,7 @@ class OutboxPublisher:
             case _:
                 assert_never(result)
 
-        async with db.begin():
+        async with session_scope() as db:
             marked = await LiveUpdateOutboxService.mark_published(
                 db, outbox_id, at=datetime.now(UTC)
             )

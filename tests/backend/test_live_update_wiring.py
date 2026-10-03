@@ -11,6 +11,7 @@ accepted it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -28,6 +29,7 @@ from sqlalchemy.exc import OperationalError
 from floorsync_api.dependencies.authentication import get_current_user, require_roles
 from floorsync_api.dependencies.database import get_db_session
 from floorsync_api.features.live_updates import delivery as delivery_module
+from floorsync_api.features.live_updates import publisher as publisher_module
 from floorsync_api.features.live_updates.publisher import OutboxPublisher
 from floorsync_api.features.live_updates.redis_client import SIMULATION_CHANGED_CHANNEL
 from floorsync_api.features.simulation.router import router as simulation_router
@@ -120,7 +122,7 @@ def _capture_publish(monkeypatch: pytest.MonkeyPatch) -> list[UUID]:
 
     calls: list[UUID] = []
 
-    async def fake(_db: Any, outbox_id: UUID) -> None:
+    async def fake(outbox_id: UUID) -> None:
         calls.append(outbox_id)
 
     monkeypatch.setattr(OutboxPublisher, "publish_now", staticmethod(fake))
@@ -222,14 +224,11 @@ class FakePublisherTransaction:
 
 
 class FakePublisherSession:
-    """Mimics `autobegin=False`: the service stubs below assert the session is inside a `begin()`
-    block, the same way a real session raises once the router's own transaction has closed."""
+    """Mimics `autobegin=False`: the service stubs below assert the session is inside a
+    transaction, the way a real session raises when used outside one."""
 
     def __init__(self) -> None:
         self.in_transaction = False
-
-    def begin(self) -> FakePublisherTransaction:
-        return FakePublisherTransaction(self)
 
 
 class PublisherOutbox:
@@ -253,17 +252,26 @@ class PublisherOutbox:
         return OutboxRowPublished(outbox_id=outbox_id)
 
 
-def _publisher_setup(
-    monkeypatch: pytest.MonkeyPatch, row: FakeOutboxRow | None
-) -> tuple[FakePublisherSession, PublisherOutbox]:
+def _publisher_setup(monkeypatch: pytest.MonkeyPatch, row: FakeOutboxRow | None) -> PublisherOutbox:
     outbox = PublisherOutbox(row)
+
+    @contextlib.asynccontextmanager
+    async def fake_session_scope() -> Any:
+        session = FakePublisherSession()
+        session.in_transaction = True
+        try:
+            yield session
+        finally:
+            session.in_transaction = False
+
+    monkeypatch.setattr(publisher_module, "session_scope", fake_session_scope)
     monkeypatch.setattr(
         LiveUpdateOutboxService, "load_unpublished", staticmethod(outbox.load_unpublished)
     )
     monkeypatch.setattr(
         LiveUpdateOutboxService, "mark_published", staticmethod(outbox.mark_published)
     )
-    return FakePublisherSession(), outbox
+    return outbox
 
 
 class FakeRedis:
@@ -281,11 +289,11 @@ def test_publish_now_publishes_then_marks_the_row_published(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     row = FakeOutboxRow(uuid4(), valid_payload())
-    session, outbox = _publisher_setup(monkeypatch, row)
+    outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
     monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
-    run(OutboxPublisher.publish_now(session, row.id))
+    run(OutboxPublisher.publish_now(row.id))
 
     assert redis.published == [(SIMULATION_CHANGED_CHANNEL, json.dumps(row.payload))]
     assert row.published_at is not None
@@ -298,10 +306,10 @@ def test_publish_now_leaves_the_row_unpublished_when_redis_fails(
     """A control's REST response must still succeed even though Redis is down."""
 
     row = FakeOutboxRow(uuid4(), valid_payload())
-    session, outbox = _publisher_setup(monkeypatch, row)
+    outbox = _publisher_setup(monkeypatch, row)
     monkeypatch.setattr(delivery_module, "get_redis_client", lambda: FakeRedis(fail=True))
 
-    run(OutboxPublisher.publish_now(session, row.id))
+    run(OutboxPublisher.publish_now(row.id))
 
     assert row.published_at is None
     assert outbox.marked == []
@@ -311,11 +319,11 @@ def test_publish_now_is_a_noop_for_an_already_published_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     row = FakeOutboxRow(uuid4(), {"v": 1}, published_at=datetime.now(UTC))
-    session, outbox = _publisher_setup(monkeypatch, row)
+    outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
     monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
-    run(OutboxPublisher.publish_now(session, row.id))
+    run(OutboxPublisher.publish_now(row.id))
 
     assert redis.published == []
     assert outbox.marked == []
@@ -323,11 +331,11 @@ def test_publish_now_is_a_noop_for_an_already_published_row(
 
 def test_publish_now_does_not_publish_an_unreadable_row(monkeypatch: pytest.MonkeyPatch) -> None:
     row = FakeOutboxRow(uuid4(), {"v": 999})
-    session, outbox = _publisher_setup(monkeypatch, row)
+    outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
     monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
-    run(OutboxPublisher.publish_now(session, row.id))
+    run(OutboxPublisher.publish_now(row.id))
 
     assert redis.published == []
     assert outbox.marked == []  # left for the relay, which parks it and records why
@@ -341,7 +349,7 @@ def test_publish_now_never_raises_when_its_own_database_work_fails(
     surface, or the caller sees an error for an action that was applied."""
 
     row = FakeOutboxRow(uuid4(), valid_payload())
-    session, _ = _publisher_setup(monkeypatch, row)
+    _publisher_setup(monkeypatch, row)
 
     async def broken(*_: object, **__: object) -> None:
         raise OperationalError("SELECT 1", {}, Exception("connection lost"))
@@ -350,14 +358,14 @@ def test_publish_now_never_raises_when_its_own_database_work_fails(
     redis = FakeRedis()
     monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
-    run(OutboxPublisher.publish_now(session, row.id))  # must not raise
+    run(OutboxPublisher.publish_now(row.id))  # must not raise
 
     assert row.published_at is None  # left for the relay
 
 
 def test_publish_now_lets_cancellation_through(monkeypatch: pytest.MonkeyPatch) -> None:
     row = FakeOutboxRow(uuid4(), valid_payload())
-    session, _ = _publisher_setup(monkeypatch, row)
+    _publisher_setup(monkeypatch, row)
 
     async def cancelled(*_: object, **__: object) -> None:
         raise asyncio.CancelledError
@@ -365,7 +373,7 @@ def test_publish_now_lets_cancellation_through(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(LiveUpdateOutboxService, "load_unpublished", staticmethod(cancelled))
 
     with pytest.raises(asyncio.CancelledError):
-        run(OutboxPublisher.publish_now(session, row.id))
+        run(OutboxPublisher.publish_now(row.id))
 
 
 @pytest.mark.parametrize("failing_step", ["load_unpublished", "mark_published"])
@@ -412,11 +420,11 @@ def test_a_control_still_reports_its_result_when_post_commit_delivery_fails(
 
 
 def test_publish_now_is_a_noop_for_a_vanished_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    session, outbox = _publisher_setup(monkeypatch, None)
+    outbox = _publisher_setup(monkeypatch, None)
     redis = FakeRedis()
     monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
-    run(OutboxPublisher.publish_now(session, uuid4()))
+    run(OutboxPublisher.publish_now(uuid4()))
 
     assert redis.published == []
     assert outbox.marked == []

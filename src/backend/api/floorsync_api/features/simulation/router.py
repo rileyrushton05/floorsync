@@ -163,7 +163,7 @@ async def create_simulation(
                 assert_never(resolved)
 
     if outbox_id is not None:
-        await OutboxPublisher.publish_now(db, outbox_id)
+        await OutboxPublisher.publish_now(outbox_id)
 
     response.headers["Location"] = f"/api/v1/simulations/{simulation.id}"
     return _position_response(resolved)
@@ -280,7 +280,7 @@ async def create_simulation_event(
                 assert_never(result)
 
     if outbox_id is not None:
-        await OutboxPublisher.publish_now(db, outbox_id)
+        await OutboxPublisher.publish_now(outbox_id)
 
     match result:
         case ControlRecorded(simulation=simulation, position=position, makespan=makespan):
