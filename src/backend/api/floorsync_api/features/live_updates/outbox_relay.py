@@ -1,11 +1,9 @@
 """Retry any outbox row that immediate publish missed (#148).
 
-Redis pub/sub is fire-and-forget: a row can commit but never actually reach Redis if the
-immediate publish attempt failed (Redis was down, or the process crashed between commit and
-publish -- see `OutboxPublisher`). This relay is the durable second path: it claims due,
-unpublished rows (`LiveUpdateOutboxService.claim_due`, `FOR UPDATE SKIP LOCKED`, so more than one
-relay can run at once), and retries each with a doubling backoff so a Redis outage does not turn
-into a tight retry loop. All SQL lives in the outbox service; this module owns Redis and timing.
+A row can commit without ever reaching Redis (the immediate publish failed, or the process died
+between commit and publish). This relay is the durable second path: it claims due rows with
+`FOR UPDATE SKIP LOCKED` (so several relays can run at once) and retries them with a doubling
+backoff. All SQL lives in the outbox service; this module owns Redis and timing.
 """
 
 from __future__ import annotations
@@ -75,8 +73,6 @@ class OutboxRelay:
 
     async def run_once(self) -> int:
         """Claim and retry one batch of due rows. Returns how many it handled.
-
-        Public so a test, or an operator, can drive one pass without waiting on the poll loop.
 
         The first Redis failure ends the batch. Redis is down or hanging for every row, so trying
         the rest would only wait out one timeout each while holding their row locks; they are

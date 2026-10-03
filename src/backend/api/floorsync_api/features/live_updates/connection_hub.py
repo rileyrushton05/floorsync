@@ -97,7 +97,8 @@ class ConnectionHub:
 
         Each send is bounded by `SEND_TIMEOUT_SECONDS`, and a socket that fails or stalls is dropped
         and closed, so one bad connection can neither stop delivery to the others sharing its key
-        nor hold up this process's next update (#148's error contract). Never raises.
+        nor hold up this process's next update (#148's error contract). Failures are contained here;
+        only cancellation propagates.
         """
         sockets = list(self._sockets.get(key, ()))
         await asyncio.gather(*(self._deliver(key, socket, message) for socket in sockets))

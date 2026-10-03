@@ -1,11 +1,9 @@
 """Bound how fast one caller can open new `/ws` connections (#148).
 
-A fixed one-minute window per key is enough here -- this exists to cap worst-case connection
-churn from one account or address, not to be precise to the second, and it costs one Redis round
-trip per check instead of a sorted-set per caller. Both keys share the same window and limit;
-tracking account and IP separately means a shared address (NAT, office wifi) does not throttle
-every account behind it, and a single compromised account does not get to open connections from
-everywhere at once.
+A fixed one-minute window per key: this caps worst-case churn, it does not need to be precise to
+the second, and it costs one round trip rather than a sorted set per caller. Account and IP are
+counted separately so a shared address (NAT, office wifi) does not throttle every account behind
+it, and one compromised account cannot open connections from everywhere at once.
 """
 
 from __future__ import annotations

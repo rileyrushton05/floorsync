@@ -1,9 +1,8 @@
 """A readiness signal for live delivery, separate from the API's own `/health/ready` (#148).
 
-Per decision 0017 and the observability conventions, Redis being down must never make the REST
-API unready -- a control still gets recorded, just without a live push. So this cannot live inside
-`/health/ready`: it is its own probe, for whoever wants to alert on live delivery specifically
-(the two boxes it does not affect: normal request handling, and the outbox's own durability).
+Redis being down must never make the REST API unready (decision 0017): a control is still recorded,
+just without a live push. So this is its own probe, for alerting on live delivery, not a traffic
+gate.
 """
 
 from __future__ import annotations

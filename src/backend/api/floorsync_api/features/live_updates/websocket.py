@@ -1,14 +1,11 @@
 """The `/ws` endpoint: the single socket every live-update client connects to (#148).
 
-The server accepts the upgrade, then requires an `authenticate` frame carrying a one-time ticket
-within `AUTH_TIMEOUT_SECONDS`. Once authenticated, `subscribe`/`unsubscribe` join or leave one
-simulation's audience-scoped group, and `ping` is answered with `pong`. This module decides
-nothing about who is allowed to see what -- that is `LiveSubscriptionAuthorizer`'s job; this module
-only enforces the protocol shape and maps every failure to a specific close code.
+Enforces the protocol shape only: an `authenticate` frame with a one-time ticket within
+`AUTH_TIMEOUT_SECONDS`, then `subscribe`/`unsubscribe`/`ping`, with every failure mapped to a
+specific close code. Who may see what is `LiveSubscriptionAuthorizer`'s decision, not this module's.
 
-An idle connection (no frame at all, authenticated or not) is closed after
-`IDLE_TIMEOUT_SECONDS`, which doubles as the heartbeat: a client that stops sending `ping` looks
-identical to one that vanished, and is treated the same way.
+A connection that sends nothing for `IDLE_TIMEOUT_SECONDS` is closed; that doubles as the
+heartbeat, since a client that stops pinging looks the same as one that vanished.
 """
 
 from __future__ import annotations
@@ -67,12 +64,8 @@ class _Closed(Exception):
 
 
 async def _close(websocket: WebSocket, state: _ConnectionState, code: int, reason: str) -> NoReturn:
-    """Close with `code`, logging `reason` and whatever this connection has proven so far.
-
-    Every close in this module goes through here so the close code and the reason it maps to are
-    always logged together -- the two things support needs to tell a client-reported disconnect
-    apart from a deliberate protocol rejection.
-    """
+    """Close with `code`, logging `reason` with it, so a reported disconnect can be told apart from
+    a deliberate protocol rejection."""
     logger.info(
         "Live-update connection closing.",
         extra={

@@ -93,11 +93,7 @@ class RedisLiveUpdateSubscriber:
             await pubsub.aclose()  # type: ignore[no-untyped-call]  # untyped in redis-py's stubs
 
     async def route(self, raw: bytes | str) -> None:
-        """Decode one published payload and broadcast it to every subscriber of its simulation.
-
-        Public (not the Redis loop's private detail) so a test, or a future outbox relay
-        replaying a missed row, can drive it directly without a real Redis connection.
-        """
+        """Decode one published payload and broadcast it to every subscriber of its simulation."""
         envelope = _decode(raw)
         if envelope is None:
             self.dropped_payloads += 1
