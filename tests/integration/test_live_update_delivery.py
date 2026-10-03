@@ -32,8 +32,8 @@ from test_live_update_outbox import (
 
 from floorsync_api.dependencies.authentication import get_current_user
 from floorsync_api.dependencies.database import get_db_session
+from floorsync_api.features.live_updates import delivery as delivery_module
 from floorsync_api.features.live_updates import outbox_relay as relay_module
-from floorsync_api.features.live_updates import publisher as publisher_module
 from floorsync_api.features.live_updates.outbox_relay import BASE_BACKOFF_SECONDS, OutboxRelay
 from floorsync_api.main import application
 from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
@@ -54,8 +54,8 @@ class FakeRedis:
 @pytest.fixture
 def redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     fake = FakeRedis()
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: fake)
-    monkeypatch.setattr(relay_module, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: fake)
     return fake
 
 

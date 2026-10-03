@@ -27,7 +27,7 @@ from sqlalchemy.exc import OperationalError
 
 from floorsync_api.dependencies.authentication import get_current_user, require_roles
 from floorsync_api.dependencies.database import get_db_session
-from floorsync_api.features.live_updates import publisher as publisher_module
+from floorsync_api.features.live_updates import delivery as delivery_module
 from floorsync_api.features.live_updates.publisher import OutboxPublisher
 from floorsync_api.features.live_updates.redis_client import SIMULATION_CHANGED_CHANNEL
 from floorsync_api.features.simulation.router import router as simulation_router
@@ -283,7 +283,7 @@ def test_publish_now_publishes_then_marks_the_row_published(
     row = FakeOutboxRow(uuid4(), valid_payload())
     session, outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
     run(OutboxPublisher.publish_now(session, row.id))
 
@@ -299,7 +299,7 @@ def test_publish_now_leaves_the_row_unpublished_when_redis_fails(
 
     row = FakeOutboxRow(uuid4(), valid_payload())
     session, outbox = _publisher_setup(monkeypatch, row)
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: FakeRedis(fail=True))
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: FakeRedis(fail=True))
 
     run(OutboxPublisher.publish_now(session, row.id))
 
@@ -313,7 +313,7 @@ def test_publish_now_is_a_noop_for_an_already_published_row(
     row = FakeOutboxRow(uuid4(), {"v": 1}, published_at=datetime.now(UTC))
     session, outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
     run(OutboxPublisher.publish_now(session, row.id))
 
@@ -325,7 +325,7 @@ def test_publish_now_does_not_publish_an_unreadable_row(monkeypatch: pytest.Monk
     row = FakeOutboxRow(uuid4(), {"v": 999})
     session, outbox = _publisher_setup(monkeypatch, row)
     redis = FakeRedis()
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
     run(OutboxPublisher.publish_now(session, row.id))
 
@@ -348,7 +348,7 @@ def test_publish_now_never_raises_when_its_own_database_work_fails(
 
     monkeypatch.setattr(LiveUpdateOutboxService, failing_step, staticmethod(broken))
     redis = FakeRedis()
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
     run(OutboxPublisher.publish_now(session, row.id))  # must not raise
 
@@ -401,7 +401,7 @@ def test_a_control_still_reports_its_result_when_post_commit_delivery_fails(
         LiveUpdateOutboxService, "mark_published", staticmethod(outbox.mark_published)
     )
     monkeypatch.setattr(LiveUpdateOutboxService, failing_step, staticmethod(broken))
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: FakeRedis())
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: FakeRedis())
 
     response = wiring_client().post(
         f"/api/v1/simulations/{SIMULATION_ID}/events", json={"event_type": "paused"}
@@ -414,7 +414,7 @@ def test_a_control_still_reports_its_result_when_post_commit_delivery_fails(
 def test_publish_now_is_a_noop_for_a_vanished_row(monkeypatch: pytest.MonkeyPatch) -> None:
     session, outbox = _publisher_setup(monkeypatch, None)
     redis = FakeRedis()
-    monkeypatch.setattr(publisher_module, "get_redis_client", lambda: redis)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
     run(OutboxPublisher.publish_now(session, uuid4()))
 

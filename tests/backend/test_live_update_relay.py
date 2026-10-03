@@ -19,6 +19,7 @@ import pytest
 from live_update_payloads import valid_payload
 from redis.exceptions import RedisError
 
+from floorsync_api.features.live_updates import delivery as delivery_module
 from floorsync_api.features.live_updates import outbox_relay as relay_module
 from floorsync_api.features.live_updates.outbox_relay import (
     BASE_BACKOFF_SECONDS,
@@ -114,7 +115,7 @@ class FakeRedis:
 
 
 def _stub_redis(monkeypatch: pytest.MonkeyPatch, redis: FakeRedis) -> None:
-    monkeypatch.setattr(relay_module, "get_redis_client", lambda: redis)
+    monkeypatch.setattr(delivery_module, "get_redis_client", lambda: redis)
 
 
 # -- run_once ---------------------------------------------------------------------------------

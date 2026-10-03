@@ -12,18 +12,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Final, assert_never
 
-from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from floorsync_api.features.live_updates.publisher import is_publishable
-from floorsync_api.features.live_updates.redis_client import (
-    SIMULATION_CHANGED_CHANNEL,
-    get_redis_client,
+from floorsync_api.features.live_updates.delivery import (
+    Delivered,
+    PayloadUnreadable,
+    RedisRefused,
+    deliver,
 )
 from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
 from floorsync_common.database.session import session_scope
@@ -96,63 +95,61 @@ class OutboxRelay:
 
 
 async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> bool:
-    """Publish one claimed row, then settle it: mark it published, or hold it back and say why.
+    """Deliver one claimed row, then settle it in the caller's transaction.
 
-    `False` means Redis itself failed (the caller should stop the batch); an unreadable row is
+    `False` means Redis itself failed and the caller should stop the batch; an unreadable row is
     parked and still returns `True`, since the next row may be fine.
     """
-    if not is_publishable(row.payload):
-        # Retrying cannot fix a malformed payload, so park it for the longest backoff and record why
-        # instead of publishing something every subscriber would drop. It stays visible in the
-        # outbox backlog (count and age) until someone repairs or prunes it.
-        await LiveUpdateOutboxService.record_failure(
-            db,
-            row.id,
-            error_code="UnsupportedEnvelope",
-            retry_at=datetime.now(UTC) + timedelta(seconds=MAX_BACKOFF_SECONDS),
-        )
-        event_id = row.payload.get("event_id") if isinstance(row.payload, dict) else None
-        logger.error(
-            "Outbox row %s holds an unreadable envelope; parked, not published.",
-            row.id,
-            extra={
-                "outbox_id": str(row.id),
-                "event_id": str(event_id) if event_id is not None else None,
-                "error_code": "UnsupportedEnvelope",
-            },
-        )
-        return True
-
-    try:
-        await get_redis_client().publish(SIMULATION_CHANGED_CHANNEL, json.dumps(row.payload))
-    except RedisError as error:
-        attempt_count = row.attempt_count + 1
-        error_code = type(error).__name__
-        await LiveUpdateOutboxService.record_failure(
-            db,
-            row.id,
-            error_code=error_code,
-            retry_at=datetime.now(UTC) + _backoff(attempt_count),
-        )
-        logger.warning(
-            "Outbox row %s failed to publish; will retry.",
-            row.id,
-            extra={
-                "outbox_id": str(row.id),
-                "attempt_count": attempt_count,
-                "error_code": error_code,
-            },
-            exc_info=True,
-        )
-        return False
-
-    result = await LiveUpdateOutboxService.mark_published(db, row.id, at=datetime.now(UTC))
+    result = await deliver(row.payload)
     match result:
-        case OutboxRowPublished() | OutboxRowAlreadySettled():
-            pass
+        case Delivered():
+            marked = await LiveUpdateOutboxService.mark_published(db, row.id, at=datetime.now(UTC))
+            match marked:
+                case OutboxRowPublished() | OutboxRowAlreadySettled():
+                    return True
+                case _:
+                    assert_never(marked)
+        case PayloadUnreadable(event_id=event_id):
+            # Retrying cannot fix a malformed payload: park it for the longest backoff and record
+            # why. It stays in the backlog count and age until someone repairs or prunes it.
+            await LiveUpdateOutboxService.record_failure(
+                db,
+                row.id,
+                error_code="UnsupportedEnvelope",
+                retry_at=datetime.now(UTC) + timedelta(seconds=MAX_BACKOFF_SECONDS),
+            )
+            logger.error(
+                "Outbox row %s holds an unreadable envelope; parked, not published.",
+                row.id,
+                extra={
+                    "outbox_id": str(row.id),
+                    "event_id": event_id,
+                    "error_code": "UnsupportedEnvelope",
+                },
+            )
+            return True
+        case RedisRefused(error=error):
+            attempt_count = row.attempt_count + 1
+            error_code = type(error).__name__
+            await LiveUpdateOutboxService.record_failure(
+                db,
+                row.id,
+                error_code=error_code,
+                retry_at=datetime.now(UTC) + _backoff(attempt_count),
+            )
+            logger.warning(
+                "Outbox row %s failed to publish; will retry.",
+                row.id,
+                extra={
+                    "outbox_id": str(row.id),
+                    "attempt_count": attempt_count,
+                    "error_code": error_code,
+                },
+                exc_info=error,
+            )
+            return False
         case _:
             assert_never(result)
-    return True
 
 
 def _backoff(attempt_count: int) -> timedelta:
