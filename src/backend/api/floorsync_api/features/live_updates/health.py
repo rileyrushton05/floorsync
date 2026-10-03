@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final, Protocol
+from typing import Final, Protocol, assert_never
 
 from redis.exceptions import RedisError
 
@@ -39,14 +39,32 @@ class _Subscriber(_RunsInBackground, Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class BacklogMeasured:
+    unpublished_count: int
+    oldest_age_seconds: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class BacklogUnavailable:
+    """The database could not be asked: it is down, or slower than the readiness timeout."""
+
+
+type BacklogReading = BacklogMeasured | BacklogUnavailable
+
+
+@dataclass(frozen=True, slots=True)
 class LiveUpdateHealthReport:
+    """`unpublished_outbox_count` and `oldest_unpublished_age_seconds` are `None` when
+    `outbox_available` is false: nothing was measured, so nothing is reported."""
+
     status: str
     redis_reachable: bool
     subscriber_running: bool
     relay_running: bool
     active_sockets: int
     active_subscriptions: int
-    unpublished_outbox_count: int
+    outbox_available: bool
+    unpublished_outbox_count: int | None
     oldest_unpublished_age_seconds: float | None
     dropped_invalid_payloads: int
 
@@ -55,13 +73,27 @@ async def build_report(
     *, subscriber: _Subscriber, relay: _RunsInBackground, hub: ConnectionHub
 ) -> LiveUpdateHealthReport:
     redis_reachable = await _redis_reachable()
-    outbox_count, oldest_age = await _outbox_backlog()
+    reading = await _outbox_backlog()
+
+    count: int | None
+    oldest_age: float | None
+    match reading:
+        case BacklogMeasured(unpublished_count=count, oldest_age_seconds=oldest_age):
+            outbox_available = True
+            backlog_stuck = oldest_age is not None and oldest_age > DEGRADED_BACKLOG_AGE_SECONDS
+        case BacklogUnavailable():
+            outbox_available = False
+            count, oldest_age = None, None
+            backlog_stuck = False
+        case _:
+            assert_never(reading)
 
     degraded = (
         not redis_reachable
         or not subscriber.running
         or not relay.running
-        or (oldest_age is not None and oldest_age > DEGRADED_BACKLOG_AGE_SECONDS)
+        or not outbox_available
+        or backlog_stuck
     )
     return LiveUpdateHealthReport(
         status="degraded" if degraded else "ok",
@@ -70,7 +102,8 @@ async def build_report(
         relay_running=relay.running,
         active_sockets=hub.socket_count(),
         active_subscriptions=hub.subscription_count(),
-        unpublished_outbox_count=outbox_count,
+        outbox_available=outbox_available,
+        unpublished_outbox_count=count,
         oldest_unpublished_age_seconds=oldest_age,
         dropped_invalid_payloads=subscriber.dropped_payloads,
     )
@@ -85,20 +118,17 @@ async def _redis_reachable() -> bool:
     return True
 
 
-async def _outbox_backlog() -> tuple[int, float | None]:
-    """`(unpublished row count, age in seconds of the oldest one)`, or `(0, None)` if empty."""
+async def _outbox_backlog() -> BacklogReading:
     try:
         async with asyncio.timeout(settings.readiness_timeout_seconds):
             async with session_scope() as db:
                 backlog = await LiveUpdateOutboxService.backlog(db)
     except Exception:
-        # Treat "couldn't even check" the same as "found a very old row": both mean this signal
-        # cannot vouch for the backlog right now, which is itself worth surfacing as degraded.
-        return 0, DEGRADED_BACKLOG_AGE_SECONDS + 1
+        return BacklogUnavailable()
     if backlog.oldest_created_at is None:
-        return backlog.unpublished_count, None
+        return BacklogMeasured(unpublished_count=backlog.unpublished_count, oldest_age_seconds=None)
     age = (datetime.now(UTC) - backlog.oldest_created_at).total_seconds()
-    return backlog.unpublished_count, age
+    return BacklogMeasured(unpublished_count=backlog.unpublished_count, oldest_age_seconds=age)
 
 
 __all__ = ["DEGRADED_BACKLOG_AGE_SECONDS", "LiveUpdateHealthReport", "build_report"]

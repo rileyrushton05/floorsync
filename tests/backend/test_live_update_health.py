@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pytest
 from redis.exceptions import RedisError
+from sqlalchemy.exc import OperationalError
 
 from floorsync_api.features.live_updates import health as health_module
 from floorsync_api.features.live_updates.connection_hub import ConnectionHub, SubscriptionKey
@@ -50,6 +51,7 @@ def _stub(
     monkeypatch: pytest.MonkeyPatch,
     *,
     redis_fails: bool = False,
+    outbox_fails: bool = False,
     outbox_row: tuple[int, datetime | None] = (0, None),
 ) -> None:
     monkeypatch.setattr(health_module, "get_redis_client", lambda: FakeRedis(fail=redis_fails))
@@ -59,6 +61,8 @@ def _stub(
         yield FakeSession()
 
     async def fake_backlog(_db: Any) -> OutboxBacklog:
+        if outbox_fails:
+            raise OperationalError("SELECT 1", {}, Exception("connection lost"))
         count, oldest = outbox_row
         return OutboxBacklog(unpublished_count=count, oldest_created_at=oldest)
 
@@ -70,13 +74,14 @@ def _build(
     monkeypatch: pytest.MonkeyPatch,
     *,
     redis_fails: bool = False,
+    outbox_fails: bool = False,
     subscriber_running: bool = True,
     relay_running: bool = True,
     dropped_payloads: int = 0,
     outbox_row: tuple[int, datetime | None] = (0, None),
     hub: ConnectionHub | None = None,
 ) -> health_module.LiveUpdateHealthReport:
-    _stub(monkeypatch, redis_fails=redis_fails, outbox_row=outbox_row)
+    _stub(monkeypatch, redis_fails=redis_fails, outbox_fails=outbox_fails, outbox_row=outbox_row)
     return run(
         build_report(
             subscriber=FakeProcess(running=subscriber_running, dropped_payloads=dropped_payloads),
@@ -157,3 +162,21 @@ def test_reports_how_many_unreadable_payloads_the_subscriber_dropped(
     report = _build(monkeypatch, dropped_payloads=3)
 
     assert report.dropped_invalid_payloads == 3
+
+
+def test_an_outbox_check_that_fails_is_reported_as_unavailable_not_as_made_up_numbers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = _build(monkeypatch, outbox_fails=True)
+
+    assert report.status == "degraded"
+    assert report.outbox_available is False
+    assert report.unpublished_outbox_count is None
+    assert report.oldest_unpublished_age_seconds is None
+
+
+def test_a_healthy_outbox_check_is_reported_as_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    report = _build(monkeypatch)
+
+    assert report.outbox_available is True
+    assert report.unpublished_outbox_count == 0
