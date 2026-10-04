@@ -26,7 +26,7 @@ import { timelineToPlan } from "@/domains/scheduling/timeline";
 import type { GeneratedSchedule } from "@/domains/scheduling/types";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
 import { JobDot } from "@/domains/scheduling/ui/JobDot";
-import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
+import { useTimelineZoom } from "@/domains/scheduling/ui/useTimelineZoom";
 import { useJobSummaries } from "@/features/jobs/data/queries";
 import {
     useCreateSimulation,
@@ -406,7 +406,6 @@ export default function SimulationPage() {
                             <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
                                 <span>{completedOps} done</span><span>{runningOps} running</span><span>{activeSchedule.ops.length - completedOps - runningOps} to go</span>
                             </div>
-                            <div className="ml-auto min-w-0 flex-1 max-w-md"><TimelineNavigator controls={timelineZoom} /></div>
                         </div>
                     </CardHeader>
                     <CardContent>
