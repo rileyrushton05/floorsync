@@ -957,6 +957,26 @@
         "title": "JobUpdateRequest",
         "type": "object"
       },
+      "LiveUpdateTicketResponse": {
+        "description": "A one-time ticket to authenticate the `/ws` connection this account is about to open.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_at"
+        ],
+        "title": "LiveUpdateTicketResponse",
+        "type": "object"
+      },
       "MachineCreateRequest": {
         "additionalProperties": false,
         "description": "A machine a manager is adding to the floor.\n\ncategory_id and salary are optional: nothing in the scheduler reads a machine's category, and a\nmachine with no recorded salary is excluded from a schedule's labour total rather than counted\nas free. Requiring either would block entering a machine whose details are not settled yet.",
@@ -3113,6 +3133,36 @@
         ]
       }
     },
+    "/api/v1/live-updates/tickets": {
+      "post": {
+        "description": "Issue a short-lived, single-use ticket bound to the caller's account.\n\nAny signed-in account may request one -- the socket's own subscription check is what limits\nwhat that ticket can then see. Never cached: a ticket is single-use, so a cached response\nwould hand out one that already looks valid but can never actually be redeemed twice.",
+        "operationId": "create_ticket_api_v1_live_updates_tickets_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveUpdateTicketResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "Live updates are unavailable; fall back to polling"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Issue a one-time ticket to authenticate a live-update WebSocket",
+        "tags": [
+          "live-updates"
+        ]
+      }
+    },
     "/api/v1/machines": {
       "get": {
         "description": "List machines by name, a page at a time.",
@@ -4150,7 +4200,7 @@
     },
     "/api/v1/simulations": {
       "post": {
-        "description": "Create the simulation for a confirmed schedule.\n\nA schedule has at most one simulation; resetting re-initialises that row\nrather than creating another, so a repeat request reports a conflict.",
+        "description": "Create the simulation for a confirmed schedule.\n\nA schedule has at most one simulation; resetting re-initialises that row\nrather than creating another, so a repeat request reports a conflict.\n\nCreating a simulation is a change too (decision 0017), so it is announced on the live channel\nwith cause \"created\" alongside the response -- it appends no `simulation_events` row, which is\nwhy this is enqueued here rather than inside `SimulationService.create_simulation` itself.",
         "operationId": "create_simulation_api_v1_simulations_post",
         "requestBody": {
           "content": {
@@ -4246,7 +4296,7 @@
     },
     "/api/v1/simulations/{simulation_id}/events": {
       "post": {
-        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.",
+        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.\n\nA recorded control is announced on the live channel (decision 0017): the outbox row commits\nin the same transaction as the event, and is published to Redis only once that transaction\nhas committed, so a client never sees a notification for a change that did not happen.",
         "operationId": "create_simulation_event_api_v1_simulations__simulation_id__events_post",
         "parameters": [
           {
@@ -4350,6 +4400,29 @@
           }
         },
         "summary": "Check API process liveness",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/health/live-updates": {
+      "get": {
+        "description": "Report on the live-update subsystem alone.\n\nDeliberately not folded into `/health/ready`: Redis being down must not pull this instance out\nof rotation for ordinary REST traffic (decision 0017's whole premise), so this is a signal for\nwhoever wants to alert on live delivery specifically, not a traffic gate.",
+        "operationId": "live_updates_health_health_live_updates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "Live delivery is degraded"
+          }
+        },
+        "summary": "Check live-update delivery health",
         "tags": [
           "system"
         ]

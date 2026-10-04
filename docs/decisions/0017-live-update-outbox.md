@@ -6,9 +6,9 @@
 
 ## Status
 
-Proposed. Covers the durable half of #148 (contract, outbox, sequence allocation). The transport
-half (tickets, WebSocket protocol, Redis publisher, subscriber and relay) is being built against
-this contract and will finish the decision.
+Accepted. The durable half of #148 (contract, outbox, sequence allocation) landed first; the
+transport half (tickets, WebSocket protocol, Redis publisher, subscriber and relay) is built
+against it and recorded under Consequences.
 
 ## Context
 
@@ -97,16 +97,39 @@ of every operator's browser, which a frontend-side filter cannot promise.
 
 - New package `floorsync_common.live_updates` (`contracts` pure, `results`, `service`), model
   `LiveUpdateOutbox`, column `simulations.live_sequence`, migration `20260916_0002`.
-- The route that records a control must call `enqueue_simulation_change` inside the same
-  `db.begin()` and only publish after it returns. That wiring, the ticket endpoint, the socket
-  protocol and the relay are the transport half of #148 and are not part of this decision.
+- The route that records a control calls `enqueue_simulation_change` inside the same `db.begin()`
+  and only publishes after it commits (`create_simulation` and `create_simulation_event` in the
+  simulation router). `OutboxPublisher.publish_now` then reads and marks the row, each in its own
+  explicit transaction: sessions are `autobegin=False`, so a statement outside a `begin()` raises,
+  and the publisher runs after the route's transaction has closed.
+- Delivery lives in the API (`api/features/live_updates`): one-time Redis tickets, the `/ws`
+  protocol, a per-process `ConnectionHub` keyed by `(simulation, audience, machine)`, one Redis
+  subscriber per process, and an `OutboxRelay` that retries rows the immediate publish missed. None
+  of them holds SQL; they call `LiveUpdateOutboxService`. A row whose payload no subscriber would
+  accept is not published: the relay parks it for the longest backoff with
+  `last_error_code = 'UnsupportedEnvelope'`, and a subscriber that still receives one drops it with
+  an error log carrying the event id and counts it (`/health/live-updates`).
+- Redis hanging is handled like Redis being down, not left to the operating system's timeout. The
+  command client (publish, tickets, rate limits, health) connects and reads with
+  `REDIS_SOCKET_TIMEOUT_SECONDS`; the subscriber has its own client without the read timeout (a
+  subscription is idle between messages) and relies on keepalive and health checks instead. A
+  ticket request answers 503 so the frontend can fall back to polling, a socket handshake closes
+  1013, and the relay ends its batch at the first Redis failure rather than waiting out a timeout
+  per row while holding their locks.
+- Redis being down never fails a control and never makes the API unready. `/health/live-updates`
+  reports degraded delivery separately from `/health/ready`.
+- For the first release the subscriber and the relay run in the API's lifespan. Before the API is
+  scaled out, run the relay as its own supervised process or worker: several relays are safe
+  (`SKIP LOCKED`), but a relay per API replica polls the database once per replica for no gain.
 - `record_control` locks the simulation row (`queries.lock_simulation`, `SELECT ... FOR UPDATE`)
   before validating a control, so two managers pressing buttons at once are applied one after the
   other against the status the previous one left, and sequence order matches event order. Reads
   (`get_simulation`) do not lock, so a dashboard poll never queues behind a control.
 - The guarantees above that only Postgres can give (decision 1's shared commit and rollback, the
   row lock, `SKIP LOCKED`, first-writer-wins marking) are proven against a real database in
-  `tests/integration/test_live_update_outbox.py` (`make test-integration`).
+  `tests/integration/test_live_update_outbox.py` (`make test-integration`); the route, publisher
+  and relay run end to end against it in `test_live_update_delivery.py`, and surviving a Redis
+  restart is proven in `test_live_update_restart.py`.
 - Published rows accumulate. Retention is a separate maintenance task and must not precede
   delivery verification (#148).
 - Bumping `ENVELOPE_VERSION` is a breaking change for every subscriber; adding an optional field

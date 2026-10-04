@@ -7,6 +7,11 @@ from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp
 
+from floorsync_api.features.live_updates.outbox_relay import OutboxRelay
+from floorsync_api.features.live_updates.redis_client import close_redis_client
+from floorsync_api.features.live_updates.subscriber import RedisLiveUpdateSubscriber
+from floorsync_api.features.live_updates.websocket import hub as live_update_hub
+from floorsync_api.features.live_updates.websocket import router as live_updates_router
 from floorsync_api.middleware import (
     RequestBodyLimitMiddleware,
     RequestContextMiddleware,
@@ -15,16 +20,25 @@ from floorsync_api.middleware import (
 from floorsync_api.problems import install_problem_handlers
 from floorsync_api.routers.api import router as api_router
 from floorsync_api.routers.health import router as health_router
-from floorsync_api.routers.live_updates import router as live_updates_router
 from floorsync_common.database.session import engine
 from floorsync_common.observability import configure_logging
 from floorsync_common.settings import Settings, settings
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    subscriber = RedisLiveUpdateSubscriber(live_update_hub)
+    relay = OutboxRelay()
+    subscriber.start()
+    relay.start()
+    # Exposed for /health/live-updates, which reports on these two independently of /health/ready.
+    app.state.live_update_subscriber = subscriber
+    app.state.live_update_relay = relay
     yield
+    await relay.stop()
+    await subscriber.stop()
     await engine.dispose()
+    await close_redis_client()
 
 
 def create_application(config: Settings) -> FastAPI:

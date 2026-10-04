@@ -1,0 +1,157 @@
+"""Retry any outbox row that immediate publish missed (#148).
+
+A row can commit without ever reaching Redis (the immediate publish failed, or the process died
+between commit and publish). This relay is the durable second path: it claims due rows with
+`FOR UPDATE SKIP LOCKED` (so several relays can run at once) and retries them with a doubling
+backoff. All SQL lives in the outbox service; this module owns Redis and timing.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from datetime import UTC, datetime, timedelta
+from typing import Final, assert_never
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from floorsync_api.features.live_updates.delivery import (
+    Delivered,
+    PayloadUnreadable,
+    RedisRefused,
+    deliver,
+)
+from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
+from floorsync_common.database.session import session_scope
+from floorsync_common.live_updates.results import OutboxRowAlreadySettled, OutboxRowPublished
+from floorsync_common.live_updates.service import LiveUpdateOutboxService
+
+logger = logging.getLogger(__name__)
+
+POLL_INTERVAL_SECONDS: Final = 2.0
+BATCH_SIZE: Final = 50
+BASE_BACKOFF_SECONDS: Final = 2.0
+MAX_BACKOFF_SECONDS: Final = 300.0
+
+
+class OutboxRelay:
+    """Owns one background task for the process's lifetime. Start once, stop once."""
+
+    def __init__(self) -> None:
+        self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        if self._task is None:
+            self._task = asyncio.create_task(self._run_forever())
+
+    @property
+    def running(self) -> bool:
+        """`False` once `stop()` completes, or if the background task died without one."""
+        return self._task is not None and not self._task.done()
+
+    async def stop(self) -> None:
+        if self._task is None:
+            return
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+        self._task = None
+
+    async def _run_forever(self) -> None:
+        """Drain a backlog without waiting between full batches; idle at `POLL_INTERVAL_SECONDS`
+        once a pass claims nothing. A failed pass never kills this loop -- it logs and retries."""
+        while True:
+            try:
+                claimed = await self.run_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("Outbox relay pass failed; retrying next interval.", exc_info=True)
+                claimed = 0
+            await asyncio.sleep(0 if claimed >= BATCH_SIZE else POLL_INTERVAL_SECONDS)
+
+    async def run_once(self) -> int:
+        """Claim and retry one batch of due rows. Returns how many it handled.
+
+        The first Redis failure ends the batch. Redis is down or hanging for every row, so trying
+        the rest would only wait out one timeout each while holding their row locks; they are
+        released untouched when this transaction ends and are claimed again on the next pass.
+        """
+        async with session_scope() as db:
+            rows = await LiveUpdateOutboxService.claim_due(
+                db, now=datetime.now(UTC), limit=BATCH_SIZE
+            )
+            handled = 0
+            for row in rows:
+                handled += 1
+                if not await _retry(db, row):
+                    break
+            return handled
+
+
+async def _retry(db: AsyncSession, row: LiveUpdateOutbox) -> bool:
+    """Deliver one claimed row, then settle it in the caller's transaction.
+
+    `False` means Redis itself failed and the caller should stop the batch; an unreadable row is
+    parked and still returns `True`, since the next row may be fine.
+    """
+    result = await deliver(row.payload)
+    match result:
+        case Delivered():
+            marked = await LiveUpdateOutboxService.mark_published(db, row.id, at=datetime.now(UTC))
+            match marked:
+                case OutboxRowPublished() | OutboxRowAlreadySettled():
+                    return True
+                case _:
+                    assert_never(marked)
+        case PayloadUnreadable(event_id=event_id):
+            # Retrying cannot fix a malformed payload: park it for the longest backoff and record
+            # why. It stays in the backlog count and age until someone repairs or prunes it.
+            await LiveUpdateOutboxService.record_failure(
+                db,
+                row.id,
+                error_code="UnsupportedEnvelope",
+                retry_at=datetime.now(UTC) + timedelta(seconds=MAX_BACKOFF_SECONDS),
+            )
+            logger.error(
+                "Outbox row %s holds an unreadable envelope; parked, not published.",
+                row.id,
+                extra={
+                    "outbox_id": str(row.id),
+                    "event_id": event_id,
+                    "error_code": "UnsupportedEnvelope",
+                },
+            )
+            return True
+        case RedisRefused(error=error):
+            attempt_count = row.attempt_count + 1
+            error_code = type(error).__name__
+            await LiveUpdateOutboxService.record_failure(
+                db,
+                row.id,
+                error_code=error_code,
+                retry_at=datetime.now(UTC) + _backoff(attempt_count),
+            )
+            logger.warning(
+                "Outbox row %s failed to publish; will retry.",
+                row.id,
+                extra={
+                    "outbox_id": str(row.id),
+                    "attempt_count": attempt_count,
+                    "error_code": error_code,
+                },
+                exc_info=error,
+            )
+            return False
+        case _:
+            assert_never(result)
+
+
+def _backoff(attempt_count: int) -> timedelta:
+    """Doubling delay from `BASE_BACKOFF_SECONDS`, capped at `MAX_BACKOFF_SECONDS`."""
+    seconds = min(BASE_BACKOFF_SECONDS * (2 ** (attempt_count - 1)), MAX_BACKOFF_SECONDS)
+    return timedelta(seconds=seconds)
+
+
+__all__ = ["OutboxRelay"]
