@@ -21,7 +21,7 @@ import { useDeleteSchedule } from "@/features/schedules/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
 import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
@@ -29,6 +29,7 @@ import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
 import { edgesForSavedOperations } from "@/features/jobs/model/dependencies";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
 import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
+import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import {
     DEFAULT_SORT,
     EMPTY_JOB_DRAFT,
@@ -124,7 +125,13 @@ function JobsPageInner() {
     // the dialog mounted while the zoom-out animation plays.
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const [deleteClosing, setDeleteClosing] = useState(false);
-    const [filters, setFilters] = useState<JobFilters>(INITIAL_FILTERS);
+    // Another screen can open the backlog narrowed to one machine
+    // (?machine=<id>). Every status is shown, since a machine is still bound to
+    // the archived jobs that route through it.
+    const [filters, setFilters] = useState<JobFilters>(() => {
+        const machineId = searchParams.get("machine");
+        return machineId ? { ...INITIAL_FILTERS, status: "All", machineId } : INITIAL_FILTERS;
+    });
     // Which step the graph has open. Held here rather than in the graph because
     // the operation cards highlight the same selection and edit the same draft.
     const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
@@ -241,16 +248,8 @@ function JobsPageInner() {
         cancelLabel: "Stay on this page",
     });
 
-    /**
-     * Ctrl+S / ⌘S saves, exactly as pressing the button would.
-     *
-     * Bound on the window rather than on the form: the draft is edited from two
-     * panels and a diagram, so the cursor is rarely inside the thing being
-     * saved. The default is always prevented while this screen is mounted —
-     * letting the browser's "Save page as…" sheet open instead would be a worse
-     * answer to the shortcut than doing nothing.
-     */
-    function saveFromShortcut() {
+    /** Ctrl+S / ⌘S saves, exactly as pressing the button would. */
+    useSaveShortcut(() => {
         // A dialog is a question waiting on an answer; saving the draft behind
         // it would act on something the manager has already stepped away from.
         if (pendingOpen !== null || pendingOperationRemoval !== null || confirmingDelete) return;
@@ -262,25 +261,7 @@ function JobsPageInner() {
         // Silence is the honest answer to "save" when there is nothing to save.
         // Anything else was an action that did not happen, so it has to say why.
         if (gate.held && gate.reason !== null) toast.warning(gate.reason);
-    }
-
-    const shortcutRef = useRef(saveFromShortcut);
-    useEffect(() => {
-        shortcutRef.current = saveFromShortcut;
     });
-
-    useEffect(() => {
-        function onKeyDown(event: KeyboardEvent) {
-            const chord = (event.metaKey || event.ctrlKey) && !event.altKey;
-            if (!chord || event.key.toLowerCase() !== "s") return;
-            event.preventDefault();
-            // Holding the keys down should ask once, not once per repeat.
-            if (!event.repeat) shortcutRef.current();
-        }
-
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, []);
 
     /** Set the draft *and* the baseline: this is the job as the API has it. */
     function openDraft(next: JobDraft) {

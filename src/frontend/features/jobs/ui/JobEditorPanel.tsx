@@ -1,6 +1,5 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +12,7 @@ import { TextField } from "@/components/ui/text-field";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
+import { useSaveShortcutLabel } from "@/core/keyboard/useSaveShortcut";
 import { formatDuration, primaryRoute, routeMins, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
 import {
@@ -28,19 +28,6 @@ import { criticalPathMins, wouldCreateCycle } from "../model/dependencies";
 import { JOB_PRIORITIES, type JobDraft, type SaveGate } from "../model/editor";
 import { JobGraphDiagram } from "./JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
-
-/**
- * Which save chord to print, or null while there is no platform to ask.
- *
- * The server cannot know, and guessing then correcting on hydration would flash
- * the wrong label. `useSyncExternalStore` is the shape for exactly this: a
- * server snapshot of null, a client snapshot read off the platform, and no
- * subscription because the answer never changes within a session.
- */
-const NEVER_CHANGES = () => () => { };
-const readShortcut = () =>
-    /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent) ? "⌘S" : "Ctrl+S";
-const noShortcutOnServer = () => null;
 
 /** One figure in the draft summary. */
 function Stat({ value, label, hint }: { value: string; label: string; hint?: string }) {
@@ -147,7 +134,7 @@ export function JobEditorPanel({
     /** Retire this job from the backlog by hand. One way: there is no un-archive. */
     onRequestArchive: () => void;
 }) {
-    const shortcut = useSyncExternalStore(NEVER_CHANGES, readShortcut, noShortcutOnServer);
+    const shortcut = useSaveShortcutLabel();
     const readOnly = draft.backlogStatus !== "open";
     const scheduleId = draft.plannedByScheduleIds[0] ?? null;
     const workMins = totalWorkMins(draft);
