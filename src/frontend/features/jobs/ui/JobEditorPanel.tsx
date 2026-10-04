@@ -10,6 +10,7 @@ import { Link } from "@/components/ui/link";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
 import { formatDuration, primaryRoute, routeMins, totalWorkMins } from "@/domains/scheduling/format";
@@ -190,6 +191,26 @@ export function JobEditorPanel({
                                 : draft.backlogStatus[0]?.toUpperCase() + draft.backlogStatus.slice(1)}
                         </Badge>
                     )}
+                    {/* Every control below is inert once the job has left the backlog;
+                        the tooltip says why and points at the one action that works. */}
+                    {readOnly && (
+                        <InfoTooltip label="Why this job is read-only">
+                            This job is {draft.backlogStatus}, so it is no longer editable or offered
+                            for scheduling. Duplicate it to start a new job from the same steps,
+                            machines and ordering.
+                            {draft.backlogStatus === "archived" && draft.archivedAt !== null && (
+                                <> Archived since {new Date(draft.archivedAt).toLocaleString()}.</>
+                            )}
+                        </InfoTooltip>
+                    )}
+                    {readOnly && scheduleId !== null && (
+                        <Link
+                            href={`/manager/schedules?schedule=${encodeURIComponent(scheduleId)}`}
+                            className="text-sm underline"
+                        >
+                            Open its schedule
+                        </Link>
+                    )}
                     {/* Unsaved work is otherwise invisible until something tries
                         to navigate away and a dialog appears out of nowhere. */}
                     {dirty && (
@@ -202,34 +223,6 @@ export function JobEditorPanel({
 
             <CardContent className="space-y-5">
                 {notes}
-
-                {/* Every control below is inert when the job has left the backlog, and a
-                    screen of dead inputs with no explanation is a bug report
-                    waiting to happen. The note says why and points at the one
-                    action that does work; the button itself stays in the action
-                    row with every other action rather than being repeated here. */}
-                {readOnly && (
-                    <Note intent="info" role="status">
-                        <strong>This job is {draft.backlogStatus}.</strong>
-                        <div className="mt-1">
-                            It is no longer editable or offered for scheduling. Duplicate it to start a
-                            new job from the same steps, machines and ordering.
-                            {scheduleId !== null && (
-                                <>
-                                    {" "}
-                                    <Link href={`/manager/schedules?schedule=${encodeURIComponent(scheduleId)}`} className="underline">
-                                        Open its schedule.
-                                    </Link>
-                                </>
-                            )}
-                        </div>
-                        {draft.backlogStatus === "archived" && draft.archivedAt !== null && (
-                            <div className="mt-1 text-sm">
-                                Archived since {new Date(draft.archivedAt).toLocaleString()}.
-                            </div>
-                        )}
-                    </Note>
-                )}
 
                 {/* Without this the editor would quietly present the straight
                     chain `draftFromJob` opens on as though it were the job. */}

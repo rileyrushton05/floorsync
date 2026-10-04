@@ -126,7 +126,7 @@ export default function OperatorScreen() {
                     }}
                 >
                     {simulation && simulation.status !== "running" && (
-                        <Note intent={simulation.status === "paused" ? "warning" : simulation.status === "complete" ? "success" : "info"}>
+                        <Note intent={simulation.status === "paused" ? "warning" : simulation.status === "complete" ? "success" : "default"}>
                             {SIMULATION_NOTE[simulation.status]}
                         </Note>
                     )}

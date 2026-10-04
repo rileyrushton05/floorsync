@@ -17,6 +17,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
@@ -531,22 +532,20 @@ export default function PlannerPage() {
                 <Card>
                     <CardHeader className="flex-row items-center gap-2.5">
                         <CardTitle>Released to schedule</CardTitle>
+                        <InfoTooltip label="About job selection">
+                            Select the open jobs to include in this run. Jobs already planned,
+                            completed or archived cannot be selected again.
+                        </InfoTooltip>
                         <Badge intent="secondary">
                             {selectedJobIds.length} / {openJobs.length}
                         </Badge>
                     </CardHeader>
                     <CardContent>
-                        <Note intent="info">
-                            Select the open jobs to include in this run. Jobs already planned,
-                            completed or archived cannot be selected again.
-                        </Note>
-
                         <CheckboxGroup
                             aria-label="Jobs to schedule"
                             value={selectedJobIds}
                             isDisabled={busy}
                             onChange={(values) => setSelectedJobIds([...values])}
-                            className="mt-3"
                         >
                             {openJobs.map((job) => {
                                 const issue = validationIssuesByJobId.get(job.id);

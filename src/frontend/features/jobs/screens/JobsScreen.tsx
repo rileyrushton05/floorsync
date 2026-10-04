@@ -614,7 +614,7 @@ function JobsPageInner() {
     const notes = (
         <>
             {loading && (
-                <Note intent="info" role="status">
+                <Note role="status">
                     Loading the job backlog and machines…
                 </Note>
             )}

@@ -73,7 +73,6 @@ export function MachineEditor({
             {/* Fill the card: the fields stretch edge to edge instead of the
                 previous `max-w-xl` column that left the right half empty. */}
             <CardContent className="flex flex-1 flex-col space-y-5">
-                <Note intent="info">This screen shows only fields stored by the machine API. A machine is retired by setting it inactive; the API intentionally does not delete machine history.</Note>
                 <TextField value={draft.name} onChange={(name) => onDraftChange((value) => ({ ...value, name }))}>
                     <Label>Machine name</Label><Input placeholder="e.g. Assembly station 2" autoComplete="off" />
                 </TextField>
