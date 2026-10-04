@@ -14,10 +14,11 @@ import {
     fetchSchedules,
     requestSchedule,
     recordSimulationEvent,
-    updateScheduleStatus,
+    updateSchedule,
     validateSchedule,
     type ScheduleGenerationStatus,
     type ScheduleStrategy,
+    type ScheduleUpdate,
     type SimulationEventType,
 } from "./api";
 import { jobKeys } from "@/features/jobs/data/keys";
@@ -159,14 +160,19 @@ export function useRequestSchedule() {
     });
 }
 
-/** Move a schedule through the lifecycle the API owns. */
-export function useUpdateScheduleStatus() {
+/** Rename a schedule and/or move it through the lifecycle the API owns. */
+export function useUpdateSchedule() {
     const { token } = useAuth();
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, status }: { id: string; status: "confirmed" | "discarded" }) =>
-            updateScheduleStatus(id, status, requireToken(token)),
-        onSuccess: async () => {
+        mutationFn: ({ id, ...update }: { id: string } & ScheduleUpdate) =>
+            updateSchedule(id, update, requireToken(token)),
+        onSuccess: async (saved) => {
+            // Patch the list straight away so the row reads its new name and
+            // status before the refetch below lands.
+            queryClient.setQueryData<ScheduleSummary[]>(scheduleKeys.all, (previous) =>
+                previous?.map((schedule) => (schedule.id === saved.id ? saved : schedule)),
+            );
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.all }),

@@ -1,21 +1,11 @@
 import type { ScheduleSummary } from "../data/api";
 import { formatDuration } from "@/domains/scheduling/format";
+import { formatCreatedAt, scheduleDisplayName, strategyLabel } from "./archive";
 
 export interface ScheduleOption {
     id: string;
     status: "confirmed" | "draft" | "discarded";
     label: string;
-}
-
-function formatCreated(iso: string): string {
-    const at = new Date(iso);
-    if (Number.isNaN(at.getTime())) return iso;
-    return at.toLocaleString(undefined, {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
 }
 
 /** Converts a transport schedule into the compact contract the picker needs. */
@@ -24,6 +14,6 @@ export function toScheduleOption(schedule: ScheduleSummary): ScheduleOption {
     return {
         id: schedule.id,
         status: schedule.status,
-        label: `${schedule.strategy} · ${makespan} · ${formatCreated(schedule.created_at)}`,
+        label: `${scheduleDisplayName(schedule)} · ${strategyLabel(schedule.strategy)} · ${makespan} · ${formatCreatedAt(schedule.created_at)}`,
     };
 }

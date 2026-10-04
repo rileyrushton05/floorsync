@@ -4,7 +4,10 @@ import type { ScheduleTimeline, TimelineLane, TimelineOperation } from "@/domain
 export type { ScheduleTimeline, TimelineLane, TimelineOperation } from "@/domains/scheduling/contracts";
 
 export interface ScheduleSummary {
-    id: string; status: "draft" | "confirmed" | "discarded"; strategy: string; makespan: number | null;
+    id: string;
+    /** Null until a manager saves it from the Planner; generation never names a schedule. */
+    name: string | null;
+    status: "draft" | "confirmed" | "discarded"; strategy: string; makespan: number | null;
     input_operation_count: number | null; created_at: string; confirmed_at: string | null;
     confirmed_by_user_id: string | null;
 }
@@ -68,18 +71,23 @@ export function validateSchedule(jobIds: string[], token: string, signal?: Abort
     jobIds.forEach((jobId) => query.append("job_ids", jobId));
     return apiRequest<ScheduleValidation>(`/api/v1/schedules/validation?${query.toString()}`, token, { signal });
 }
-export function updateScheduleStatus(
-    scheduleId: string,
-    status: "confirmed" | "discarded",
-    token: string,
-) {
+/**
+ * Rename a schedule, move it through its lifecycle, or both in one request.
+ * The API runs the transition first and renames nothing if it is refused.
+ */
+export interface ScheduleUpdate {
+    status?: "confirmed" | "discarded";
+    name?: string;
+}
+
+export function updateSchedule(scheduleId: string, update: ScheduleUpdate, token: string) {
     return apiRequest<ScheduleSummary>(
         `/api/v1/schedules/${encodeURIComponent(scheduleId)}`,
         token,
         {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status }),
+            body: JSON.stringify(update),
         },
     );
 }

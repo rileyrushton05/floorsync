@@ -1617,6 +1617,11 @@
         "title": "ScheduleGenerationStatusResponse",
         "type": "object"
       },
+      "ScheduleName": {
+        "maxLength": 120,
+        "minLength": 1,
+        "type": "string"
+      },
       "ScheduleResponse": {
         "properties": {
           "confirmed_at": {
@@ -1689,6 +1694,17 @@
             ],
             "title": "Makespan"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "runtime_ms": {
             "anyOf": [
               {
@@ -1740,6 +1756,7 @@
         },
         "required": [
           "id",
+          "name",
           "status",
           "strategy",
           "runtime_ms",
@@ -1815,6 +1832,17 @@
             ],
             "title": "Makespan"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "status": {
             "enum": [
               "draft",
@@ -1831,6 +1859,7 @@
         },
         "required": [
           "id",
+          "name",
           "status",
           "strategy",
           "makespan",
@@ -1844,20 +1873,34 @@
       },
       "ScheduleUpdateRequest": {
         "additionalProperties": false,
-        "description": "A lifecycle transition (decision 0015).\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.",
+        "description": "A rename, a lifecycle transition (decision 0015), or both at once.\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.\n\n`name` can be set in any status, since it labels the run rather than changing what it planned.\nSending both is how the Planner saves: name the draft and confirm it in one request, so a\nrefused transition never leaves a renamed draft behind. Explicit nulls are rejected.",
         "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
-            "enum": [
-              "confirmed",
-              "discarded"
+            "anyOf": [
+              {
+                "enum": [
+                  "confirmed",
+                  "discarded"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Status",
-            "type": "string"
+            "title": "Status"
           }
         },
-        "required": [
-          "status"
-        ],
         "title": "ScheduleUpdateRequest",
         "type": "object"
       },
@@ -4037,7 +4080,7 @@
         ]
       },
       "patch": {
-        "description": "Move a schedule through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269).",
+        "description": "Rename a schedule and/or move it through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269).\n\n`{\"name\": ...}` labels the schedule in any status. When both are sent the transition runs\nfirst, and a refused transition answers before anything is renamed.",
         "operationId": "update_schedule_api_v1_schedules__schedule_id__patch",
         "parameters": [
           {
@@ -4094,7 +4137,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Confirm or discard a schedule",
+        "summary": "Rename, confirm or discard a schedule",
         "tags": [
           "schedules"
         ]

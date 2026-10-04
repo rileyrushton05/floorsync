@@ -28,6 +28,7 @@ from floorsync_common.scheduling.lifecycle import (
     ScheduleIsDraft,
     ScheduleLifecycleService,
     ScheduleNotFound,
+    ScheduleRenamed,
     ScheduleSimulationStarted,
 )
 from floorsync_common.settings import Settings
@@ -353,3 +354,99 @@ def test_there_is_no_way_back_to_draft() -> None:
 
 def test_an_operator_cannot_change_a_schedules_status() -> None:
     assert _patch(_client(role="operator"), uuid4(), "confirmed").status_code == 403
+
+
+# -- rename -----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["draft", "confirmed", "discarded"])
+def test_a_schedule_can_be_renamed_in_any_status(status: str) -> None:
+    schedule = _schedule(status, confirmed=status != "draft")
+    fake = FakeSession(schedule)
+
+    result = _run(ScheduleLifecycleService.rename(cast(AsyncSession, fake), schedule.id, "Week 41"))
+
+    assert result == ScheduleRenamed(schedule=schedule)
+    assert schedule.name == "Week 41"
+    assert schedule.status == status
+    assert fake.locked and fake.flushes == 1
+
+
+def test_renaming_a_missing_schedule_reports_not_found() -> None:
+    schedule_id = uuid4()
+
+    result = _run(
+        ScheduleLifecycleService.rename(cast(AsyncSession, FakeSession(None)), schedule_id, "X")
+    )
+
+    assert result == ScheduleNotFound(schedule_id=schedule_id)
+
+
+def _stub_rename(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
+    async def fake(_: object, schedule_id: UUID, name: str) -> object:
+        calls.append(name)
+        schedule = _schedule("draft")
+        schedule.id = schedule_id
+        schedule.name = name
+        return ScheduleRenamed(schedule=schedule)
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "rename", staticmethod(fake))
+
+
+def test_rename_route_trims_and_returns_the_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    _stub_rename(monkeypatch, calls)
+
+    response = _client().patch(f"/api/v1/schedules/{uuid4()}", json={"name": "  Week 41  "})
+
+    assert response.status_code == 200
+    assert calls == ["Week 41"]
+    assert response.json()["name"] == "Week 41"
+    assert response.json()["status"] == "draft"
+
+
+def test_saving_confirms_then_renames(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    schedule = _schedule("confirmed", confirmed=True)
+
+    async def fake_confirm(_: object, __: UUID, **___: Any) -> ScheduleConfirmed:
+        order.append("confirm")
+        return ScheduleConfirmed(schedule=schedule)
+
+    async def fake_rename(_: object, __: UUID, name: str) -> ScheduleRenamed:
+        order.append("rename")
+        schedule.name = name
+        return ScheduleRenamed(schedule=schedule)
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "confirm", staticmethod(fake_confirm))
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "rename", staticmethod(fake_rename))
+
+    response = _client().patch(
+        f"/api/v1/schedules/{schedule.id}", json={"status": "confirmed", "name": "Week 41"}
+    )
+
+    assert response.status_code == 200
+    assert order == ["confirm", "rename"]
+    assert response.json()["name"] == "Week 41"
+    assert response.json()["status"] == "confirmed"
+
+
+def test_a_refused_transition_renames_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    _stub_rename(monkeypatch, calls)
+    _stub_discard(monkeypatch, ScheduleIsDraft(schedule_id=uuid4()))
+
+    response = _client().patch(
+        f"/api/v1/schedules/{uuid4()}", json={"status": "discarded", "name": "Week 41"}
+    )
+
+    assert response.status_code == 409
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"name": ""}, {"name": "   "}, {"name": None}, {"status": None}, {"name": "x" * 121}],
+)
+def test_an_update_must_carry_a_real_change(body: dict[str, Any]) -> None:
+    assert _client().patch(f"/api/v1/schedules/{uuid4()}", json=body).status_code == 422

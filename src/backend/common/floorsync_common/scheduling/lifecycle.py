@@ -70,6 +70,11 @@ class ScheduleDiscarded:
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduleRenamed:
+    schedule: Schedule
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduleIsDraft(ExpectedOutcome):
     """A draft cannot be discarded, because `discarded` means "was the plan, then withdrawn".
 
@@ -95,6 +100,7 @@ class ScheduleSimulationStarted(ExpectedOutcome):
 
 type DeleteScheduleResult = ScheduleDeleted | ScheduleNotFound | ScheduleNotDraft
 type ConfirmScheduleResult = ScheduleConfirmed | ScheduleNotFound
+type RenameScheduleResult = ScheduleRenamed | ScheduleNotFound
 type DiscardScheduleResult = (
     ScheduleDiscarded | ScheduleNotFound | ScheduleIsDraft | ScheduleSimulationStarted
 )
@@ -156,6 +162,25 @@ class ScheduleLifecycleService:
         schedule.confirmed_at = at or datetime.now(UTC)
         await db.flush()
         return ScheduleConfirmed(schedule=schedule)
+
+    @staticmethod
+    async def rename(db: AsyncSession, schedule_id: UUID, name: str) -> RenameScheduleResult:
+        """Give a schedule the name a manager chose, in whatever status it is in.
+
+        A name labels the run; it changes nothing the schedule planned, so unlike the transitions
+        above it is allowed on a confirmed or discarded schedule too. Locked like them, so a rename
+        sent alongside a transition sees that transition's result.
+        """
+
+        schedule = await db.scalar(
+            select(Schedule).where(Schedule.id == schedule_id).with_for_update()
+        )
+        if schedule is None:
+            return ScheduleNotFound(schedule_id=schedule_id)
+
+        schedule.name = name
+        await db.flush()
+        return ScheduleRenamed(schedule=schedule)
 
     @staticmethod
     async def discard(db: AsyncSession, schedule_id: UUID) -> DiscardScheduleResult:

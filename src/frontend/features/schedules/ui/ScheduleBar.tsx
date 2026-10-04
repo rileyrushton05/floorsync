@@ -1,13 +1,7 @@
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import type { ScheduleOption } from "../model/schedule";
-
-const STATUS_INTENT = {
-    confirmed: "success",
-    draft: "warning",
-    discarded: "secondary",
-} as const;
+import { ScheduleStatusBadge } from "./ScheduleStatusBadge";
 
 /** Presentational schedule picker: data and selection intent arrive entirely as props. */
 export function ScheduleBar({
@@ -43,7 +37,7 @@ export function ScheduleBar({
                 </SelectContent>
             </Select>
 
-            {selected && <Badge intent={STATUS_INTENT[selected.status]}>{selected.status}</Badge>}
+            {selected && <ScheduleStatusBadge status={selected.status} />}
 
             {timelineSummary && (
                 <span className="text-muted-fg text-xs">

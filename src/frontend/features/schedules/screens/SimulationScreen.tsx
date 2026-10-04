@@ -38,7 +38,8 @@ import {
 import { toScheduleOption } from "@/features/schedules/model/schedule";
 import { ScheduleBar } from "@/features/schedules/ui/ScheduleBar";
 import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "@/components/ui/link";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 /**
@@ -113,6 +114,14 @@ function Placeholder({
 }
 
 export default function SimulationPage() {
+    return (
+        <Suspense>
+            <SimulationPageInner />
+        </Suspense>
+    );
+}
+
+function SimulationPageInner() {
     const [startSpeed, setStartSpeed] = useState(10);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
     const [hoveredMachineId, setHoveredMachineId] = useState<string | null>(null);
@@ -255,13 +264,23 @@ export default function SimulationPage() {
     }
 
     if (schedules.length === 0) {
-        return <Placeholder title="No schedules yet">Create a schedule in Planner, then confirm it before simulating.</Placeholder>;
+        return (
+            <Placeholder title="No schedules yet">
+                <p>
+                    <Link href="/manager/planner" className="text-primary">Create a schedule</Link>,
+                    then save it to run it here.
+                </p>
+            </Placeholder>
+        );
     }
 
     if (confirmedSchedules.length === 0) {
         return (
             <Placeholder title="No confirmed schedules to simulate">
-                Confirm a draft in Schedules before starting its simulation. Draft schedules are still editable plans.
+                <p>
+                    Only saved (confirmed) schedules can be simulated. Save a draft from the Planner, or
+                    confirm it on the <Link href="/manager/schedules" className="text-primary">Schedules page</Link>.
+                </p>
             </Placeholder>
         );
     }

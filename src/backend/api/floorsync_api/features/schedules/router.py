@@ -36,6 +36,7 @@ from floorsync_common.scheduling.lifecycle import (
     ScheduleLifecycleService,
     ScheduleNotDraft,
     ScheduleNotFound,
+    ScheduleRenamed,
     ScheduleSimulationStarted,
 )
 from floorsync_common.scheduling.task_names import (
@@ -222,7 +223,7 @@ async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> Schedule
 @router.patch(
     "/{schedule_id}",
     response_model=ScheduleSummaryResponse,
-    summary="Confirm or discard a schedule",
+    summary="Rename, confirm or discard a schedule",
     responses={
         404: {"description": "The schedule does not exist"},
         409: {
@@ -240,23 +241,46 @@ async def update_schedule(
     db: DbSession,
     manager: Manager,
 ) -> ScheduleSummaryResponse | JSONResponse:
-    """Move a schedule through its lifecycle (decision 0015).
+    """Rename a schedule and/or move it through its lifecycle (decision 0015).
 
     `{"status": "confirmed"}` makes a draft the plan and records who confirmed it and when; on a
     discarded schedule it restores it. `{"status": "discarded"}` withdraws a confirmed schedule
     the floor has not acted on: a simulation created for it but never started is removed with it,
     one with any control recorded refuses the withdrawal. Neither touches the jobs the schedule
     planned; the backlog reads what a plan claims from the schedule itself (#269).
+
+    `{"name": ...}` labels the schedule in any status. When both are sent the transition runs
+    first, and a refused transition answers before anything is renamed.
     """
 
     async with db.begin():
-        match command.status:
-            case "confirmed":
-                return await _confirm(db, schedule_id, manager)
-            case "discarded":
-                return await _discard(db, schedule_id, request)
-            case _:
-                assert_never(command.status)
+        summary: ScheduleSummaryResponse | None = None
+        if command.status is not None:
+            match command.status:
+                case "confirmed":
+                    transitioned = await _confirm(db, schedule_id, manager)
+                case "discarded":
+                    transitioned = await _discard(db, schedule_id, request)
+                case _:
+                    assert_never(command.status)
+            if isinstance(transitioned, JSONResponse):
+                return transitioned
+            summary = transitioned
+        if command.name is not None:
+            summary = await _rename(db, schedule_id, command.name)
+        assert summary is not None, "the request schema requires a status or a name"
+        return summary
+
+
+async def _rename(db: DbSession, schedule_id: UUID, name: str) -> ScheduleSummaryResponse:
+    result = await ScheduleLifecycleService.rename(db, schedule_id, name)
+    match result:
+        case ScheduleRenamed(schedule=schedule):
+            return ScheduleSummaryResponse.model_validate(schedule)
+        case ScheduleNotFound():
+            raise _schedule_not_found()
+        case _:
+            assert_never(result)
 
 
 async def _confirm(
@@ -380,6 +404,7 @@ def schedule_response(
 
     return ScheduleResponse(
         id=schedule.id,
+        name=schedule.name,
         status=schedule.status,
         strategy=schedule.strategy,
         runtime_ms=schedule.runtime_ms,
