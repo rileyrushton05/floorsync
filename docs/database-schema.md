@@ -8,7 +8,7 @@ one model file under `floorsync_common/database/models/`.
 All tables get `id` (UUID v4, `UUIDPrimaryKeyMixin`) and `created_at` / `updated_at`
 (`TimestampMixin`) unless noted. Omitted below for brevity.
 
-![Physical schema diagram: all 13 tables, columns, types and keys, generated from this document](diagrams/database-schema.png)
+![Physical schema diagram: all 16 tables with their columns, types, keys and relationships, generated from the SQLAlchemy models; created_at and updated_at are omitted](diagrams/database-schema.png)
 
 ## categories
 
