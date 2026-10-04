@@ -1,5 +1,5 @@
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeaderCount } from "@/components/ui/header-count";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -28,9 +28,11 @@ export function MachineInventoryPanel({
 }) {
     return (
         <Card>
-            <CardHeader className="flex-row items-center justify-between gap-3">
-                <CardTitle>Machine inventory</CardTitle>
-                <Badge intent="secondary">{total}</Badge>
+            <CardHeader>
+                <CardTitle>
+                    Machine inventory
+                    <HeaderCount label={`${total} ${total === 1 ? "machine" : "machines"}`}>{total}</HeaderCount>
+                </CardTitle>
             </CardHeader>
             <CardContent>
                 <TextField aria-label="Search machines" value={query} onChange={onQueryChange}>

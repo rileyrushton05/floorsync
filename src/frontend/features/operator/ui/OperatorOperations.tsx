@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { HeaderCount } from "@/components/ui/header-count";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { formatDuration } from "@/domains/scheduling/format";
 import {
@@ -96,8 +97,12 @@ export function UpcomingOperations({
     return (
         <section aria-labelledby="up-next-heading" className="flex flex-col gap-3">
             <div className="flex items-center gap-2.5 px-1">
-                <h2 id="up-next-heading" className="font-semibold text-lg">Up next</h2>
-                <Badge intent="secondary">{operations.length}</Badge>
+                <h2 id="up-next-heading" className="font-semibold text-lg">
+                    Up next
+                    <HeaderCount label={`${operations.length} ${operations.length === 1 ? "operation" : "operations"}`}>
+                        {operations.length}
+                    </HeaderCount>
+                </h2>
             </div>
             {operations.length === 0 ? (
                 <Card>

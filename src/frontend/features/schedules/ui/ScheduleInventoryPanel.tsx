@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeaderCount } from "@/components/ui/header-count";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -59,9 +60,11 @@ export function ScheduleInventoryPanel({
 
     return (
         <Card>
-            <CardHeader className="flex-row items-center justify-between gap-3">
-                <CardTitle>Schedules</CardTitle>
-                <Badge intent="secondary">{total}</Badge>
+            <CardHeader>
+                <CardTitle>
+                    Schedules
+                    <HeaderCount label={`${total} ${total === 1 ? "schedule" : "schedules"}`}>{total}</HeaderCount>
+                </CardTitle>
             </CardHeader>
             <CardContent>
                 <TextField aria-label="Search schedules" value={query} onChange={onQueryChange}>

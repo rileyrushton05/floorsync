@@ -1,8 +1,8 @@
 ﻿"use client";
 
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeaderCount } from "@/components/ui/header-count";
 import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
@@ -531,14 +531,16 @@ export default function PlannerPage() {
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
                 <Card>
                     <CardHeader className="flex-row items-center gap-2.5">
-                        <CardTitle>Released to schedule</CardTitle>
+                        <CardTitle>
+                            Released to schedule
+                            <HeaderCount label={`${selectedJobIds.length} of ${openJobs.length} open jobs selected`}>
+                                {selectedJobIds.length}/{openJobs.length}
+                            </HeaderCount>
+                        </CardTitle>
                         <InfoTooltip label="About job selection">
                             Select the open jobs to include in this run. Jobs already planned,
                             completed or archived cannot be selected again.
                         </InfoTooltip>
-                        <Badge intent="secondary">
-                            {selectedJobIds.length} / {openJobs.length}
-                        </Badge>
                     </CardHeader>
                     <CardContent>
                         <CheckboxGroup
