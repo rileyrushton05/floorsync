@@ -20,6 +20,7 @@ export function MachineEditor({
     assignedOperationCount,
     onDraftChange,
     onSave,
+    onCancelNew,
     onDeactivate,
     onRemove,
 }: {
@@ -32,6 +33,8 @@ export function MachineEditor({
     assignedOperationCount: number;
     onDraftChange: (update: (draft: MachineDraft) => MachineDraft) => void;
     onSave: () => void;
+    /** Leave an unsaved new machine; omitted when there is nothing to cancel. */
+    onCancelNew?: () => void;
     /** Retire or restore the machine, depending on its current status. */
     onDeactivate: () => void;
     /** Hard-delete the machine; the screen guards the assigned-operations case. */
@@ -96,6 +99,11 @@ export function MachineEditor({
                     {draft.id && (
                         <Button intent="danger" onPress={onRemove} isDisabled={saving || blockedByOperations || machineActive}>
                             Remove machine
+                        </Button>
+                    )}
+                    {!draft.id && onCancelNew && (
+                        <Button intent="plain" onPress={onCancelNew} isDisabled={saving}>
+                            Cancel
                         </Button>
                     )}
                     <Button onPress={onSave} isPending={saving}><CheckIcon /> {draft.id ? "Save changes" : "Add machine"}</Button>

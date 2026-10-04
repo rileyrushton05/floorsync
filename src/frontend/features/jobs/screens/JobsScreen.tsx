@@ -112,8 +112,11 @@ function JobsPageInner() {
     const [isCreating, setIsCreating] = useState(false);
     /** A job switch or a new job, held back until unsaved work is dealt with. */
     const [pendingOpen, setPendingOpen] = useState<
-        { kind: "job"; job: JobDef } | { kind: "new" } | { kind: "duplicate" } | null
+        { kind: "job"; job: JobDef } | { kind: "cancel"; job: JobDef } | { kind: "new" } | { kind: "duplicate" } | null
     >(null);
+    // The job that was open when a new job (or a copy) was started, so
+    // cancelling the new one goes back to it rather than to the top of the list.
+    const [returnJobId, setReturnJobId] = useState<string | null>(null);
     // Operations are only ever created by a click, so a plain counter is a safe
     // key source — no ids are generated during render.
     const opCounter = useRef(0);
@@ -293,6 +296,7 @@ function JobsPageInner() {
     }
 
     function openNewJob() {
+        setReturnJobId(draft.id ?? returnJobId);
         setIsCreating(true);
         openDraft(EMPTY_JOB_DRAFT);
         setSelectedOperationId(null);
@@ -316,6 +320,7 @@ function JobsPageInner() {
      * — a complete new job nobody has written yet.
      */
     function openDuplicate() {
+        setReturnJobId(draft.id ?? returnJobId);
         setIsCreating(true);
         setDraft(duplicateDraft(draft));
         setBaselineDraft(EMPTY_JOB_DRAFT);
@@ -335,6 +340,17 @@ function JobsPageInner() {
         if (job.id === draft.id) return;
         if (dirty) setPendingOpen({ kind: "job", job });
         else openJob(job);
+    }
+
+    // Where cancelling a new job lands: the job it was started from if that
+    // still exists, otherwise the one the screen opens on. Null when the floor
+    // has no jobs at all, in which case there is nothing to cancel back to.
+    const cancelTarget = jobs.find((job) => job.id === returnJobId) ?? firstJobToOpen ?? null;
+
+    function cancelNewJob() {
+        if (cancelTarget === null) return;
+        if (dirty) setPendingOpen({ kind: "cancel", job: cancelTarget });
+        else openJob(cancelTarget);
     }
 
     // Copying replaces the draft, so it is the same loss as switching jobs and
@@ -667,6 +683,7 @@ function JobsPageInner() {
                     graphError={graphError}
                     onRetryGraph={() => void dependencyQuery.refetch()}
                     onDiscard={discardChanges}
+                    onCancelNew={cancelTarget === null ? undefined : cancelNewJob}
                     notes={notes}
                     onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
                     onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
@@ -702,17 +719,25 @@ function JobsPageInner() {
                     title={
                         pendingOpen.kind === "duplicate"
                             ? "Duplicate with unsaved changes?"
-                            : "Discard unsaved changes?"
+                            : pendingOpen.kind === "cancel"
+                                ? "Cancel this new job?"
+                                : "Discard unsaved changes?"
                     }
                     description={
                         pendingOpen.kind === "new"
                             ? `“${draft.name.trim() || "This job"}” has changes that have not been saved. Starting a new job discards them.`
-                            : pendingOpen.kind === "duplicate"
-                                ? `The copy is made from what is on screen, unsaved changes included. “${draft.name.trim() || "This job"}” itself stays as it was last saved.`
-                                : `“${draft.name.trim() || "This job"}” has changes that have not been saved. Opening “${pendingOpen.job.name}” discards them.`
+                            : pendingOpen.kind === "cancel"
+                                ? `“${draft.name.trim() || "This new job"}” has not been created yet. Cancelling throws it away.`
+                                : pendingOpen.kind === "duplicate"
+                                    ? `The copy is made from what is on screen, unsaved changes included. “${draft.name.trim() || "This job"}” itself stays as it was last saved.`
+                                    : `“${draft.name.trim() || "This job"}” has changes that have not been saved. Opening “${pendingOpen.job.name}” discards them.`
                     }
                     confirmLabel={
-                        pendingOpen.kind === "duplicate" ? "Duplicate job" : "Discard changes"
+                        pendingOpen.kind === "duplicate"
+                            ? "Duplicate job"
+                            : pendingOpen.kind === "cancel"
+                                ? "Discard job"
+                                : "Discard changes"
                     }
                     cancelLabel="Keep editing"
                     danger={pendingOpen.kind !== "duplicate"}

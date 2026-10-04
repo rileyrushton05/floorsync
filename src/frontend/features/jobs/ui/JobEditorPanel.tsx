@@ -77,6 +77,7 @@ export function JobEditorPanel({
     graphError,
     onRetryGraph,
     onDiscard,
+    onCancelNew,
     notes,
     onNameChange,
     onPriorityChange,
@@ -111,6 +112,8 @@ export function JobEditorPanel({
     graphError: unknown;
     onRetryGraph: () => void;
     onDiscard: () => void;
+    /** Leave an unsaved new job for the one it was started from; omitted when there is none. */
+    onCancelNew?: () => void;
     notes: React.ReactNode;
     onNameChange: (name: string) => void;
     onPriorityChange: (priority: JobDraft["priority"]) => void;
@@ -272,7 +275,10 @@ export function JobEditorPanel({
                     </Select>
                 </div>
 
-                <div className="flex flex-1 flex-col">
+                {/* Only a graph claims the card's spare height. With no steps
+                    yet there is nothing to grow into it, so the footer sits
+                    straight under the empty message instead of at the bottom. */}
+                <div className={`flex flex-col ${draft.operations.length > 0 ? "flex-1" : ""}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="font-semibold text-sm">Operations</h3>
                         {!readOnly && (
@@ -419,6 +425,14 @@ export function JobEditorPanel({
                         under the pointer at the moment of the first keystroke.
                         Both go entirely for a read-only job, which has nothing
                         to save and so nothing to discard either. */}
+                    {/* A new job is otherwise only left by clicking some other
+                        job in the backlog, which is not where anyone looks for
+                        "never mind". Asks first if anything has been entered. */}
+                    {!readOnly && !draft.id && onCancelNew && (
+                        <Button intent="plain" onPress={onCancelNew} isDisabled={saving}>
+                            Cancel
+                        </Button>
+                    )}
                     {!readOnly && (
                         <Button
                             intent="outline"

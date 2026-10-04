@@ -35,6 +35,10 @@ export default function MachinesPage() {
     const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
     const [confirmDeactivate, setConfirmDeactivate] = useState(false);
     const [confirmRemove, setConfirmRemove] = useState(false);
+    // The machine that was open when "Add machine" was pressed, so cancelling
+    // the new one goes back to it.
+    const [returnId, setReturnId] = useState<string | null>(null);
+    const [confirmCancel, setConfirmCancel] = useState(false);
     const jobDefinitionsQuery = useJobDefinitions();
 
     const machines = useMemo(() => machineQuery.data ?? [], [machineQuery.data]);
@@ -73,9 +77,28 @@ export default function MachinesPage() {
     );
 
     const beginCreate = useCallback(() => {
+        setReturnId((previous) => selectedId ?? previous);
         setSelectedId(null);
         setDraft(EMPTY_MACHINE_DRAFT);
-    }, []);
+    }, [selectedId]);
+
+    // A new machine has something to lose once any field has been filled in.
+    const newDraftTouched =
+        draft.id === null &&
+        (draft.name !== "" || draft.categoryId !== null || draft.salary !== "");
+    const returnMachine = machines.find((machine) => machine.id === returnId) ?? null;
+
+    /** Leave the new machine: back to the one it was started from, or a blank form. */
+    function cancelCreate() {
+        setConfirmCancel(false);
+        if (returnMachine) selectMachine(returnMachine);
+        else setDraft(EMPTY_MACHINE_DRAFT);
+    }
+
+    function requestCancelCreate() {
+        if (newDraftTouched) setConfirmCancel(true);
+        else cancelCreate();
+    }
 
     const selectMachine = useCallback((machine: MachineSummary) => {
         setSelectedId(machine.id);
@@ -174,7 +197,7 @@ export default function MachinesPage() {
         <ManagerShell actions={<Button onPress={beginCreate} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_2fr]">
                 <MachineInventoryPanel total={machines.length} rows={filteredRows} selectedId={selectedId} query={query} statusFilter={statusFilter} onQueryChange={setQuery} onStatusFilterChange={setStatusFilter} onSelect={(id) => { const machine = machines.find((candidate) => candidate.id === id); if (machine) selectMachine(machine); }} />
-                <MachineEditor draft={draft} selected={selected} categories={categories} categoryNames={categoryName} saving={saving} assignedOperationCount={assignedOperationCount} onDraftChange={(update) => setDraft(update)} onSave={() => void save()} onDeactivate={requestDeactivate} onRemove={requestRemove} />
+                <MachineEditor draft={draft} selected={selected} categories={categories} categoryNames={categoryName} saving={saving} assignedOperationCount={assignedOperationCount} onDraftChange={(update) => setDraft(update)} onSave={() => void save()} onCancelNew={returnMachine || newDraftTouched ? requestCancelCreate : undefined} onDeactivate={requestDeactivate} onRemove={requestRemove} />
             </main>
             {confirmDeactivate && selected && (
                 <ConfirmDialog
@@ -184,6 +207,17 @@ export default function MachinesPage() {
                     danger
                     onConfirm={() => void toggleActive()}
                     onCancel={() => setConfirmDeactivate(false)}
+                />
+            )}
+            {confirmCancel && (
+                <ConfirmDialog
+                    title="Cancel this new machine?"
+                    description={`“${draft.name.trim() || "This new machine"}” has not been added yet. Cancelling throws it away.`}
+                    confirmLabel="Discard machine"
+                    cancelLabel="Keep editing"
+                    danger
+                    onConfirm={cancelCreate}
+                    onCancel={() => setConfirmCancel(false)}
                 />
             )}
             {confirmRemove && selected && (
