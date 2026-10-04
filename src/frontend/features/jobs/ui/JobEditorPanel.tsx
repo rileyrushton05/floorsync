@@ -177,6 +177,9 @@ export function JobEditorPanel({
     }));
 
     return (
+        // The card already stretches to the bottom of the screen (its grid row
+        // does); the flex chain down to the graph hands it all of that spare
+        // height, so the save row sits at the bottom instead of halfway up.
         <Card>
             <CardHeader className="flex-row items-center gap-3">
                 <span className="flex items-center gap-2.5">
@@ -221,7 +224,7 @@ export function JobEditorPanel({
                 </span>
             </CardHeader>
 
-            <CardContent className="space-y-5">
+            <CardContent className="flex flex-1 flex-col gap-5">
                 {notes}
 
                 {/* Without this the editor would quietly present the straight
@@ -269,7 +272,7 @@ export function JobEditorPanel({
                     </Select>
                 </div>
 
-                <div>
+                <div className="flex flex-1 flex-col">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="font-semibold text-sm">Operations</h3>
                         {!readOnly && (
@@ -297,7 +300,7 @@ export function JobEditorPanel({
                                 : "No operations yet — a job needs at least one."}
                         </div>
                     ) : (
-                        <div className="mt-3 flex flex-col gap-3">
+                        <div className="mt-3 flex flex-1 flex-col gap-3">
                             <JobGraphDiagram
                                 operations={graphOperations}
                                 selectedId={selectedOperationId}
