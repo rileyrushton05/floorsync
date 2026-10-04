@@ -24,4 +24,14 @@ export interface ProblemDetail {
     detail: string | null;
     instance: string | null;
     invalid_params: InvalidParameter[] | null;
+    /**
+     * Every other member the API sent, by its wire name.
+     *
+     * RFC 9457 lets a problem carry members of its own, and the API uses them
+     * to say what a refusal was *about* — which schedules block a delete, which
+     * status took a job out of the backlog. Kept as received: the transport
+     * cannot know which problem types a screen understands, and a feature that
+     * knows its own refusal reads what it needs from here.
+     */
+    extensions: Record<string, unknown>;
 }

@@ -11,37 +11,42 @@ export interface GraphOperation extends PrecedenceNode {
 
 const NODE_WIDTH = 176;
 const NODE_HEIGHT = 58;
-const GAP_X = 20;
-const GAP_Y = 46;
+/** Between columns: this is where the edges run, so it is the wider gap. */
+const GAP_X = 56;
+const GAP_Y = 14;
 const PADDING = 10;
-/** Width reserved for one detour lane beside the diagram. */
-const LANE_WIDTH = 18;
+/** Height reserved for one detour lane above or below the diagram. */
+const LANE_HEIGHT = 18;
 const LANE_MARGIN = 10;
-/** How far a detour eases out of a node before running straight down. */
+/** How far a detour eases out of a node before running straight across. */
 const CORNER = 16;
 
 /**
- * The job's precedence graph, flowing top to bottom, with each step a button.
+ * The job's precedence graph, flowing left to right, with each step a button.
  *
- * Rows are dependency depth — `1 + max(depth of predecessors)` — so everything
- * sharing a row is mutually independent and could run at once. That is the
- * whole reason to draw this rather than list the steps: a list can only show
- * one order, and the point of a graph is that some steps have none relative to
- * each other. Each row is centred so the shape reads as a tree.
+ * Columns are dependency depth — `1 + max(depth of predecessors)` — so
+ * everything sharing a column is mutually independent and could run at once.
+ * That is the whole reason to draw this rather than list the steps: a list can
+ * only show one order, and the point of a graph is that some steps have none
+ * relative to each other. Each column is centred so the shape reads as a tree.
+ *
+ * Left to right rather than top to bottom because a job is far deeper than it
+ * is wide: a long chain laid out downward is a tall narrow strip that wastes
+ * the page's width, while laid out across it reads like a timeline and only
+ * ever asks for a horizontal scroll.
  *
  * Nodes are real HTML buttons positioned over an SVG that draws only the edges.
  * Text in SVG cannot wrap or ellipsise and an `<svg>` element is a poor button:
  * this way selection, hover and keyboard focus are ordinary DOM behaviour, and
  * the labels truncate with CSS instead of a character count that guesses.
  *
- * It is a picture of precedence, not a schedule. A row says "cannot start
+ * It is a picture of precedence, not a schedule. A column says "cannot start
  * before", never "starts at" — machine contention is the scheduler's business,
- * and letting a row imply a start time would make it mean two things at once.
+ * and letting a column imply a start time would make it mean two things at once.
  *
- * The canvas scrolls in both directions inside a fixed viewport. A benchmark
- * job runs to fifty steps, and laid out at full height that is a card several
- * thousand pixels tall with the step editor beside it pushed off screen — the
- * graph would grow until the thing it is drawn next to became unreachable.
+ * The canvas scrolls inside a fixed viewport. A benchmark job runs to fifty
+ * steps; laid out at full size that is a canvas several thousand pixels across,
+ * which would stretch the card and push the step editor out of reach.
  */
 export function JobGraphDiagram({
     operations,
@@ -55,68 +60,68 @@ export function JobGraphDiagram({
 }) {
     if (operations.length === 0) return null;
 
-    const rows = levelGroups(operations) as GraphOperation[][];
-    const rowOf = new Map<string, number>();
-    rows.forEach((row, index) => row.forEach((operation) => rowOf.set(operation.id, index)));
+    const columns = levelGroups(operations) as GraphOperation[][];
+    const columnOf = new Map<string, number>();
+    columns.forEach((column, index) => column.forEach((operation) => columnOf.set(operation.id, index)));
 
-    // An edge crossing more than one row would otherwise pass behind the boxes
-    // between, which reads as though it ended at one of them — the graph then
-    // states a dependency that does not exist. Those are routed out to a lane
-    // beside the diagram instead, so a line only ever touches its own two nodes.
+    // An edge crossing more than one column would otherwise pass behind the
+    // boxes between, which reads as though it ended at one of them — the graph
+    // then states a dependency that does not exist. Those are routed out to a
+    // lane above or below the diagram instead, so a line only ever touches its
+    // own two nodes.
     const direct: [string, string][] = [];
     const detoured: [string, string][] = [];
     for (const operation of operations) {
         for (const before of operation.dependsOn) {
-            const span = (rowOf.get(operation.id) ?? 0) - (rowOf.get(before) ?? 0);
+            const span = (columnOf.get(operation.id) ?? 0) - (columnOf.get(before) ?? 0);
             (span > 1 ? detoured : direct).push([before, operation.id]);
         }
     }
 
-    const widestRow = Math.max(...rows.map((row) => row.length));
-    const contentWidth = widestRow * NODE_WIDTH + (widestRow - 1) * GAP_X;
+    const columnHeight = (count: number) => count * NODE_HEIGHT + (count - 1) * GAP_Y;
+    const contentHeight = columnHeight(Math.max(...columns.map((column) => column.length)));
 
     // A detour leaves on whichever side its source already sits nearest, so
     // lines travel the shorter way round and the two sides stay balanced.
-    const centre = contentWidth / 2;
-    const lanes = new Map<string, { side: "left" | "right"; index: number }>();
-    let leftCount = 0;
-    let rightCount = 0;
+    const centre = contentHeight / 2;
+    const lanes = new Map<string, { side: "top" | "bottom"; index: number }>();
+    let topCount = 0;
+    let bottomCount = 0;
     for (const [before, after] of detoured) {
-        const sourceRow = rows[rowOf.get(before) ?? 0];
-        const column = sourceRow.findIndex((operation) => operation.id === before);
-        const rowWidth = sourceRow.length * NODE_WIDTH + (sourceRow.length - 1) * GAP_X;
-        const sourceCentre = (contentWidth - rowWidth) / 2 + column * (NODE_WIDTH + GAP_X) + NODE_WIDTH / 2;
-        const side = sourceCentre < centre ? "left" : "right";
-        lanes.set(`${before}>${after}`, { side, index: side === "left" ? leftCount++ : rightCount++ });
+        const sourceColumn = columns[columnOf.get(before) ?? 0];
+        const row = sourceColumn.findIndex((operation) => operation.id === before);
+        const sourceCentre =
+            (contentHeight - columnHeight(sourceColumn.length)) / 2 + row * (NODE_HEIGHT + GAP_Y) + NODE_HEIGHT / 2;
+        const side = sourceCentre < centre ? "top" : "bottom";
+        lanes.set(`${before}>${after}`, { side, index: side === "top" ? topCount++ : bottomCount++ });
     }
-    const leftPad = leftCount > 0 ? leftCount * LANE_WIDTH + LANE_MARGIN : 0;
-    const rightPad = rightCount > 0 ? rightCount * LANE_WIDTH + LANE_MARGIN : 0;
+    const topPad = topCount > 0 ? topCount * LANE_HEIGHT + LANE_MARGIN : 0;
+    const bottomPad = bottomCount > 0 ? bottomCount * LANE_HEIGHT + LANE_MARGIN : 0;
 
-    const width = contentWidth + PADDING * 2 + leftPad + rightPad;
-    const height = rows.length * NODE_HEIGHT + (rows.length - 1) * GAP_Y + PADDING * 2;
+    const width = columns.length * NODE_WIDTH + (columns.length - 1) * GAP_X + PADDING * 2;
+    const height = contentHeight + PADDING * 2 + topPad + bottomPad;
 
     // Place every node first; edges are drawn from the same map, so a line can
     // never disagree with the box it points at.
     const placed = new Map<string, { x: number; y: number }>();
-    rows.forEach((row, rowIndex) => {
-        const rowWidth = row.length * NODE_WIDTH + (row.length - 1) * GAP_X;
-        const startX = PADDING + leftPad + (contentWidth - rowWidth) / 2;
-        row.forEach((operation, columnIndex) => {
+    columns.forEach((column, columnIndex) => {
+        const startY = PADDING + topPad + (contentHeight - columnHeight(column.length)) / 2;
+        column.forEach((operation, rowIndex) => {
             placed.set(operation.id, {
-                x: startX + columnIndex * (NODE_WIDTH + GAP_X),
-                y: PADDING + rowIndex * (NODE_HEIGHT + GAP_Y),
+                x: PADDING + columnIndex * (NODE_WIDTH + GAP_X),
+                y: startY + rowIndex * (NODE_HEIGHT + GAP_Y),
             });
         });
     });
 
     // Several edges converging on one node and all landing dead-centre stack
     // their arrowheads into one blob, hiding how many there are. Spread the
-    // arrivals across the node's top edge instead.
+    // arrivals down the node's left edge instead.
     const arrivalOffset = new Map<string, number>();
     for (const operation of operations) {
         const total = operation.dependsOn.length;
         operation.dependsOn.forEach((before, index) => {
-            arrivalOffset.set(`${before}>${operation.id}`, (NODE_WIDTH * (index + 1)) / (total + 1));
+            arrivalOffset.set(`${before}>${operation.id}`, (NODE_HEIGHT * (index + 1)) / (total + 1));
         });
     }
 
@@ -125,10 +130,10 @@ export function JobGraphDiagram({
         const to = placed.get(after);
         if (!from || !to) return null;
         return {
-            startX: from.x + NODE_WIDTH / 2,
-            startY: from.y + NODE_HEIGHT,
-            endX: to.x + (arrivalOffset.get(`${before}>${after}`) ?? NODE_WIDTH / 2),
-            endY: to.y,
+            startX: from.x + NODE_WIDTH,
+            startY: from.y + NODE_HEIGHT / 2,
+            endX: to.x,
+            endY: to.y + (arrivalOffset.get(`${before}>${after}`) ?? NODE_HEIGHT / 2),
         };
     }
 
@@ -138,29 +143,29 @@ export function JobGraphDiagram({
     for (const [before, after] of direct) {
         const at = endpoints(before, after);
         if (!at) continue;
-        const bend = Math.max(GAP_Y * 0.45, (at.endY - at.startY) * 0.45);
+        const bend = Math.max(GAP_X * 0.45, (at.endX - at.startX) * 0.45);
         paths.push({
             key: `${before}>${after}`,
             active: touchesSelection(before, after),
-            d: `M ${at.startX} ${at.startY} C ${at.startX} ${at.startY + bend}, ${at.endX} ${at.endY - bend}, ${at.endX} ${at.endY}`,
+            d: `M ${at.startX} ${at.startY} C ${at.startX + bend} ${at.startY}, ${at.endX - bend} ${at.endY}, ${at.endX} ${at.endY}`,
         });
     }
     for (const [before, after] of detoured) {
         const at = endpoints(before, after);
         const lane = lanes.get(`${before}>${after}`);
         if (!at || !lane) continue;
-        const laneX =
-            lane.side === "left"
-                ? PADDING + leftPad - LANE_MARGIN - lane.index * LANE_WIDTH
-                : PADDING + leftPad + contentWidth + LANE_MARGIN + lane.index * LANE_WIDTH;
+        const laneY =
+            lane.side === "top"
+                ? PADDING + topPad - LANE_MARGIN - lane.index * LANE_HEIGHT
+                : PADDING + topPad + contentHeight + LANE_MARGIN + lane.index * LANE_HEIGHT;
         paths.push({
             key: `${before}>${after}`,
             active: touchesSelection(before, after),
             d:
                 `M ${at.startX} ${at.startY} ` +
-                `C ${at.startX} ${at.startY + CORNER}, ${laneX} ${at.startY + CORNER}, ${laneX} ${at.startY + CORNER * 2} ` +
-                `L ${laneX} ${at.endY - CORNER * 2} ` +
-                `C ${laneX} ${at.endY - CORNER}, ${at.endX} ${at.endY - CORNER}, ${at.endX} ${at.endY}`,
+                `C ${at.startX + CORNER} ${at.startY}, ${at.startX + CORNER} ${laneY}, ${at.startX + CORNER * 2} ${laneY} ` +
+                `L ${at.endX - CORNER * 2} ${laneY} ` +
+                `C ${at.endX - CORNER} ${laneY}, ${at.endX - CORNER} ${at.endY}, ${at.endX} ${at.endY}`,
         });
     }
 
@@ -169,11 +174,16 @@ export function JobGraphDiagram({
             // Safe centring, not plain `justify-center`/`items-center`: a centred
             // flex item that outgrows its container overflows by equal amounts at
             // both ends, and a scroll container can never reach what sits past its
-            // start edge. A graph taller than the viewport therefore lost its first
-            // rows, and a wider one its leftmost columns, with no way to scroll
+            // start edge. A graph wider than the viewport therefore lost its leftmost
+            // columns, and a taller one its first rows, with no way to scroll
             // back. `safe` drops to start alignment the moment the canvas would
             // overflow, so small graphs stay centred and large ones stay reachable.
-            className="scroll-rail flex max-h-[32rem] min-h-40 flex-col items-center-safe justify-center-safe overflow-auto rounded-xl border bg-muted p-4"
+            //
+            // `contain: inline-size` stops the canvas's width from becoming this
+            // box's minimum width. Without it every ancestor up to the page grid
+            // grows to fit the whole graph, so nothing ever overflows here and
+            // the graph runs off the screen with no scrollbar at all.
+            className="scroll-rail flex w-full min-w-0 max-h-[28rem] min-h-40 [contain:inline-size] flex-col items-center-safe justify-center-safe overflow-auto rounded-xl border bg-muted p-4"
             // Clicking the canvas rather than a node clears the selection. The
             // nodes stop the event, so this only ever fires on empty space.
             onClick={() => onSelect(null)}

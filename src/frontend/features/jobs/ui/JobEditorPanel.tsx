@@ -15,6 +15,7 @@ import { errorMessage } from "@/core/http/errors";
 import { formatDuration, primaryRoute, routeMins, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
 import {
+    ArchiveBoxArrowDownIcon,
     ArrowPathIcon,
     ArrowUturnLeftIcon,
     CheckIcon,
@@ -92,6 +93,7 @@ export function JobEditorPanel({
     canDuplicate,
     onDuplicate,
     onRequestDelete,
+    onRequestArchive,
 }: {
     draft: JobDraft;
     sequenceNumber: number | undefined;
@@ -138,6 +140,8 @@ export function JobEditorPanel({
     /** Open an unsaved copy of this job. The only write action for a read-only job. */
     onDuplicate: () => void;
     onRequestDelete: () => void;
+    /** Retire this job from the backlog by hand. One way: there is no un-archive. */
+    onRequestArchive: () => void;
 }) {
     const shortcut = useSyncExternalStore(NEVER_CHANGES, readShortcut, noShortcutOnServer);
     const readOnly = draft.backlogStatus !== "open";
@@ -300,7 +304,7 @@ export function JobEditorPanel({
                                 : "No operations yet — a job needs at least one."}
                         </div>
                     ) : (
-                        <div className="mt-3 grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)]">
+                        <div className="mt-3 flex flex-col gap-3">
                             <JobGraphDiagram
                                 operations={graphOperations}
                                 selectedId={selectedOperationId}
@@ -382,6 +386,20 @@ export function JobEditorPanel({
                             isDisabled={!canDuplicate || saving || loading || hasLoadError}
                         >
                             <DocumentDuplicateIcon /> Duplicate
+                        </Button>
+                    )}
+                    {/* Archiving is how a manager takes a job out of the backlog
+                        by hand: an open job that will never be run, or a planned
+                        one they are cancelling. Not offered on a job that has
+                        already left — a done job is out of the backlog anyway,
+                        and archiving an archived one does nothing. */}
+                    {draft.id && (draft.backlogStatus === "open" || draft.backlogStatus === "planned") && (
+                        <Button
+                            intent="outline"
+                            onPress={onRequestArchive}
+                            isDisabled={saving || loading || hasLoadError}
+                        >
+                            <ArchiveBoxArrowDownIcon /> Archive
                         </Button>
                     )}
                     {/* Deleting a job that has left the backlog is not merely disabled but gone.

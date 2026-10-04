@@ -14,6 +14,9 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost
 const apiFallbackMessage = (status: number, statusText: string) =>
     `The API answered ${status} ${statusText}.`;
 
+/** RFC 9457's own members. Anything else a problem carries is an extension. */
+const STANDARD_MEMBERS = new Set(["type", "title", "status", "detail", "instance", "invalid_params"]);
+
 export class ApiError extends Error {
     constructor(
         readonly status: number,
@@ -105,6 +108,9 @@ async function problemDetail(response: Response): Promise<ProblemDetail | null> 
             detail: typeof value.detail === "string" ? value.detail : null,
             instance: typeof value.instance === "string" ? value.instance : null,
             invalid_params: invalidParams,
+            extensions: Object.fromEntries(
+                Object.entries(value).filter(([name]) => !STANDARD_MEMBERS.has(name)),
+            ),
         };
     } catch {
         // A proxy failure need not be JSON.
