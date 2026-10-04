@@ -97,8 +97,8 @@ const IN_FLIGHT: ReadonlySet<Generation["status"]> = new Set([
 
 /** The engines a manager can choose between when queuing a run. */
 const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
-    { value: "resched", label: "ReSched", hint: "Learned policy — fast, approximate" },
-    { value: "exact", label: "Exact", hint: "Gurobi MILP — optimal, slower" },
+    { value: "resched", label: "ReSched", hint: "Learned policy, fast, approximate" },
+    { value: "exact", label: "Exact", hint: "Gurobi MILP, optimal, slower" },
 ];
 
 /** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
@@ -210,9 +210,9 @@ function GenerationState({ generation }: { generation: Generation }) {
                         failed with no way to find the job responsible. */}
                     {generation.issues.some((issue) => issue.code === "unsupported_dependency_shape") && (
                         <p className="mt-2">
-                            This selection includes a job whose steps branch —
-                            two steps waiting on the same earlier one, or one step waiting on
-                            several — stops the whole floor being planned.{" "}
+                            This selection includes a job whose steps branch
+                            (two steps waiting on the same earlier one, or one step waiting on
+                            several). This stops the whole floor being planned.{" "}
                             <Link href="/manager/jobs" className="underline">
                                 Open the job backlog
                             </Link>{" "}
@@ -511,7 +511,7 @@ export default function PlannerPage() {
                         <ToggleGroupItem
                             key={option.value}
                             id={option.value}
-                            aria-label={`${option.label} — ${option.hint}`}
+                            aria-label={`${option.label}: ${option.hint}`}
                         >
                             {option.label}
                         </ToggleGroupItem>

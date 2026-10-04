@@ -341,7 +341,7 @@ export default function SimulationPage() {
                 }}
             >
                 {SPEEDS.map((option) => (
-                    <ToggleGroupItem key={option.value} id={String(option.value)} aria-label={`${option.label} speed — ${option.hint}`}>
+                    <ToggleGroupItem key={option.value} id={String(option.value)} aria-label={`${option.label} speed: ${option.hint}`}>
                         {option.label}
                     </ToggleGroupItem>
                 ))}

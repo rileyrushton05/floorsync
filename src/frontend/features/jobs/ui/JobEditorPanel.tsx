@@ -290,7 +290,7 @@ export function JobEditorPanel({
                         <div className="mt-3 rounded-xl border border-dashed p-6 text-center text-muted-fg text-sm">
                             {readOnly
                                 ? "This job has no operations recorded."
-                                : "No operations yet — a job needs at least one."}
+                                : "No operations yet. A job needs at least one."}
                         </div>
                     ) : (
                         <div className="mt-3 flex flex-1 flex-col gap-3">

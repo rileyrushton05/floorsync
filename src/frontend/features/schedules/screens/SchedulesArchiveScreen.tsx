@@ -200,7 +200,7 @@ function SchedulesPageInner() {
                             <PageMessage title="No schedule selected" tone="info">
                                 <p>
                                     {rows.length === 0
-                                        ? "No schedules exist yet — generate one on the Planner page."
+                                        ? "No schedules exist yet. Generate one on the Planner page."
                                         : "No schedules match these filters. Clear them to see schedule history."}
                                 </p>
                             </PageMessage>

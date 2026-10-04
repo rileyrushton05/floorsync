@@ -145,7 +145,7 @@ export function ScheduleInventoryPanel({
                                         {row.strategy} · {formatCreatedAt(row.createdAt)}
                                     </span>
                                     <span className="block truncate text-xs opacity-75">
-                                        {row.opsCount === null ? "— ops" : `${row.opsCount} ops`}
+                                        {row.opsCount === null ? "– ops" : `${row.opsCount} ops`}
                                         {" · "}
                                         {row.makespanMins === null ? "no makespan" : formatDuration(row.makespanMins)}
                                     </span>

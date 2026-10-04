@@ -24,9 +24,9 @@ const MAX_LISTED_JOBS = 6;
 const STATUS_LABEL = { open: "Open", planned: "Planned", done: "Done", archived: "Archived" } as const;
 
 function formatTimestamp(value: string | undefined): string {
-    if (!value) return "—";
+    if (!value) return "–";
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? "–" : date.toLocaleString();
 }
 
 /**

@@ -48,7 +48,7 @@ export function ScheduleBar({
             {timelineSummary && (
                 <span className="text-muted-fg text-xs">
                     {timelineSummary.jobs} jobs × {timelineSummary.machines} machines, {timelineSummary.operations} operations
-                    — resolved by the API from the stored schedule.
+                    · resolved by the API from the stored schedule.
                 </span>
             )}
         </div>

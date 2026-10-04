@@ -84,18 +84,18 @@ export function ScheduleDetailPane({
                 {/* ===== METADATA ===== */}
                 <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
                     <Metadata label="Strategy" value={schedule.strategy} />
-                    <Metadata label="Jobs" value={summary ? plan!.jobs.length : "—"} />
-                    <Metadata label="Machines used" value={summary ? machinesUsed : "—"} />
+                    <Metadata label="Jobs" value={summary ? plan!.jobs.length : "–"} />
+                    <Metadata label="Machines used" value={summary ? machinesUsed : "–"} />
                     <Metadata
                         label="Makespan"
-                        value={schedule.makespanMins === null ? "—" : formatDuration(schedule.makespanMins)}
+                        value={schedule.makespanMins === null ? "–" : formatDuration(schedule.makespanMins)}
                     />
                     <Metadata label="Generated at" value={formatCreatedAt(schedule.createdAt)} />
                     <Metadata
                         label="Confirmed at"
-                        value={schedule.confirmedAt === null ? "—" : formatCreatedAt(schedule.confirmedAt)}
+                        value={schedule.confirmedAt === null ? "–" : formatCreatedAt(schedule.confirmedAt)}
                     />
-                    <Metadata label="Confirmed by" value={schedule.confirmedByUserId ?? "—"} />
+                    <Metadata label="Confirmed by" value={schedule.confirmedByUserId ?? "–"} />
                 </dl>
 
                 <Separator className="my-4" />
@@ -148,7 +148,7 @@ export function ScheduleDetailPane({
                     <span className="text-muted-fg text-sm">
                         {summary
                             ? `${summary.ops.length} operations · ${plan!.jobs.length} jobs · makespan ${formatDuration(summary.makespanMins)}`
-                            : `${schedule.opsCount ?? "—"} operations · makespan ${schedule.makespanMins === null ? "—" : formatDuration(schedule.makespanMins)}`}
+                            : `${schedule.opsCount ?? "–"} operations · makespan ${schedule.makespanMins === null ? "–" : formatDuration(schedule.makespanMins)}`}
                     </span>
                     <span className="flex items-center gap-2">
                         {schedule.status === "draft" && (
