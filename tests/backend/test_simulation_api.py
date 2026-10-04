@@ -656,3 +656,31 @@ def test_create_simulation_route_sets_a_location_header(monkeypatch: pytest.Monk
 
     assert response.status_code == 201
     assert response.headers["location"].startswith("/api/v1/simulations/")
+
+
+def test_active_simulation_route_is_open_to_an_operator() -> None:
+    client = build_client(
+        FakeSession(
+            schedule=FakeSchedule(),
+            simulation=FakeSimulation(status="running"),
+            event_rows=[("started", NOW, Decimal("1"))],
+        ),
+        role="operator",
+    )
+
+    response = client.get("/api/v1/simulations/active")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(SIMULATION_ID)
+    assert body["schedule_id"] == str(SCHEDULE_ID)
+    assert body["status"] == "running"
+
+
+def test_active_simulation_route_reports_none_as_a_problem() -> None:
+    client = build_client(FakeSession(simulation=None), role="operator")
+
+    response = client.get("/api/v1/simulations/active")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/problem+json"

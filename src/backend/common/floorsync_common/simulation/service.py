@@ -174,6 +174,16 @@ class SimulationService:
         )
 
     @staticmethod
+    async def get_active_simulation(
+        db: AsyncSession, *, at: datetime | None = None
+    ) -> GetSimulationResult | None:
+        """Read the simulation operators should follow, or `None` when none exists yet."""
+        simulation = await queries.load_active_simulation(db)
+        if simulation is None:
+            return None
+        return await SimulationService.get_simulation(db, simulation_id=simulation.id, at=at)
+
+    @staticmethod
     async def get_simulation_for_schedule(
         db: AsyncSession, *, schedule_id: UUID, at: datetime | None = None
     ) -> GetScheduleSimulationResult:

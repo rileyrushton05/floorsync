@@ -206,6 +206,33 @@ async def get_schedule_simulation(
 
 
 @router.get(
+    "/simulations/active",
+    response_model=SimulationResponse,
+    summary="Get the simulation operators should follow",
+)
+async def get_active_simulation(
+    db: DbSession,
+    current_user: CurrentUser,
+) -> SimulationResponse:
+    """Name the live simulation so an operator can find its schedule and timeline.
+
+    Operators cannot list schedules, so this is how they learn which one is running.
+    A running or paused simulation is preferred over one that has not started, and 404
+    means no simulation exists yet. Declared before `/simulations/{simulation_id}` so the
+    literal path is never read as an id.
+    """
+    async with db.begin():
+        result = await SimulationService.get_active_simulation(db)
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No simulation has been created yet.",
+        )
+    return _position_response(result)
+
+
+@router.get(
     "/simulations/{simulation_id}",
     response_model=SimulationResponse,
     summary="Get a simulation's derived position",

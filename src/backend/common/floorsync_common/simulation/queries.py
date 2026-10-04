@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.job import Job
@@ -84,6 +84,24 @@ async def lock_simulation(db: AsyncSession, simulation_id: UUID) -> Simulation |
 async def load_simulation_for_schedule(db: AsyncSession, schedule_id: UUID) -> Simulation | None:
     """Load the simulation belonging to a schedule, if one has been created."""
     result = await db.execute(select(Simulation).where(Simulation.schedule_id == schedule_id))
+    return result.scalar_one_or_none()
+
+
+async def load_active_simulation(db: AsyncSession) -> Simulation | None:
+    """Load the simulation an operator should be watching right now, if any.
+
+    A running or paused simulation wins, then one that is ready to start, then the most
+    recently finished; within each, the newest. The ordering lives here so every caller
+    agrees on "the" live simulation.
+    """
+    rank = case(
+        (Simulation.status.in_(("running", "paused")), 0),
+        (Simulation.status == "not_started", 1),
+        else_=2,
+    )
+    result = await db.execute(
+        select(Simulation).order_by(rank, Simulation.created_at.desc()).limit(1)
+    )
     return result.scalar_one_or_none()
 
 
