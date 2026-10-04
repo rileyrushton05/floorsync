@@ -152,7 +152,7 @@ def test_create_simulation_announces_created(monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.parametrize(
     "event_type",
-    ["started", "paused", "resumed", "speed_changed", "reset", "completed"],
+    ["started", "paused", "resumed", "speed_changed", "reset", "completed", "seeked"],
 )
 def test_each_control_announces_its_own_cause(
     monkeypatch: pytest.MonkeyPatch, event_type: LiveUpdateCause

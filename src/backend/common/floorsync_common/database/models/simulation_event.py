@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, Text, Uuid, func
+from sqlalchemy import CheckConstraint, DateTime, Double, ForeignKey, Numeric, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from floorsync_common.database.base import Base
@@ -25,8 +25,15 @@ class SimulationEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "simulation_events"
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed')",
+            "event_type IN ("
+            "'started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed', 'seeked'"
+            ")",
             name="event_type_valid",
+        ),
+        CheckConstraint(
+            "(event_type = 'seeked') = (position IS NOT NULL) "
+            "AND (position IS NULL OR position >= 0)",
+            name="position_only_on_seek",
         ),
     )
 
@@ -41,5 +48,7 @@ class SimulationEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     speed: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # Where a 'seeked' event moved the play head, in the schedule's own time units.
+    position: Mapped[float | None] = mapped_column(Double, nullable=True)
 
     simulation: Mapped[Simulation] = relationship()

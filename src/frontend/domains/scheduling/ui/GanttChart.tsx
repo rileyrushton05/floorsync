@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "react-aria-components/Button";
 import { ToggleButton } from "react-aria-components/ToggleButton";
 import { jobColor, tint, type JobColor } from "../colors";
@@ -46,6 +46,9 @@ function blockStyle(color: JobColor, state: OperationState): React.CSSProperties
     }
 }
 
+/** Arrow-key scrub step in simulated minutes; Shift steps a whole hour. */
+const SCRUB_STEP_MINS = 15;
+
 const STATE_MARK: Record<OperationState, string> = {
     plan: "",
     done: "✓ ",
@@ -65,6 +68,8 @@ export function GanttChart({
     onSelectJob,
     zoom = null,
     onScrub = null,
+    onScrubEnd = null,
+    followNow = false,
 }: {
     machines: Machine[];
     jobs: JobDef[];
@@ -79,12 +84,28 @@ export function GanttChart({
     zoom?: TimelineZoomControls | null;
     /** In simulation mode, drag the "now" line to move the clock to `mins`. */
     onScrub?: ((mins: number) => void) | null;
+    /** A pointer scrub was released, so the last `onScrub` value is final. */
+    onScrubEnd?: (() => void) | null;
+    /** Keep the "now" line in view as it advances, scrolling the chart if needed. */
+    followNow?: boolean;
 }) {
     const now = mode === "simulation" ? nowMins : null;
+    // Where scrubbing starts from before playback has begun: the plan's start.
+    const scrubNow = now ?? 0;
     const hours = Math.max(1, Math.ceil(schedule.makespanMins / 60));
     const jobName = (jobId: string) => jobs.find((job) => job.id === jobId)?.name ?? jobId;
     const [hoveredOpId, setHoveredOpId] = useState<string | null>(null);
     const chartRef = useRef<HTMLDivElement | null>(null);
+    // The zoom hook needs the scroll container too; spreading its props after
+    // `ref={chartRef}` would silently replace this ref and break scrubbing.
+    const zoomRef = zoom?.chartProps.ref;
+    const attachChart = useCallback(
+        (node: HTMLDivElement | null) => {
+            chartRef.current = node;
+            zoomRef?.(node);
+        },
+        [zoomRef],
+    );
 
     // Dragging the "now" line scrubs the clock: convert the pointer's x, which
     // lives in screen space, back into plan minutes via the live hour scale.
@@ -94,7 +115,9 @@ export function GanttChart({
             if (!chart || !onScrub) return;
             const rect = chart.getBoundingClientRect();
             const hourPx = zoom?.hourPx ?? DEFAULT_HOUR_PX;
-            const mins = ((clientX - rect.left - TIMELINE_GUTTER_PX) / hourPx) * 60;
+            // The track scrolls under the pinned gutter, so add back what has
+            // scrolled off the left edge.
+            const mins = ((clientX - rect.left - TIMELINE_GUTTER_PX + chart.scrollLeft) / hourPx) * 60;
             onScrub(Math.max(0, Math.min(schedule.makespanMins, mins)));
         },
         [onScrub, schedule.makespanMins, zoom?.hourPx],
@@ -118,19 +141,36 @@ export function GanttChart({
     );
     const onNowKeyDown = useCallback(
         (event: React.KeyboardEvent<HTMLDivElement>) => {
-            if (!onScrub || now === null) return;
-            const stepMins = event.shiftKey ? 60 : 10;
+            if (!onScrub) return;
+            const stepMins = event.shiftKey ? 60 : SCRUB_STEP_MINS;
             let next: number | null = null;
-            if (event.key === "ArrowLeft") next = now - stepMins;
-            if (event.key === "ArrowRight") next = now + stepMins;
+            if (event.key === "ArrowLeft") next = scrubNow - stepMins;
+            if (event.key === "ArrowRight") next = scrubNow + stepMins;
             if (event.key === "Home") next = 0;
             if (event.key === "End") next = schedule.makespanMins;
             if (next === null) return;
             event.preventDefault();
             onScrub(Math.max(0, Math.min(schedule.makespanMins, next)));
         },
-        [now, onScrub, schedule.makespanMins],
+        [onScrub, schedule.makespanMins, scrubNow],
     );
+    const onScrubPointerUp = useCallback(() => onScrubEnd?.(), [onScrubEnd]);
+
+    // While playing, page the chart along with the clock once the line nears
+    // the right edge, so a zoomed-in view does not watch an empty stretch. A
+    // line the manager scrolled away from stays put until it reaches view.
+    const hourPx = zoom?.hourPx ?? DEFAULT_HOUR_PX;
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!followNow || !chart || now === null) return;
+        const lineX = (now / 60) * hourPx;
+        const viewStart = chart.scrollLeft;
+        const viewWidth = chart.clientWidth - TIMELINE_GUTTER_PX;
+        if (viewWidth <= 0) return;
+        if (lineX > viewStart + viewWidth * 0.9 || lineX < viewStart) {
+            chart.scrollLeft = Math.max(0, lineX - viewWidth * 0.1);
+        }
+    }, [followNow, hourPx, now]);
     const usedMachines = machines.filter((machine) =>
         schedule.ops.some((op) => op.machineId === machine.id),
     );
@@ -150,9 +190,9 @@ export function GanttChart({
                 `overscroll-x-contain` stops a trackpad swipe past the end from
                 turning into browser back-navigation. */}
             <div
-                ref={chartRef}
                 className="scroll-rail max-h-[68dvh] min-h-0 flex-1 overflow-auto overscroll-x-contain rounded-lg border bg-muted"
                 {...(zoom ? zoom.chartProps : {})}
+                ref={attachChart}
             >
                 <div
                     className="relative flex flex-col"
@@ -183,7 +223,7 @@ export function GanttChart({
                                 </div>
                             ));
                         })()}
-                        {onScrub && now !== null && (
+                        {onScrub && mode === "simulation" && (
                             /* The black hour ruler doubles as a scrub surface:
                                pressing anywhere along it jumps the clock there and
                                dragging continues the scrub, exactly like the
@@ -194,27 +234,13 @@ export function GanttChart({
                                 aria-label="Scrub the simulation clock along the hour ruler"
                                 aria-valuemin={0}
                                 aria-valuemax={schedule.makespanMins}
-                                aria-valuenow={Math.round(now)}
-                                aria-valuetext={formatOffset(now)}
-                                className="absolute inset-y-0 right-0 left-(--gutter) cursor-ew-resize touch-none"
-                                onPointerDown={(event) => {
-                                    event.preventDefault();
-                                    event.currentTarget.setPointerCapture(event.pointerId);
-                                    scrubTo(event.clientX);
-                                }}
-                                onPointerMove={(event) => {
-                                    if (event.buttons & 1) scrubTo(event.clientX);
-                                }}
-                                onKeyDown={(event) => {
-                                    const step = event.shiftKey ? 60 : 15;
-                                    if (event.key === "ArrowLeft") {
-                                        event.preventDefault();
-                                        onScrub(Math.max(0, now - step));
-                                    } else if (event.key === "ArrowRight") {
-                                        event.preventDefault();
-                                        onScrub(Math.min(schedule.makespanMins, now + step));
-                                    }
-                                }}
+                                aria-valuenow={Math.round(scrubNow)}
+                                aria-valuetext={formatOffset(scrubNow)}
+                                className="absolute inset-y-0 right-0 left-(--gutter) cursor-ew-resize touch-none outline-hidden hover:bg-primary/5 focus-visible:bg-primary/10"
+                                onPointerDown={onNowPointerDown}
+                                onPointerMove={onNowPointerMove}
+                                onPointerUp={onScrubPointerUp}
+                                onKeyDown={onNowKeyDown}
                             />
                         )}
                     </div>
@@ -305,7 +331,7 @@ export function GanttChart({
                             {onScrub ? (
                                 // The whole bar is the control: grab the line or the
                                 // flag anywhere and drag, or focus it and use the
-                                // arrow keys (±10 min, ±60 with Shift).
+                                // arrow keys (±15 min, ±60 with Shift).
                                 <div
                                     role="slider"
                                     tabIndex={0}
@@ -317,6 +343,7 @@ export function GanttChart({
                                     className="group absolute top-0 bottom-0 -left-2.5 w-5 cursor-ew-resize touch-none outline-hidden focus-visible:outline-2 focus-visible:outline-fg focus-visible:outline-offset-1"
                                     onPointerDown={onNowPointerDown}
                                     onPointerMove={onNowPointerMove}
+                                    onPointerUp={onScrubPointerUp}
                                     onKeyDown={onNowKeyDown}
                                 >
                                     <span className="pointer-events-none absolute top-0 bottom-0 left-[9px] w-0.5 bg-fg transition-[width] group-hover:w-1" />

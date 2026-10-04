@@ -2025,7 +2025,8 @@
           "resumed",
           "speed_changed",
           "reset",
-          "completed"
+          "completed",
+          "seeked"
         ],
         "type": "string"
       },
@@ -2047,10 +2048,22 @@
       },
       "SimulationEventRequest": {
         "additionalProperties": false,
-        "description": "Record one playback control action.\n\n``speed`` is required for ``started``, ``resumed`` and ``speed_changed``, and\nignored otherwise.",
+        "description": "Record one playback control action.\n\n``speed`` is required for ``started``, ``resumed`` and ``speed_changed``, and\nignored otherwise. ``position`` is the simulated time a ``seeked`` control moves\nthe play head to; it is required there, clamped to the makespan, and ignored\notherwise.",
         "properties": {
           "event_type": {
             "$ref": "#/components/schemas/SimulationControl"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
           },
           "speed": {
             "anyOf": [
@@ -4366,7 +4379,7 @@
     },
     "/api/v1/simulations/{simulation_id}/events": {
       "post": {
-        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.\n\nA recorded control is announced on the live channel (decision 0017): the outbox row commits\nin the same transaction as the event, and is published to Redis only once that transaction\nhas committed, so a client never sees a notification for a change that did not happen.",
+        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, seek, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.\n\nA recorded control is announced on the live channel (decision 0017): the outbox row commits\nin the same transaction as the event, and is published to Redis only once that transaction\nhas committed, so a client never sees a notification for a change that did not happen.",
         "operationId": "create_simulation_event_api_v1_simulations__simulation_id__events_post",
         "parameters": [
           {

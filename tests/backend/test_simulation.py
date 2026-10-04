@@ -655,6 +655,65 @@ def test_derived_time_rewinds_on_reset() -> None:
     assert point.is_running is False
 
 
+def test_derived_time_jumps_on_a_seek_and_keeps_running() -> None:
+    events = [
+        event(SimulationEventType.STARTED, 0, "1"),
+        SimulationEventRecord(
+            event_type=SimulationEventType.SEEKED,
+            occurred_at=START + timedelta(minutes=1),
+            speed=None,
+            position=30.0,
+        ),
+    ]
+
+    point = derive_simulated_time(events, at=START + timedelta(minutes=2))
+
+    assert point.time == pytest.approx(90.0)
+    assert point.is_running is True
+
+
+def test_derived_time_holds_a_seek_while_paused() -> None:
+    events = [
+        event(SimulationEventType.STARTED, 0, "1"),
+        event(SimulationEventType.PAUSED, 1),
+        SimulationEventRecord(
+            event_type=SimulationEventType.SEEKED,
+            occurred_at=START + timedelta(minutes=2),
+            speed=None,
+            position=5.0,
+        ),
+    ]
+
+    point = derive_simulated_time(events, at=START + timedelta(hours=1))
+
+    assert point.time == pytest.approx(5.0)
+    assert point.is_running is False
+
+
+def test_derived_time_leaves_completion_when_seeking_back() -> None:
+    events = [
+        event(SimulationEventType.STARTED, 0, "1"),
+        event(SimulationEventType.COMPLETED, 2),
+        SimulationEventRecord(
+            event_type=SimulationEventType.SEEKED,
+            occurred_at=START + timedelta(minutes=3),
+            speed=None,
+            position=10.0,
+        ),
+    ]
+
+    point = derive_simulated_time(events, at=START + timedelta(minutes=4), makespan=120)
+
+    assert point.time == pytest.approx(10.0)
+    assert point.is_complete is False
+    assert point.is_running is False
+
+
+def test_derived_time_rejects_a_seek_with_no_position() -> None:
+    with pytest.raises(SimulationTimelineError, match="must carry a position"):
+        derive_simulated_time([event(SimulationEventType.SEEKED, 0)], at=START)
+
+
 def test_derived_time_clamps_and_completes_at_the_makespan() -> None:
     point = derive_simulated_time(
         [event(SimulationEventType.STARTED, 0, "1")],
@@ -696,15 +755,22 @@ def test_derived_time_rejects_a_speed_event_with_no_speed() -> None:
 
 
 def test_events_from_rows_parses_stored_values() -> None:
-    records = events_from_rows([("started", START, Decimal("2.5"))])
+    records = events_from_rows([("started", START, Decimal("2.5"), None)])
 
     assert records[0].event_type is SimulationEventType.STARTED
     assert records[0].speed == Decimal("2.5")
 
 
+def test_events_from_rows_reads_a_seek_position() -> None:
+    records = events_from_rows([("seeked", START, None, 42.5)])
+
+    assert records[0].event_type is SimulationEventType.SEEKED
+    assert records[0].position == 42.5
+
+
 def test_events_from_rows_rejects_an_unknown_event_type() -> None:
     with pytest.raises(SimulationTimelineError, match="unknown type"):
-        events_from_rows([("exploded", START, None)])
+        events_from_rows([("exploded", START, None, None)])
 
 
 # -- engine --------------------------------------------------------------

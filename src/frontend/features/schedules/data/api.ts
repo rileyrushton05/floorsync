@@ -32,7 +32,14 @@ export type ScheduleGenerationStatus =
     | { id: string; status: "rejected"; issues: SchedulingIssue[] }
     | { id: string; status: "unavailable" | "failed"; detail: string };
 export type SimulationStatus = "not_started" | "running" | "paused" | "complete";
-export type SimulationEventType = "started" | "paused" | "resumed" | "speed_changed" | "reset" | "completed";
+export type SimulationEventType =
+    | "started"
+    | "paused"
+    | "resumed"
+    | "speed_changed"
+    | "reset"
+    | "completed"
+    | "seeked";
 export interface SimulationPosition {
     id: string;
     schedule_id: string;
@@ -115,19 +122,29 @@ export function createSimulation(scheduleId: string, token: string) {
     });
 }
 
+/**
+ * Append one playback control. `speed` accompanies `started`, `resumed` and
+ * `speed_changed`; `position` (simulated minutes) accompanies `seeked`, which
+ * the API clamps to the makespan.
+ */
 export function recordSimulationEvent(
     simulationId: string,
     eventType: SimulationEventType,
-    speed: number | undefined,
+    options: { speed?: number; position?: number },
     token: string,
 ) {
+    const { speed, position } = options;
     return apiRequest<SimulationPosition>(
         `/api/v1/simulations/${encodeURIComponent(simulationId)}/events`,
         token,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ event_type: eventType, ...(speed === undefined ? {} : { speed }) }),
+            body: JSON.stringify({
+                event_type: eventType,
+                ...(speed === undefined ? {} : { speed }),
+                ...(position === undefined ? {} : { position }),
+            }),
         },
     );
 }
