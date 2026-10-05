@@ -224,6 +224,7 @@ const MACHINE_TILES = [
 export default function ManagerDashboard() {
     return (
         <ManagerShell
+            showDatePicker
             // A render function so the notifications bell reads the reporting
             // date from inside the shell's provider rather than crashing.
             actions={<ManagerTopbarActions />}

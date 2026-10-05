@@ -22,6 +22,7 @@ export function ManagerShell({
     actions,
     children,
     reportingDateProvider = true,
+    showDatePicker = false,
 }: {
     /** Static nodes, or a render function — a function is evaluated inside
         the reporting-date provider, so header actions may call
@@ -30,6 +31,9 @@ export function ManagerShell({
     children: React.ReactNode;
     /** Set false when a page owns the date so its data and topbar share it. */
     reportingDateProvider?: boolean;
+    /** Show the reporting-date picker in the header. Only pages that read
+        `useReportingDate()` turn it on; elsewhere picking a day would do nothing. */
+    showDatePicker?: boolean;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -82,7 +86,7 @@ export function ManagerShell({
                 </div>
             </aside>
             <div className="flex min-w-0 flex-1 flex-col">
-                <ManagerTopbar onOpenMenu={() => setMenuOpen(true)}>
+                <ManagerTopbar onOpenMenu={() => setMenuOpen(true)} showDatePicker={showDatePicker}>
                     {typeof actions === "function" ? actions() : actions}
                 </ManagerTopbar>
                 {children}

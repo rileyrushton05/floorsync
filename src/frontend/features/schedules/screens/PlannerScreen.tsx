@@ -607,7 +607,7 @@ function PlannerPageContent() {
         plan?.machines.find((machine) => machine.id === id)?.name ?? id;
 
     return (
-        <ManagerShell reportingDateProvider={false} actions={<PlannerActions
+        <ManagerShell reportingDateProvider={false} showDatePicker actions={<PlannerActions
             busy={busy}
             canGenerate={canGenerate}
             scheduleExists={latestSchedule !== null}
