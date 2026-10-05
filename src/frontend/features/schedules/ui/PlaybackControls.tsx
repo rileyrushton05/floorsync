@@ -54,12 +54,13 @@ export function PlaybackControls({
                 <div className="flex items-center gap-1.5">
                     <Button
                         intent="outline"
-                        size="sq-sm"
+                        size="sm"
                         aria-label={`Back ${STEP_MINS} minutes`}
+                        className="tabular-nums"
                         isDisabled={empty || nowMins <= 0}
                         onPress={() => onStep(-STEP_MINS)}
                     >
-                        <BackwardIcon />
+                        <BackwardIcon /> {STEP_MINS}m
                     </Button>
                     <Button
                         size="sq-md"
@@ -75,12 +76,13 @@ export function PlaybackControls({
                     </Button>
                     <Button
                         intent="outline"
-                        size="sq-sm"
+                        size="sm"
                         aria-label={`Forward ${STEP_MINS} minutes`}
+                        className="tabular-nums"
                         isDisabled={empty || nowMins >= makespanMins}
                         onPress={() => onStep(STEP_MINS)}
                     >
-                        <ForwardIcon />
+                        {STEP_MINS}m <ForwardIcon />
                     </Button>
                 </div>
 
