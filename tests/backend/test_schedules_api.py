@@ -122,6 +122,7 @@ def schedule_fixture() -> tuple[Schedule, ScheduleEntry, ScheduleDependency]:
         id=schedule_id,
         status="draft",
         strategy="resched_reinforce_v1",
+        starts_at=created_at,
         runtime_ms=42,
         input_operation_count=1,
         makespan=15,
@@ -470,6 +471,7 @@ def test_manager_can_list_schedules() -> None:
     assert body[0]["id"] == str(schedule.id)
     assert body[0]["status"] == "draft"
     assert body[0]["strategy"] == "resched_reinforce_v1"
+    assert body[0]["starts_at"] == "2026-09-06T08:00:00Z"
     assert body[0]["makespan"] == 15
 
 
