@@ -203,7 +203,7 @@ export function ScheduleDetailPane({
 /**
  * The plan preview: the same interactive Gantt the Simulation page draws,
  * minus the clock. Click a block or a job key to highlight that job across
- * the chart; scrolling over it (or Alt + +/-) zooms the timeline. Mounted
+ * the chart; scrolling over it, the zoom bar or Alt + +/- zooms the timeline. Mounted
  * with `key={schedule.id}` so picking another schedule starts from a clean
  * highlight and a fit-everything zoom level.
  */

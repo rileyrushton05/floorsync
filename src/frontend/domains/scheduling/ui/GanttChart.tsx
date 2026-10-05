@@ -6,6 +6,7 @@ import { ToggleButton } from "react-aria-components/ToggleButton";
 import { jobColor, tint, type JobColor } from "../colors";
 import { formatDuration, formatOffset } from "../format";
 import type { GeneratedSchedule, JobDef, Machine } from "../types";
+import { TimelineZoomBar } from "./TimelineZoomBar";
 import { DEFAULT_HOUR_PX, TIMELINE_GUTTER_PX, timelineHourStyle, type TimelineZoomControls } from "./useTimelineZoom";
 
 /**
@@ -181,6 +182,7 @@ export function GanttChart({
             className="flex min-h-0 min-w-0 flex-col [--gutter:168px]"
             style={timelineHourStyle(zoom?.hourPx ?? DEFAULT_HOUR_PX)}
         >
+            {zoom && <TimelineZoomBar controls={zoom} className="mb-2 self-end" />}
             {/* The chart is routinely several screens wide, so the scrollbar is a
                 primary control here and `scroll-rail` gives it a real size and
                 colour. `max-h` keeps the bottom edge — where the horizontal bar
