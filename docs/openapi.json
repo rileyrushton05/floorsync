@@ -4105,7 +4105,7 @@
         ]
       },
       "patch": {
-        "description": "Rename a schedule and/or move it through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269).\n\n`{\"name\": ...}` labels the schedule in any status. When both are sent the transition runs\nfirst, and a refused transition answers before anything is renamed.",
+        "description": "Rename a schedule and/or move it through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269). Confirming is\nrefused while another confirmed schedule plans any of the same jobs, and the refusal names that\nschedule, so a job is never in two plans at once.\n\n`{\"name\": ...}` labels the schedule in any status. When both are sent the transition runs\nfirst, and a refused transition answers before anything is renamed.",
         "operationId": "update_schedule_api_v1_schedules__schedule_id__patch",
         "parameters": [
           {
@@ -4144,7 +4144,7 @@
             "description": "The schedule does not exist"
           },
           "409": {
-            "description": "A draft cannot be discarded (delete it instead), or the schedule's simulation has started so it cannot be withdrawn"
+            "description": "A draft cannot be discarded (delete it instead), the schedule's simulation has started so it cannot be withdrawn, or confirming would put a job in a second confirmed schedule (withdraw that one first)"
           },
           "422": {
             "content": {
