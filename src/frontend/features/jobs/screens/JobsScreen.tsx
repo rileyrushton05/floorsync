@@ -637,7 +637,7 @@ function JobsPageInner() {
                 </Button>
             }
         >
-            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
+            <main className="grid flex-1 grid-cols-1 gap-3 p-3 sm:gap-5 sm:p-5 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2fr)]">
                 <JobBacklogPanel
                     jobs={jobs}
                     visibleJobs={visibleJobs}

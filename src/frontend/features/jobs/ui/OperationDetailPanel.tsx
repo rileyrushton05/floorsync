@@ -17,7 +17,7 @@ import { PredecessorPicker, type PredecessorOption } from "./PredecessorPicker";
  * machine to it. The machine list takes whatever is left and scrolls. Below
  * `lg` the columns stack and the panel grows with them instead.
  */
-const PANEL_HEIGHT = "lg:h-[22rem]";
+const PANEL_HEIGHT = "lg:h-[17rem] 2xl:h-[20rem]";
 
 /**
  * The step the graph currently has open, edited just below it.
@@ -93,7 +93,7 @@ export function OperationDetailPanel({
 
     if (operation === null) {
         return (
-            <div className={`flex min-h-40 items-center justify-center rounded-xl border border-dashed p-5 text-center text-muted-fg text-sm ${PANEL_HEIGHT}`}>
+            <div className={`flex min-h-24 sm:min-h-32 items-center justify-center rounded-xl border border-dashed p-4 sm:p-5 text-center text-muted-fg text-sm ${PANEL_HEIGHT}`}>
                 Select a step in the graph to {readOnly ? "see its details" : "edit it"} here.
             </div>
         );
@@ -120,7 +120,7 @@ export function OperationDetailPanel({
                 )}
             </div>
 
-            <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+            <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(11rem,16rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
                 {/* Scrolls on its own if a long "Runs after" list outgrows the
                     fixed height; the inset keeps focus rings from being clipped. */}
                 <div className="scroll-rail flex flex-col gap-3 lg:-m-0.5 lg:overflow-y-auto lg:p-0.5">

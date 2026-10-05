@@ -32,10 +32,10 @@ import { OperationDetailPanel } from "./OperationDetailPanel";
 /** One figure in the draft summary. */
 function Stat({ value, label, hint }: { value: string; label: string; hint?: string }) {
     return (
-        <div className="rounded-lg border bg-muted p-3">
-            <div className="font-bold text-xl tabular-nums">{value}</div>
+        <div className="rounded-lg border bg-muted px-3 py-2">
+            <div className="font-bold text-lg tabular-nums">{value}</div>
             <div className="text-muted-fg text-xs">{label}</div>
-            {hint && <div className="mt-0.5 text-muted-fg text-xs opacity-80">{hint}</div>}
+            {hint && <div className="mt-0.5 hidden text-muted-fg text-xs opacity-80 xl:block">{hint}</div>}
         </div>
     );
 }
@@ -214,7 +214,7 @@ export function JobEditorPanel({
                 </span>
             </CardHeader>
 
-            <CardContent className="flex flex-1 flex-col gap-5">
+            <CardContent className="flex flex-1 flex-col gap-3 sm:gap-4">
                 {notes}
 
                 {/* Without this the editor would quietly present the straight
@@ -293,7 +293,7 @@ export function JobEditorPanel({
                                 : "No operations yet. A job needs at least one."}
                         </div>
                     ) : (
-                        <div className="mt-3 flex flex-1 flex-col gap-3">
+                        <div className="mt-2 flex flex-1 flex-col gap-2.5">
                             <JobGraphDiagram
                                 operations={graphOperations}
                                 selectedId={selectedOperationId}

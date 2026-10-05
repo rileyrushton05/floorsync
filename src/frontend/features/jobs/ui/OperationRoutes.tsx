@@ -30,8 +30,8 @@ import { useEffect, useRef } from "react";
  * would write are taken away.
  */
 /** Shared by the heading row and every route row so the columns line up. */
-const EDITABLE_COLUMNS = "@min-[32rem]:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem_1.75rem]";
-const READ_ONLY_COLUMNS = "@min-[32rem]:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem]";
+const EDITABLE_COLUMNS = "@min-[28rem]:grid-cols-[minmax(0,1fr)_7rem_7rem_1.75rem]";
+const READ_ONLY_COLUMNS = "@min-[28rem]:grid-cols-[minmax(0,1fr)_7rem_7rem]";
 
 export function OperationRoutes({
     routes,
@@ -72,7 +72,7 @@ export function OperationRoutes({
     }, [routes.length]);
 
     return (
-        <div className="@container flex min-h-0 min-w-0 flex-col rounded-lg border bg-muted p-3">
+        <div className="@container flex min-h-0 min-w-0 flex-col rounded-lg border bg-muted p-2.5 sm:p-3">
             <div className="mb-2.5 flex items-center justify-between gap-2">
                 <span className="font-semibold text-muted-fg text-xs uppercase tracking-[0.05em]">
                     Machines that can run this
@@ -96,7 +96,7 @@ export function OperationRoutes({
             {/* The per-field labels are kept for screen readers but hidden from
                 the column layout up, where this one heading row says the same thing once
                 rather than twenty times down a long list. */}
-            <div aria-hidden className={`mb-1 hidden gap-2.5 ps-0.5 pe-[calc(0.5rem+14px)] text-muted-fg text-xs @min-[32rem]:grid ${columns}`}>
+            <div aria-hidden className={`mb-1 hidden gap-2.5 ps-0.5 pe-[calc(0.5rem+14px)] text-muted-fg text-xs @min-[28rem]:grid ${columns}`}>
                 <span>Machine</span>
                 <span>Duration</span>
                 <span>Energy</span>
@@ -108,7 +108,7 @@ export function OperationRoutes({
                 being clipped by the scroll container. */}
             <ul
                 ref={listRef}
-                className="scroll-rail h-52 space-y-2.5 lg:h-auto lg:min-h-0 lg:flex-1 overflow-y-auto p-0.5 pe-2 [scrollbar-gutter:stable]"
+                className="scroll-rail h-40 sm:h-52 space-y-2.5 lg:h-auto lg:min-h-0 lg:flex-1 overflow-y-auto p-0.5 pe-2 [scrollbar-gutter:stable]"
             >
                 {routes.map((route, routeIndex) => {
                     const currentMachine = machines.find((machine) => machine.id === route.machineId);
@@ -125,7 +125,7 @@ export function OperationRoutes({
                                     onPatchRoute(routeIndex, { machineId: String(machineId) })
                                 }
                             >
-                                <Label className="text-muted-fg text-xs @min-[32rem]:sr-only">Machine</Label>
+                                <Label className="text-muted-fg text-xs @min-[28rem]:sr-only">Machine</Label>
                                 <SelectTrigger />
                                 <SelectContent>
                                     {activeMachines.map((machine) => (
@@ -164,7 +164,7 @@ export function OperationRoutes({
                                     onPatchRoute(routeIndex, { durationMins: Math.round(durationMins) })
                                 }
                             >
-                                <Label className="text-muted-fg text-xs @min-[32rem]:sr-only">Duration</Label>
+                                <Label className="text-muted-fg text-xs @min-[28rem]:sr-only">Duration</Label>
                                 {/* Clearing the field leaves NaN, which React Aria renders as
                                     empty — so the placeholder is what a manager reads back.
                                     It pairs with Energy's "Optional" to say which of the two
@@ -189,7 +189,7 @@ export function OperationRoutes({
                                     })
                                 }
                             >
-                                <Label className="text-muted-fg text-xs @min-[32rem]:sr-only">Energy</Label>
+                                <Label className="text-muted-fg text-xs @min-[28rem]:sr-only">Energy</Label>
                                 <NumberInput steppers={false} suffix="kWh" placeholder="Optional" />
                             </NumberField>
 

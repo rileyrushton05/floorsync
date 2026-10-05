@@ -11,10 +11,10 @@ export interface GraphOperation extends PrecedenceNode {
 }
 
 const NODE_WIDTH = 176;
-const NODE_HEIGHT = 58;
+const NODE_HEIGHT = 50;
 /** Between columns: this is where the edges run, so it is the wider gap. */
 const GAP_X = 56;
-const GAP_Y = 14;
+const GAP_Y = 10;
 const PADDING = 10;
 /** Height reserved for one detour lane above or below the diagram. */
 const LANE_HEIGHT = 18;
@@ -192,7 +192,7 @@ function JobGraphCanvas({ operations, selectedId, onSelect }: JobGraphProps) {
             // grows to fit the whole graph, so nothing ever overflows here and
             // the graph runs off the screen with no scrollbar at all.
             {...viewportProps}
-            className="scroll-rail flex w-full min-w-0 min-h-60 max-h-[70dvh] flex-[1_1_0] [contain:inline-size] flex-col items-center-safe justify-center-safe overflow-auto overscroll-x-contain rounded-xl border bg-muted p-4"
+            className="scroll-rail flex w-full min-w-0 min-h-32 sm:min-h-40 2xl:min-h-52 max-h-[60dvh] flex-[1_1_0] [contain:inline-size] flex-col items-center-safe justify-center-safe overflow-auto overscroll-x-contain rounded-xl border bg-muted p-2 sm:p-4"
             // Clicking the canvas rather than a node clears the selection. The
             // nodes stop the event, so this only ever fires on empty space.
             onClick={() => onSelect(null)}
