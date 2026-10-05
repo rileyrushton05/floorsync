@@ -142,9 +142,15 @@ def derive_simulated_time(
                 completed = True
             case SimulationEventType.SEEKED:
                 # A scrub moves the play head without touching playback: a running
-                # simulation keeps running from the new position.
+                # simulation keeps running from the new position. A scrub to the end
+                # finishes playback, as the stored status does, so a later scrub back
+                # lands paused rather than resuming a clock nobody restarted.
                 elapsed = _required_position(event)
-                completed = False
+                if makespan is not None and elapsed >= makespan:
+                    running = False
+                    completed = True
+                else:
+                    completed = False
             case _:  # pragma: no cover - exhaustive over the enum
                 assert_never(event.event_type)
 

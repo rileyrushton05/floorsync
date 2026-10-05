@@ -33,6 +33,7 @@ from floorsync_common.scheduling.lifecycle import (
     ScheduleDeleted,
     ScheduleDiscarded,
     ScheduleIsDraft,
+    ScheduleJobsAlreadyPlanned,
     ScheduleLifecycleService,
     ScheduleNotDraft,
     ScheduleNotFound,
@@ -228,8 +229,9 @@ async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> Schedule
         404: {"description": "The schedule does not exist"},
         409: {
             "description": (
-                "A draft cannot be discarded (delete it instead), or the schedule's simulation "
-                "has started so it cannot be withdrawn"
+                "A draft cannot be discarded (delete it instead), the schedule's simulation "
+                "has started so it cannot be withdrawn, or confirming would put a job in a "
+                "second confirmed schedule (withdraw that one first)"
             )
         },
     },
@@ -247,7 +249,9 @@ async def update_schedule(
     discarded schedule it restores it. `{"status": "discarded"}` withdraws a confirmed schedule
     the floor has not acted on: a simulation created for it but never started is removed with it,
     one with any control recorded refuses the withdrawal. Neither touches the jobs the schedule
-    planned; the backlog reads what a plan claims from the schedule itself (#269).
+    planned; the backlog reads what a plan claims from the schedule itself (#269). Confirming is
+    refused while another confirmed schedule plans any of the same jobs, and the refusal names that
+    schedule, so a job is never in two plans at once.
 
     `{"name": ...}` labels the schedule in any status. When both are sent the transition runs
     first, and a refused transition answers before anything is renamed.
@@ -258,7 +262,7 @@ async def update_schedule(
         if command.status is not None:
             match command.status:
                 case "confirmed":
-                    transitioned = await _confirm(db, schedule_id, manager)
+                    transitioned = await _confirm(db, schedule_id, manager, request)
                 case "discarded":
                     transitioned = await _discard(db, schedule_id, request)
                 case _:
@@ -284,7 +288,7 @@ async def _rename(db: DbSession, schedule_id: UUID, name: str) -> ScheduleSummar
 
 
 async def _confirm(
-    db: DbSession, schedule_id: UUID, manager: User
+    db: DbSession, schedule_id: UUID, manager: User, request: Request
 ) -> ScheduleSummaryResponse | JSONResponse:
     result = await ScheduleLifecycleService.confirm(db, schedule_id, confirmed_by=manager.id)
     match result:
@@ -292,6 +296,31 @@ async def _confirm(
             return ScheduleSummaryResponse.model_validate(schedule)
         case ScheduleNotFound():
             raise _schedule_not_found()
+        case ScheduleJobsAlreadyPlanned(conflicts=conflicts):
+            holders = {c.schedule_id: c.schedule_name for c in conflicts}
+            named = ", ".join(
+                f"“{name}”" if name else f"schedule {schedule_id}"
+                for schedule_id, name in holders.items()
+            )
+            return problem_response(
+                ProblemDetail(
+                    type="urn:floorsync:problem:schedule-jobs-already-planned",
+                    title="Jobs are already in a confirmed schedule",
+                    status=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Some of this schedule's jobs are already planned by {named}. "
+                        "Withdraw that plan before confirming this one."
+                    ),
+                    instance=request.url.path,
+                ),
+                extensions={
+                    "schedule_ids": [str(schedule_id) for schedule_id in holders],
+                    "conflicts": [
+                        {"job_id": str(c.job_id), "schedule_id": str(c.schedule_id)}
+                        for c in conflicts
+                    ],
+                },
+            )
         case _:
             assert_never(result)
 

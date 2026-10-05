@@ -23,9 +23,11 @@ from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.database.models.user import User
 from floorsync_common.scheduling import lifecycle
 from floorsync_common.scheduling.lifecycle import (
+    JobPlannedElsewhere,
     ScheduleConfirmed,
     ScheduleDiscarded,
     ScheduleIsDraft,
+    ScheduleJobsAlreadyPlanned,
     ScheduleLifecycleService,
     ScheduleNotFound,
     ScheduleRenamed,
@@ -55,8 +57,16 @@ def _simulation(schedule: Schedule, status: str = "not_started") -> Simulation:
     return Simulation(id=uuid4(), schedule_id=schedule.id, status=status)
 
 
+class _Rows:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.rows = rows
+
+    def all(self) -> list[tuple[Any, ...]]:
+        return self.rows
+
+
 class FakeSession:
-    """Answer the three named reads the transitions make; record deletes and flushes."""
+    """Answer the named reads the transitions make; record deletes and flushes."""
 
     def __init__(
         self,
@@ -64,10 +74,13 @@ class FakeSession:
         *,
         simulation: Simulation | None = None,
         simulation_has_events: bool = False,
+        planned_elsewhere: list[tuple[UUID, UUID, str | None]] | None = None,
     ) -> None:
         self.schedule = schedule
         self.simulation = simulation
         self.simulation_has_events = simulation_has_events
+        self.planned_elsewhere = planned_elsewhere or []
+        self.jobs_locked = False
         self.locked = False
         self.deleted: list[Any] = []
         self.flushes = 0
@@ -82,6 +95,15 @@ class FakeSession:
         if "FROM simulations" in rendered:
             return self.simulation
         raise AssertionError(f"Unexpected read: {rendered}")
+
+    async def execute(self, statement: Any) -> _Rows:
+        rendered = str(statement)
+        if "FROM jobs" in rendered and "FOR UPDATE" in rendered:
+            self.jobs_locked = True
+            return _Rows([])
+        if "schedules.status" in rendered:
+            return _Rows(self.planned_elsewhere)
+        raise AssertionError(f"Unexpected execute: {rendered}")
 
     async def delete(self, item: Any) -> None:
         self.deleted.append(item)
@@ -151,6 +173,35 @@ def test_confirming_twice_keeps_the_original_audit_trail() -> None:
     assert result == ScheduleConfirmed(schedule=schedule)
     assert schedule.confirmed_by_user_id == MANAGER_ID
     assert schedule.confirmed_at == CONFIRMED_AT
+    assert fake.flushes == 0
+
+
+def test_confirming_locks_the_jobs_it_plans() -> None:
+    schedule = _schedule("draft")
+    fake = FakeSession(schedule)
+
+    _confirm(fake, schedule.id)
+
+    assert fake.jobs_locked
+
+
+@pytest.mark.parametrize("status", ["draft", "discarded"])
+def test_confirming_is_refused_while_another_confirmed_schedule_plans_a_job(status: str) -> None:
+    schedule = _schedule(status, confirmed=status == "discarded")
+    original_confirmed_at = schedule.confirmed_at
+    job_id, other_id = uuid4(), uuid4()
+    fake = FakeSession(schedule, planned_elsewhere=[(job_id, other_id, "Week 41")])
+
+    result = _confirm(fake, schedule.id)
+
+    assert result == ScheduleJobsAlreadyPlanned(
+        schedule_id=schedule.id,
+        conflicts=(
+            JobPlannedElsewhere(job_id=job_id, schedule_id=other_id, schedule_name="Week 41"),
+        ),
+    )
+    assert schedule.status == status
+    assert schedule.confirmed_at == original_confirmed_at
     assert fake.flushes == 0
 
 
@@ -288,6 +339,36 @@ def test_confirm_route_passes_the_manager_and_returns_the_summary(
     assert body["confirmed_by_user_id"] == str(MANAGER_ID)
     assert datetime.fromisoformat(body["confirmed_at"]) == CONFIRMED_AT
     assert "entries" not in body
+
+
+def test_confirming_a_job_planned_elsewhere_answers_409_naming_the_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schedule_id, other_id = uuid4(), uuid4()
+    first_job, second_job = uuid4(), uuid4()
+
+    async def fake(*_: object, **__: object) -> ScheduleJobsAlreadyPlanned:
+        return ScheduleJobsAlreadyPlanned(
+            schedule_id=schedule_id,
+            conflicts=(
+                JobPlannedElsewhere(first_job, other_id, "Week 41"),
+                JobPlannedElsewhere(second_job, other_id, "Week 41"),
+            ),
+        )
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "confirm", staticmethod(fake))
+
+    response = _patch(_client(), schedule_id, "confirmed")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["type"] == "urn:floorsync:problem:schedule-jobs-already-planned"
+    assert "“Week 41”" in body["detail"]
+    assert body["schedule_ids"] == [str(other_id)]
+    assert body["conflicts"] == [
+        {"job_id": str(first_job), "schedule_id": str(other_id)},
+        {"job_id": str(second_job), "schedule_id": str(other_id)},
+    ]
 
 
 def _stub_discard(monkeypatch: pytest.MonkeyPatch, outcome: object) -> None:

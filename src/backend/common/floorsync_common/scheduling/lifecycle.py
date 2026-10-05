@@ -19,6 +19,8 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from floorsync_common.database.models.job import Job
+from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.schedule import (
     SCHEDULE_CONFIRMED,
     SCHEDULE_DISCARDED,
@@ -70,6 +72,29 @@ class ScheduleDiscarded:
 
 
 @dataclass(frozen=True, slots=True)
+class JobPlannedElsewhere:
+    """One job the schedule plans that another confirmed schedule already plans."""
+
+    job_id: UUID
+    schedule_id: UUID
+    schedule_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleJobsAlreadyPlanned(ExpectedOutcome):
+    """Confirming would put a job in two plans at once, so the manager has to withdraw one first.
+
+    A planned job may be drafted again (an alternative plan is worth comparing), but only one
+    confirmed schedule may claim it: two would each be "the plan" and each could be simulated.
+    `conflicts` names every such job with the confirmed schedule holding it, ordered by job then
+    schedule.
+    """
+
+    schedule_id: UUID
+    conflicts: tuple[JobPlannedElsewhere, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduleRenamed:
     schedule: Schedule
 
@@ -99,7 +124,7 @@ class ScheduleSimulationStarted(ExpectedOutcome):
 
 
 type DeleteScheduleResult = ScheduleDeleted | ScheduleNotFound | ScheduleNotDraft
-type ConfirmScheduleResult = ScheduleConfirmed | ScheduleNotFound
+type ConfirmScheduleResult = ScheduleConfirmed | ScheduleNotFound | ScheduleJobsAlreadyPlanned
 type RenameScheduleResult = ScheduleRenamed | ScheduleNotFound
 type DiscardScheduleResult = (
     ScheduleDiscarded | ScheduleNotFound | ScheduleIsDraft | ScheduleSimulationStarted
@@ -147,6 +172,10 @@ class ScheduleLifecycleService:
         as it is, original confirmer and timestamp included, so a repeated request cannot rewrite
         the audit trail. Confirming touches no job: what a plan claims is read from its entries
         (#269), not written onto the jobs.
+
+        Refused while another confirmed schedule plans any of the same jobs. The jobs' rows are
+        locked first, in id order, so two confirmations sharing a job serialise and the second sees
+        the first as a conflict instead of both slipping through as drafts.
         """
 
         schedule = await db.scalar(
@@ -156,6 +185,38 @@ class ScheduleLifecycleService:
             return ScheduleNotFound(schedule_id=schedule_id)
         if schedule.status == SCHEDULE_CONFIRMED:
             return ScheduleConfirmed(schedule=schedule)
+
+        planned_job_ids = (
+            select(Operation.job_id)
+            .join(ScheduleEntry, ScheduleEntry.operation_id == Operation.id)
+            .where(ScheduleEntry.schedule_id == schedule_id)
+        )
+        await db.execute(
+            select(Job.id).where(Job.id.in_(planned_job_ids)).order_by(Job.id).with_for_update()
+        )
+        conflicts = (
+            await db.execute(
+                select(Operation.job_id, Schedule.id, Schedule.name)
+                .select_from(ScheduleEntry)
+                .join(Operation, Operation.id == ScheduleEntry.operation_id)
+                .join(Schedule, Schedule.id == ScheduleEntry.schedule_id)
+                .where(
+                    Schedule.status == SCHEDULE_CONFIRMED,
+                    Schedule.id != schedule_id,
+                    Operation.job_id.in_(planned_job_ids),
+                )
+                .distinct()
+                .order_by(Operation.job_id, Schedule.id)
+            )
+        ).all()
+        if conflicts:
+            return ScheduleJobsAlreadyPlanned(
+                schedule_id=schedule_id,
+                conflicts=tuple(
+                    JobPlannedElsewhere(job_id=job_id, schedule_id=other_id, schedule_name=name)
+                    for job_id, other_id, name in conflicts
+                ),
+            )
 
         schedule.status = SCHEDULE_CONFIRMED
         schedule.confirmed_by_user_id = confirmed_by

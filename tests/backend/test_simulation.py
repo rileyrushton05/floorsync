@@ -709,6 +709,35 @@ def test_derived_time_leaves_completion_when_seeking_back() -> None:
     assert point.is_running is False
 
 
+def test_derived_time_stops_at_a_seek_to_the_end_and_stays_paused_after_seeking_back() -> None:
+    events = [
+        event(SimulationEventType.STARTED, 0, "1"),
+        SimulationEventRecord(
+            event_type=SimulationEventType.SEEKED,
+            occurred_at=START + timedelta(minutes=1),
+            speed=None,
+            position=120.0,
+        ),
+        SimulationEventRecord(
+            event_type=SimulationEventType.SEEKED,
+            occurred_at=START + timedelta(minutes=2),
+            speed=None,
+            position=10.0,
+        ),
+    ]
+
+    at_end = derive_simulated_time(events[:2], at=START + timedelta(minutes=1), makespan=120)
+    soon_after = derive_simulated_time(events, at=START + timedelta(minutes=3), makespan=120)
+    much_later = derive_simulated_time(events, at=START + timedelta(hours=1), makespan=120)
+
+    assert at_end.is_complete is True
+    assert at_end.is_running is False
+    assert soon_after.time == pytest.approx(10.0)
+    assert much_later.time == pytest.approx(10.0)
+    assert much_later.is_running is False
+    assert much_later.is_complete is False
+
+
 def test_derived_time_rejects_a_seek_with_no_position() -> None:
     with pytest.raises(SimulationTimelineError, match="must carry a position"):
         derive_simulated_time([event(SimulationEventType.SEEKED, 0)], at=START)

@@ -5,7 +5,7 @@ Schedules and Simulation pages can list runs by something more readable than a U
 existing schedules, and drafts nobody has saved yet, have no name.
 
 Revision ID: 20261005_0001
-Revises: 20260916_0002
+Revises: 20260921_0001
 Create Date: 2026-10-05
 """
 
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261005_0001"
-down_revision: str | Sequence[str] | None = "20260916_0002"
+down_revision: str | Sequence[str] | None = "20260921_0001"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
