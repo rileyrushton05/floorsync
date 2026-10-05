@@ -4,11 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HeaderCount } from "@/components/ui/header-count";
+import { Input, InputGroup } from "@/components/ui/input";
 import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { TextField } from "@/components/ui/text-field";
 import {
     Table,
     TableBody,
@@ -52,7 +55,7 @@ import {
 } from "@/features/schedules/data/queries";
 import { formatCreatedAt, shortScheduleId, strategyLabel } from "@/features/schedules/model/archive";
 import { SavePlanPanel, type SavePanelState } from "@/features/schedules/ui/SavePlanPanel";
-import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { getLocalTimeZone, type CalendarDate } from "@internationalized/date";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -62,6 +65,22 @@ import {
     type ScheduleTimeline,
     type SchedulingIssue,
 } from "../data/api";
+
+const JOB_SORTS = [
+    { id: "newest", label: "Newest" },
+    { id: "oldest", label: "Oldest" },
+    { id: "name", label: "Name A–Z" },
+] as const;
+
+type JobSort = (typeof JOB_SORTS)[number]["id"];
+
+const JOB_STATUS_FILTERS = [
+    { id: "all", label: "All" },
+    { id: "open", label: "Unplanned" },
+    { id: "planned", label: "Planned" },
+] as const;
+
+type JobStatusFilter = (typeof JOB_STATUS_FILTERS)[number]["id"];
 
 /**
  * Planner: where a schedule is made.
@@ -329,14 +348,34 @@ function PlannerPageInner() {
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
     const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
     const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+    const [jobQuery, setJobQuery] = useState("");
+    const [jobSort, setJobSort] = useState<JobSort>("newest");
+    const [jobStatusFilter, setJobStatusFilter] = useState<JobStatusFilter>("all");
     const [name, setName] = useState("");
     const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-    const openJobs = useMemo(
-        () => (jobsQuery.data ?? []).filter((job) => job.backlogStatus === "open"),
+    // Open jobs and the ones a confirmed schedule already plans: a planned job
+    // can still go into another draft, so the manager can compare an
+    // alternative before discarding the confirmed plan. Archived and done jobs
+    // are never offered.
+    const plannableJobs = useMemo(
+        () => (jobsQuery.data ?? []).filter((job) => job.backlogStatus === "open" || job.backlogStatus === "planned"),
         [jobsQuery.data],
     );
-    const openJobIds = useMemo(() => new Set(openJobs.map((job) => job.id)), [openJobs]);
+    const plannableJobIds = useMemo(() => new Set(plannableJobs.map((job) => job.id)), [plannableJobs]);
+    const visibleJobs = useMemo(() => {
+        const needle = jobQuery.trim().toLowerCase();
+        const matching = plannableJobs.filter(
+            (job) =>
+                (jobStatusFilter === "all" || job.backlogStatus === jobStatusFilter) &&
+                (needle === "" || job.name.toLowerCase().includes(needle)),
+        );
+        return [...matching].sort((left, right) => {
+            if (jobSort === "name") return left.name.localeCompare(right.name);
+            const byAge = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+            return jobSort === "oldest" ? byAge : -byAge;
+        });
+    }, [plannableJobs, jobQuery, jobSort, jobStatusFilter]);
     const validationQuery = useScheduleValidation(selectedJobIds);
     const validationFeedback = useMemo(
         () => [
@@ -456,10 +495,10 @@ function PlannerPageInner() {
         !busy && selectedJobIds.length > 0 && validationQuery.data?.schedulable[strategy] !== false;
     const canSave = generation.status === "ready" && currentIsDraft && name.trim() !== "" && !writing;
 
-    // A job can leave the backlog while this page is open. Settle the selection
-    // during render so the next Generate press cannot send an id the page can
-    // already see is no longer open.
-    const currentSelection = selectedJobIds.filter((id) => openJobIds.has(id));
+    // A job can be archived or finish running while this page is open. Settle
+    // the selection during render so the next Generate press cannot send an id
+    // the page can already see is no longer plannable.
+    const currentSelection = selectedJobIds.filter((id) => plannableJobIds.has(id));
     if (currentSelection.length !== selectedJobIds.length) {
         setSelectedJobIds(currentSelection);
     }
@@ -603,7 +642,10 @@ function PlannerPageInner() {
     const schedule = plan?.schedule ?? null;
     const machineName = (id: string) =>
         plan?.machines.find((machine) => machine.id === id)?.name ?? id;
-    const allSelected = openJobs.length > 0 && selectedJobIds.length === openJobs.length;
+    const selectedIds = new Set(selectedJobIds);
+    const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every((job) => selectedIds.has(job.id));
+    const openJobCount = plannableJobs.filter((job) => job.backlogStatus === "open").length;
+    const plannedJobCount = plannableJobs.length - openJobCount;
 
     const saveState: SavePanelState =
         generation.status !== "ready" || currentScheduleId === null
@@ -663,37 +705,93 @@ function PlannerPageInner() {
                         <CardTitle className="flex items-center gap-2">
                             <span className="whitespace-nowrap">
                                 Jobs to plan
-                                <HeaderCount label={`${selectedJobIds.length} of ${openJobs.length} open jobs selected`}>
-                                    {selectedJobIds.length}/{openJobs.length}
+                                <HeaderCount label={`${selectedJobIds.length} of ${plannableJobs.length} jobs selected`}>
+                                    {selectedJobIds.length}/{plannableJobs.length}
                                 </HeaderCount>
                             </span>
                             <InfoTooltip label="About job selection">
-                                Select the open jobs to include in this plan. Jobs already planned by a
-                                confirmed schedule, completed or archived cannot be selected again.
+                                Select the jobs to include in this plan. Open jobs and jobs a confirmed
+                                schedule already plans can be selected; completed and archived jobs
+                                cannot.
                             </InfoTooltip>
                         </CardTitle>
-                        {openJobs.length > 0 && (
+                        {visibleJobs.length > 0 && (
                             <CardAction>
                                 <Button
                                     intent="plain"
                                     size="sm"
                                     isDisabled={busy}
-                                    onPress={() => setSelectedJobIds(allSelected ? [] : openJobs.map((job) => job.id))}
+                                    onPress={() => {
+                                        const visibleIds = new Set(visibleJobs.map((job) => job.id));
+                                        setSelectedJobIds(
+                                            allVisibleSelected
+                                                ? selectedJobIds.filter((id) => !visibleIds.has(id))
+                                                : [...new Set([...selectedJobIds, ...visibleIds])],
+                                        );
+                                    }}
                                 >
-                                    {allSelected ? "Clear" : "Select all"}
+                                    {allVisibleSelected ? "Clear" : "Select all"}
                                 </Button>
                             </CardAction>
                         )}
                     </CardHeader>
                     <CardContent>
                         <PlanningStartNotice date={date} />
+                        {plannableJobs.length > 0 && (
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <TextField
+                                    aria-label="Search jobs to plan"
+                                    className="min-w-40 flex-1"
+                                    value={jobQuery}
+                                    onChange={setJobQuery}
+                                >
+                                    <InputGroup>
+                                        <MagnifyingGlassIcon data-slot="icon" />
+                                        <Input placeholder="Search by job name…" autoComplete="off" />
+                                    </InputGroup>
+                                </TextField>
+                                <Select
+                                    aria-label="Sort jobs to plan"
+                                    className="w-32"
+                                    value={jobSort}
+                                    onChange={(value) => setJobSort(value as JobSort)}
+                                >
+                                    <SelectTrigger />
+                                    <SelectContent>
+                                        {JOB_SORTS.map((option) => (
+                                            <SelectItem key={option.id} id={option.id} textValue={option.label}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <ToggleGroup
+                                    aria-label="Show jobs"
+                                    size="sm"
+                                    selectionMode="single"
+                                    disallowEmptySelection
+                                    selectedKeys={new Set([jobStatusFilter])}
+                                    onSelectionChange={(keys) => {
+                                        const [first] = Array.from(keys);
+                                        const filter = JOB_STATUS_FILTERS.find((option) => option.id === first);
+                                        if (filter) setJobStatusFilter(filter.id);
+                                    }}
+                                >
+                                    {JOB_STATUS_FILTERS.map((option) => (
+                                        <ToggleGroupItem key={option.id} id={option.id}>
+                                            {option.label}
+                                        </ToggleGroupItem>
+                                    ))}
+                                </ToggleGroup>
+                            </div>
+                        )}
                         <CheckboxGroup
                             aria-label="Jobs to schedule"
                             value={selectedJobIds}
                             isDisabled={busy}
                             onChange={(values) => setSelectedJobIds([...values])}
                         >
-                            {openJobs.map((job) => {
+                            {visibleJobs.map((job) => {
                                 const issue = validationIssuesByJobId.get(job.id);
                                 return (
                                     <CheckboxField
@@ -706,6 +804,9 @@ function PlannerPageInner() {
                                                 <span className="flex items-center gap-2">
                                                     <JobDot colors={colors} jobId={job.id} />
                                                     <span className="font-semibold text-sm">{job.name}</span>
+                                                    {job.backlogStatus === "planned" && (
+                                                        <Badge intent="secondary">Planned</Badge>
+                                                    )}
                                                 </span>
                                                 {issue && (
                                                     <span className="text-danger text-xs">
@@ -736,9 +837,13 @@ function PlannerPageInner() {
                             </Note>
                         )}
 
-                        {openJobs.length === 0 && (
+                        {plannableJobs.length > 0 && visibleJobs.length === 0 && (
+                            <p className="mt-3 text-muted-fg text-sm">No jobs match your search or filter.</p>
+                        )}
+
+                        {plannableJobs.length === 0 && (
                             <p className="mt-3 text-muted-fg text-sm">
-                                No open jobs are available to plan. {jobs.length === 0 && "Add a job first. "}
+                                No jobs are available to plan. {jobs.length === 0 && "Add a job first. "}
                                 <Link href="/manager/jobs" className="text-primary">
                                     Open the backlog →
                                 </Link>
@@ -747,7 +852,7 @@ function PlannerPageInner() {
 
                         <Separator className="my-3" />
                         <div className="text-muted-fg text-sm">
-                            {openJobs.length} open {openJobs.length === 1 ? "job" : "jobs"} ·{" "}
+                            {openJobCount} open · {plannedJobCount} planned ·{" "}
                             {activeMachines.length} of {machines.length} machines active
                         </div>
                         {activeMachines.length === 0 && machines.length > 0 && (

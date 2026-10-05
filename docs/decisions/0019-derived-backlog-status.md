@@ -8,6 +8,10 @@
 
 Accepted. Amends decision 0015 points 5 and 6 and decision 0013 (the whole-floor run).
 
+Point 4 amended 2026-10-05: a `planned` job may be selected again, so a manager can draft an
+alternative to a confirmed plan. Only `archived` (`archived_job`) and `done` (`planned_job`) jobs
+are refused. The job dependency graph still treats edges into planned jobs as satisfied.
+
 ## Context
 
 The backlog is the work no plan has claimed. Once a manager can confirm a schedule (#268), a job

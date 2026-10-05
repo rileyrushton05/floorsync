@@ -186,20 +186,15 @@ def test_an_archived_job_is_refused_and_named() -> None:
     assert issue.schedule_id is None
 
 
-def test_a_planned_job_is_refused_and_names_the_schedule() -> None:
-    """A confirmed schedule already claims it (decision 0019); the way to plan it again is to
-    discard that schedule, so the refusal says which one."""
+def test_a_planned_job_is_accepted() -> None:
+    """A confirmed schedule holding a job does not stop a manager drafting another plan for it."""
 
     open_job, planned, schedule = _ids(3)
 
-    (issue,) = _issues([open_job, planned], [open_job, planned], planned={planned: schedule})
-
-    assert issue.code == PLANNED_JOB
-    assert issue.job_id == planned
-    assert issue.schedule_id == schedule
+    assert _issues([open_job, planned], [open_job, planned], planned={planned: schedule}) == ()
 
 
-def test_a_done_job_is_refused_the_same_way() -> None:
+def test_a_done_job_is_refused_and_names_the_schedule() -> None:
     done, schedule = _ids(2)
 
     (issue,) = _issues([done], [done], done={done: schedule})
@@ -210,18 +205,18 @@ def test_a_done_job_is_refused_the_same_way() -> None:
 
 
 def test_claimed_jobs_are_reported_without_a_prerequisite_walk() -> None:
-    open_job, archived, planned, prerequisite, schedule = _ids(5)
+    open_job, archived, done, prerequisite, schedule = _ids(5)
 
     issues = _issues(
-        [open_job, archived, planned],
-        [open_job, archived, planned, prerequisite],
+        [open_job, archived, done],
+        [open_job, archived, done, prerequisite],
         [(prerequisite, open_job)],
         archived=[archived],
-        planned={planned: schedule},
+        done={done: schedule},
     )
 
     assert {issue.code for issue in issues} == {ARCHIVED_JOB, PLANNED_JOB}
-    assert [issue.job_id for issue in issues] == sorted([archived, planned])
+    assert [issue.job_id for issue in issues] == sorted([archived, done])
 
 
 def test_a_missing_prerequisite_is_refused_and_named() -> None:
