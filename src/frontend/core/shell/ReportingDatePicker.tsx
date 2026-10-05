@@ -26,9 +26,9 @@ function formatShortDate(date: Date): string {
 
 /**
  * The "Wed, 16 Sep" calendar control in the manager header, beside the section
- * name, on the pages that read the reporting date (`showDatePicker`). It is the
- * only way to change that date, so it is what lets a manager plan a day other
- * than today.
+ * name, on the pages that read the reporting date (`showDatePicker`). The
+ * Planner does not use it: it asks for a plan's start date when Generate is
+ * pressed (`PlanStartDateDialog`).
  *
  * No min/max bounds: every month is navigable and every past or future day is
  * clickable — the previous seeded-fortnight bounds were why the arrows and

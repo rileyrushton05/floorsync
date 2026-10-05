@@ -30,11 +30,7 @@ import { errorMessage } from "@/core/http/errors";
 import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import {
-    ReportingDateProvider,
-    reportingDateStartsAt,
-    useReportingDate,
-} from "@/core/shell/ReportingDate";
+import { reportingDateStartsAt } from "@/core/shell/ReportingDate";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -54,9 +50,10 @@ import {
     useUpdateSchedule,
 } from "@/features/schedules/data/queries";
 import { formatCreatedAt, shortScheduleId, strategyLabel } from "@/features/schedules/model/archive";
+import { PlanStartDateDialog } from "@/features/schedules/ui/PlanStartDateDialog";
 import { SavePlanPanel, type SavePanelState } from "@/features/schedules/ui/SavePlanPanel";
 import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import { getLocalTimeZone, type CalendarDate } from "@internationalized/date";
+import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -141,23 +138,6 @@ const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
 
 /** How long to poll a generation before giving up on it, in ms. */
 const GENERATION_DEADLINE_MS = 180_000;
-
-function formatPlanningDate(date: CalendarDate): string {
-    return date.toDate(getLocalTimeZone()).toLocaleDateString(undefined, {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-    });
-}
-
-function PlanningStartNotice({ date }: { date: CalendarDate }) {
-    return (
-        <p className="mb-3 text-muted-fg text-xs">
-            New schedules start on <strong className="font-semibold text-fg">{formatPlanningDate(date)}</strong>.
-        </p>
-    );
-}
 
 /** A full-page state for when the floor itself could not be read. */
 function Placeholder({
@@ -322,15 +302,12 @@ function GenerationState({ generation }: { generation: Generation }) {
 export default function PlannerPage() {
     return (
         <Suspense>
-            <ReportingDateProvider>
-                <PlannerPageInner />
-            </ReportingDateProvider>
+            <PlannerPageInner />
         </Suspense>
     );
 }
 
 function PlannerPageInner() {
-    const { date } = useReportingDate();
     const { user } = useAuth();
     const router = useRouter();
     const jobsQuery = useJobSummaries();
@@ -353,6 +330,10 @@ function PlannerPageInner() {
     const [jobStatusFilter, setJobStatusFilter] = useState<JobStatusFilter>("all");
     const [name, setName] = useState("");
     const [confirmDiscard, setConfirmDiscard] = useState(false);
+    // The day the next plan starts on, asked for each time Generate is pressed.
+    // Remembered so the dialog reopens on the day last used.
+    const [startDate, setStartDate] = useState<CalendarDate>(() => today(getLocalTimeZone()));
+    const [pickingStartDate, setPickingStartDate] = useState(false);
 
     // Open jobs and the ones a confirmed schedule already plans: a planned job
     // can still go into another draft, so the manager can compare an
@@ -503,7 +484,9 @@ function PlannerPageInner() {
         setSelectedJobIds(currentSelection);
     }
 
-    function generate() {
+    function generate(date: CalendarDate) {
+        setPickingStartDate(false);
+        setStartDate(date);
         if (!canGenerate) return;
         // A plan generated here and never saved is replaced, not kept: leaving
         // it behind would fill Schedules with untitled drafts nobody chose.
@@ -657,7 +640,7 @@ function PlannerPageInner() {
                     : { kind: "empty" };
 
     return (
-        <ManagerShell reportingDateProvider={false} showDatePicker actions={<>
+        <ManagerShell actions={<>
             <Link href="/manager/schedules" className={buttonStyles({ intent: "plain", size: "sm" })}>
                 <ArrowLeftIcon /> Schedules
             </Link>
@@ -689,8 +672,7 @@ function PlannerPageInner() {
                 going dead. */}
             <Button
                 intent={schedule ? "outline" : "primary"}
-                onPress={generate}
-                aria-label={`${schedule ? "Regenerate" : "Generate"} plan starting ${formatPlanningDate(date)}`}
+                onPress={() => setPickingStartDate(true)}
                 isPending={generating}
                 isDisabled={!generating && !canGenerate}
             >
@@ -736,7 +718,6 @@ function PlannerPageInner() {
                         )}
                     </CardHeader>
                     <CardContent>
-                        <PlanningStartNotice date={date} />
                         {plannableJobs.length > 0 && (
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                                 <TextField
@@ -1018,6 +999,15 @@ function PlannerPageInner() {
                     </Card>
                 </div>
             </main>
+
+            {pickingStartDate && (
+                <PlanStartDateDialog
+                    initialDate={startDate}
+                    regenerating={schedule !== null}
+                    onGenerate={generate}
+                    onDismiss={() => setPickingStartDate(false)}
+                />
+            )}
 
             {confirmDiscard && (
                 <ConfirmDialog
