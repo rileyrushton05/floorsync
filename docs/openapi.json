@@ -1700,6 +1700,11 @@
             ],
             "title": "Runtime Ms"
           },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "draft",
@@ -1742,6 +1747,7 @@
           "id",
           "status",
           "strategy",
+          "starts_at",
           "runtime_ms",
           "input_operation_count",
           "makespan",
@@ -1815,6 +1821,11 @@
             ],
             "title": "Makespan"
           },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "draft",
@@ -1833,6 +1844,7 @@
           "id",
           "status",
           "strategy",
+          "starts_at",
           "makespan",
           "input_operation_count",
           "created_at",

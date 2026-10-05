@@ -382,6 +382,7 @@ def schedule_response(
         id=schedule.id,
         status=schedule.status,
         strategy=schedule.strategy,
+        starts_at=schedule.starts_at,
         runtime_ms=schedule.runtime_ms,
         input_operation_count=schedule.input_operation_count,
         makespan=schedule.makespan,

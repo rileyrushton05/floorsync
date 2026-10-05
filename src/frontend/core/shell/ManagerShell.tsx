@@ -21,12 +21,15 @@ import { ReportingDateProvider } from "./ReportingDate";
 export function ManagerShell({
     actions,
     children,
+    reportingDateProvider = true,
 }: {
     /** Static nodes, or a render function — a function is evaluated inside
         the reporting-date provider, so header actions may call
         `useReportingDate()`. */
     actions?: React.ReactNode | (() => React.ReactNode);
     children: React.ReactNode;
+    /** Set false when a page owns the date so its data and topbar share it. */
+    reportingDateProvider?: boolean;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -39,53 +42,52 @@ export function ManagerShell({
         return () => window.removeEventListener("keydown", onKey);
     }, [menuOpen]);
 
-    return (
-        <ReportingDateProvider>
-            <div className="flex min-h-dvh bg-bg text-fg">
-                {menuOpen && (
-                    <div
-                        aria-hidden
-                        className="fixed inset-0 z-30 bg-fg/30 lg:hidden"
-                        onClick={() => setMenuOpen(false)}
-                    />
-                )}
-                <aside
-                    className={`fixed inset-y-0 left-0 z-40 flex w-60 shrink-0 flex-col border-e border-sidebar-border bg-sidebar text-sidebar-fg transition-transform lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"
-                        }`}
-                >
-                    <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-1">
-                        <Wordmark />
-                        <Button
-                            intent="plain"
-                            size="sq-sm"
-                            aria-label="Close navigation"
-                            onPress={() => setMenuOpen(false)}
-                            className="lg:hidden"
-                        >
-                            <XMarkIcon />
-                        </Button>
-                    </div>
-                    {/* Not clickable — a static label for which dashboard this is. */}
-                    <span
-                        aria-hidden
-                        className="px-4 pb-4 font-bold text-[0.68rem] text-muted-fg uppercase tracking-[0.06em] select-none"
+    const shell = (
+        <div className="flex min-h-dvh bg-bg text-fg">
+            {menuOpen && (
+                <div
+                    aria-hidden
+                    className="fixed inset-0 z-30 bg-fg/30 lg:hidden"
+                    onClick={() => setMenuOpen(false)}
+                />
+            )}
+            <aside
+                className={`fixed inset-y-0 left-0 z-40 flex w-60 shrink-0 flex-col border-e border-sidebar-border bg-sidebar text-sidebar-fg transition-transform lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"
+                    }`}
+            >
+                <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-1">
+                    <Wordmark />
+                    <Button
+                        intent="plain"
+                        size="sq-sm"
+                        aria-label="Close navigation"
+                        onPress={() => setMenuOpen(false)}
+                        className="lg:hidden"
                     >
-                        Manager
-                    </span>
-                    <div className="min-h-0 flex-1 overflow-y-auto px-3">
-                        <ManagerNavigation />
-                    </div>
-                    <div className="border-t border-sidebar-border p-3">
-                        <UserMenu />
-                    </div>
-                </aside>
-                <div className="flex min-w-0 flex-1 flex-col">
-                    <ManagerTopbar onOpenMenu={() => setMenuOpen(true)}>
-                        {typeof actions === "function" ? actions() : actions}
-                    </ManagerTopbar>
-                    {children}
+                        <XMarkIcon />
+                    </Button>
                 </div>
+                {/* Not clickable — a static label for which dashboard this is. */}
+                <span
+                    aria-hidden
+                    className="px-4 pb-4 font-bold text-[0.68rem] text-muted-fg uppercase tracking-[0.06em] select-none"
+                >
+                    Manager
+                </span>
+                <div className="min-h-0 flex-1 overflow-y-auto px-3">
+                    <ManagerNavigation />
+                </div>
+                <div className="border-t border-sidebar-border p-3">
+                    <UserMenu />
+                </div>
+            </aside>
+            <div className="flex min-w-0 flex-1 flex-col">
+                <ManagerTopbar onOpenMenu={() => setMenuOpen(true)}>
+                    {typeof actions === "function" ? actions() : actions}
+                </ManagerTopbar>
+                {children}
             </div>
-        </ReportingDateProvider>
+        </div>
     );
+    return reportingDateProvider ? <ReportingDateProvider>{shell}</ReportingDateProvider> : shell;
 }

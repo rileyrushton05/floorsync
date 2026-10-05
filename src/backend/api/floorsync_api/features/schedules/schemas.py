@@ -94,6 +94,7 @@ class ScheduleSummaryResponse(ResponseSchema):
     id: UUID
     status: Literal["draft", "confirmed", "discarded"]
     strategy: str
+    starts_at: datetime
     makespan: int | None
     input_operation_count: int | None
     created_at: datetime
@@ -116,6 +117,7 @@ class ScheduleResponse(ResponseSchema):
     id: UUID
     status: Literal["draft", "confirmed", "discarded"]
     strategy: str
+    starts_at: datetime
     runtime_ms: int | None
     input_operation_count: int | None
     makespan: int | None

@@ -75,6 +75,7 @@ def test_seeded_classic_schedule_gives_every_entry_a_start_time(
     asyncio.run(loader.seed_instance(cast(AsyncSession, session), instance, solution))
 
     entries = session.rows["schedule_entries"]
+    assert session.rows["schedules"][0]["starts_at"] == session.rows["schedules"][0]["confirmed_at"]
     assert len(entries) == 3
     assert all(isinstance(row["start_time"], datetime) for row in entries)
 
@@ -121,6 +122,7 @@ def test_seeded_fan_in_schedule_starts_the_merge_after_every_predecessor(
     asyncio.run(loader.seed_flexible_instance(cast(AsyncSession, session), instance, solution))
 
     entries = session.rows["schedule_entries"]
+    assert session.rows["schedules"][0]["starts_at"] == session.rows["schedules"][0]["confirmed_at"]
     assert all(isinstance(row["start_time"], datetime) for row in entries)
 
     names = {row["id"]: row["name"] for row in session.rows["operations"]}

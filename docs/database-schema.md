@@ -8,7 +8,7 @@ one model file under `floorsync_common/database/models/`.
 All tables get `id` (UUID v4, `UUIDPrimaryKeyMixin`) and `created_at` / `updated_at`
 (`TimestampMixin`) unless noted. Omitted below for brevity.
 
-![Physical schema diagram: all 13 tables, columns, types and keys, generated from this document](diagrams/database-schema.png)
+![Physical schema diagram: all 16 tables with their columns, types, keys and relationships, generated from the SQLAlchemy models; created_at and updated_at are omitted](diagrams/database-schema.png)
 
 ## categories
 
@@ -230,6 +230,7 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 |---|---|---|
 | status | Text | not null, CHECK status IN ('draft', 'confirmed', 'discarded') |
 | strategy | Text | not null |
+| starts_at | DateTime(timezone=True) | not null, indexed — requested schedule start time |
 | runtime_ms | Integer | nullable — elapsed engine time only, excluding database/API work |
 | input_operation_count | Integer | nullable — number of operations in this run's input |
 | makespan | Integer | nullable — set once generation completes |
