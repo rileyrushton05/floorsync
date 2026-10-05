@@ -24,16 +24,17 @@ jobs:
           submodules: recursive
 
       # tests/integration needs a real PostgreSQL and skips without one. It is only worth the
-      # container when this pull request touches code those tests guard, so frontend or unrelated
-      # backend changes pay nothing. Started here, detached, so its boot overlaps the install and
-      # type-check below; the existing pytest step then runs the integration tests too.
+      # container when this pull request touches code those tests guard (the database, imports,
+      # live updates or the simulation), so frontend or unrelated backend changes pay nothing.
+      # Started here, detached, so its boot overlaps the install and type-check below; the
+      # existing pytest step then runs the integration tests too.
       - name: Start PostgreSQL when database or live-update code changed
         id: integration
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          paths='^(src/database/migrations/|src/backend/common/floorsync_common/(database|live_updates|simulation)/|src/backend/api/floorsync_api/features/(live_updates|simulation)/|tests/integration/|pyproject\.toml$|uv\.lock$|\.github/workflows/ci\.yml$)'
+          paths='^(src/database/migrations/|src/backend/common/floorsync_common/(database|imports|live_updates|simulation)/|src/backend/api/floorsync_api/features/(imports|live_updates|simulation)/|tests/integration/|pyproject\.toml$|uv\.lock$|\.github/workflows/ci\.yml$)'
           if gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only | grep -qE "$paths"; then
             docker run --detach --name floorsync-test-postgres \
               --env POSTGRES_USER=floorsync --env POSTGRES_PASSWORD=floorsync \
