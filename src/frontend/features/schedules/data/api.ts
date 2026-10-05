@@ -8,7 +8,7 @@ export interface ScheduleSummary {
     /** Null until a manager saves it from the Planner; generation never names a schedule. */
     name: string | null;
     status: "draft" | "confirmed" | "discarded"; strategy: string; makespan: number | null;
-    input_operation_count: number | null; created_at: string; confirmed_at: string | null;
+    input_operation_count: number | null; starts_at: string; created_at: string; confirmed_at: string | null;
     confirmed_by_user_id: string | null;
 }
 export interface SchedulingIssue {

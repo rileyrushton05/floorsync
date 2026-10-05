@@ -164,6 +164,7 @@ class SchedulingService:
         plan: SchedulePlan,
         runtime_ms: int,
         input_operation_count: int,
+        starts_at: datetime,
         strategy: str | None = None,
         job_ids: Collection[UUID],
     ) -> ScheduleStored:
@@ -178,6 +179,7 @@ class SchedulingService:
         schedule = Schedule(
             status=SCHEDULE_DRAFT,
             strategy=strategy or SchedulingService.strategy,
+            starts_at=starts_at,
             runtime_ms=runtime_ms,
             input_operation_count=input_operation_count,
             makespan=plan.metrics.makespan_minutes,

@@ -27,6 +27,11 @@ import { errorMessage } from "@/core/http/errors";
 import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import {
+    ReportingDateProvider,
+    reportingDateStartsAt,
+    useReportingDate,
+} from "@/core/shell/ReportingDate";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -48,6 +53,7 @@ import {
 import { formatCreatedAt, shortScheduleId, strategyLabel } from "@/features/schedules/model/archive";
 import { SavePlanPanel, type SavePanelState } from "@/features/schedules/ui/SavePlanPanel";
 import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { getLocalTimeZone, type CalendarDate } from "@internationalized/date";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -116,6 +122,23 @@ const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
 
 /** How long to poll a generation before giving up on it, in ms. */
 const GENERATION_DEADLINE_MS = 180_000;
+
+function formatPlanningDate(date: CalendarDate): string {
+    return date.toDate(getLocalTimeZone()).toLocaleDateString(undefined, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+    });
+}
+
+function PlanningStartNotice({ date }: { date: CalendarDate }) {
+    return (
+        <p className="mb-3 text-muted-fg text-xs">
+            New schedules start on <strong className="font-semibold text-fg">{formatPlanningDate(date)}</strong>.
+        </p>
+    );
+}
 
 /** A full-page state for when the floor itself could not be read. */
 function Placeholder({
@@ -280,12 +303,15 @@ function GenerationState({ generation }: { generation: Generation }) {
 export default function PlannerPage() {
     return (
         <Suspense>
-            <PlannerPageInner />
+            <ReportingDateProvider>
+                <PlannerPageInner />
+            </ReportingDateProvider>
         </Suspense>
     );
 }
 
 function PlannerPageInner() {
+    const { date } = useReportingDate();
     const { user } = useAuth();
     const router = useRouter();
     const jobsQuery = useJobSummaries();
@@ -444,7 +470,7 @@ function PlannerPageInner() {
         // it behind would fill Schedules with untitled drafts nobody chose.
         const replacedDraftId = generatedThisSession && currentIsDraft ? completedScheduleId : null;
         setHighlightedJobId(null);
-        requestSchedule.mutate({ startsAt: new Date().toISOString(), jobIds: selectedJobIds, strategy }, {
+        requestSchedule.mutate({ startsAt: reportingDateStartsAt(date), jobIds: selectedJobIds, strategy }, {
             onSuccess: (accepted) => {
                 setGenerationRequest({ id: accepted.id, deadline: Date.now() + GENERATION_DEADLINE_MS });
                 if (replacedDraftId) deleteSchedule.mutate({ id: replacedDraftId }, { onError: reportMutationError });
@@ -589,7 +615,7 @@ function PlannerPageInner() {
                     : { kind: "empty" };
 
     return (
-        <ManagerShell actions={<>
+        <ManagerShell reportingDateProvider={false} showDatePicker actions={<>
             <Link href="/manager/schedules" className={buttonStyles({ intent: "plain", size: "sm" })}>
                 <ArrowLeftIcon /> Schedules
             </Link>
@@ -622,6 +648,7 @@ function PlannerPageInner() {
             <Button
                 intent={schedule ? "outline" : "primary"}
                 onPress={generate}
+                aria-label={`${schedule ? "Regenerate" : "Generate"} plan starting ${formatPlanningDate(date)}`}
                 isPending={generating}
                 isDisabled={!generating && !canGenerate}
             >
@@ -659,6 +686,7 @@ function PlannerPageInner() {
                         )}
                     </CardHeader>
                     <CardContent>
+                        <PlanningStartNotice date={date} />
                         <CheckboxGroup
                             aria-label="Jobs to schedule"
                             value={selectedJobIds}

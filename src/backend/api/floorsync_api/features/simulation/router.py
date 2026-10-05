@@ -29,6 +29,7 @@ from floorsync_common.simulation.results import (
     ControlPositionRequired,
     ControlRecorded,
     ControlSpeedRequired,
+    NoActiveSimulation,
     ScheduleNotConfirmed,
     ScheduleNotFound,
     ScheduleNotGenerated,
@@ -225,12 +226,16 @@ async def get_active_simulation(
     async with db.begin():
         result = await SimulationService.get_active_simulation(db)
 
-    if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No simulation has been created yet.",
-        )
-    return _position_response(result)
+    match result:
+        case NoActiveSimulation():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No simulation has been created yet.",
+            )
+        case SimulationPositionResolved() | SimulationNotFound() | ScheduleNotGenerated():
+            return _position_response(result)
+        case _:
+            assert_never(result)
 
 
 @router.get(
