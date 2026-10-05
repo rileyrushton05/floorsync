@@ -36,9 +36,11 @@ from floorsync_common.simulation.results import (
     ControlRecorded,
     ControlSpeedRequired,
     CreateSimulationResult,
+    GetActiveSimulationResult,
     GetScheduleSimulationResult,
     GetSimulationResult,
     GetTimelineResult,
+    NoActiveSimulation,
     RecordControlResult,
     ScheduleNotConfirmed,
     ScheduleNotFound,
@@ -176,11 +178,11 @@ class SimulationService:
     @staticmethod
     async def get_active_simulation(
         db: AsyncSession, *, at: datetime | None = None
-    ) -> GetSimulationResult | None:
-        """Read the simulation operators should follow, or `None` when none exists yet."""
+    ) -> GetActiveSimulationResult:
+        """Read the simulation operators should follow, when one has been created."""
         simulation = await queries.load_active_simulation(db)
         if simulation is None:
-            return None
+            return NoActiveSimulation()
         return await SimulationService.get_simulation(db, simulation_id=simulation.id, at=at)
 
     @staticmethod
