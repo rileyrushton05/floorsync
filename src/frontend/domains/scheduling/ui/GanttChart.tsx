@@ -6,7 +6,7 @@ import { ToggleButton } from "react-aria-components/ToggleButton";
 import { jobColor, tint, type JobColor } from "../colors";
 import { formatDuration, formatOffset } from "../format";
 import type { GeneratedSchedule, JobDef, Machine } from "../types";
-import { DEFAULT_HOUR_PX, TIMELINE_GUTTER_PX, timelineHourStyle, type TimelineZoomControls } from "./TimelineNavigator";
+import { DEFAULT_HOUR_PX, TIMELINE_GUTTER_PX, timelineHourStyle, type TimelineZoomControls } from "./useTimelineZoom";
 
 /**
  * The schedule grid, shared by the plan view and the simulation.

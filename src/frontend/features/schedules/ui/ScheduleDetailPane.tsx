@@ -7,7 +7,7 @@ import { buildJobColors, type JobColor } from "@/domains/scheduling/colors";
 import { formatDuration } from "@/domains/scheduling/format";
 import type { TimelinePlan } from "@/domains/scheduling/timeline";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
-import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
+import { useTimelineZoom } from "@/domains/scheduling/ui/useTimelineZoom";
 import { useState } from "react";
 import { formatCreatedAt, shortScheduleId, type ScheduleRow } from "../model/archive";
 import { ScheduleStatusBadge } from "./ScheduleStatusBadge";
@@ -186,9 +186,9 @@ export function ScheduleDetailPane({
 /**
  * The plan preview: the same interactive Gantt the Simulation page draws,
  * minus the clock. Click a block or a job key to highlight that job across
- * the chart; Alt + scroll, Alt + +/-, or the navigator slider zooms the
- * timeline. Mounted with `key={schedule.id}` so picking another schedule
- * starts from a clean highlight and a fit-everything zoom level.
+ * the chart; scrolling over it (or Alt + +/-) zooms the timeline. Mounted
+ * with `key={schedule.id}` so picking another schedule starts from a clean
+ * highlight and a fit-everything zoom level.
  */
 function PlanPreview({
     plan,
@@ -207,14 +207,7 @@ function PlanPreview({
 
     return (
         <div className="mt-2">
-            <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="font-semibold text-sm">Plan preview</h3>
-                {/* The navigator's slider sizes itself to its parent (`w-full`),
-                    and on the Simulation page a `flex-1` header slot gives it a
-                    definite width. This header is content-sized, so an explicit
-                    width here keeps the track from collapsing to zero. */}
-                <TimelineNavigator controls={timelineZoom} className="w-64" />
-            </div>
+            <h3 className="mb-3 font-semibold text-sm">Plan preview</h3>
             <GanttChart
                 machines={plan.machines}
                 jobs={plan.jobs}

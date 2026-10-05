@@ -159,9 +159,11 @@ Fixtures are allowed only in `features/<name>/fixtures/`. Their module and any
 screen using them must say that the data is prototype-only. A self-contained
 prototype component may live there too, so its static interaction state cannot
 be mistaken for an API-backed screen. Fixtures cannot be silently mixed with
-API results or used as a failed-query fallback. The current overview and
-operator screens are explicitly prototype features because the backend does not
-yet expose their required live contracts.
+API results or used as a failed-query fallback. The current overview
+screen is an explicitly prototype feature because the backend does not yet expose
+its required live contract. The operator screen reads its queue from the API and
+updates over the live-update socket (`core/live-updates`), but "Mark complete" is
+still tab-local prototype state because no completion endpoint exists.
 
 When an API contract is introduced, create the feature `data` module, model
 adapter, query hook and loading/error states in the same change, then delete the

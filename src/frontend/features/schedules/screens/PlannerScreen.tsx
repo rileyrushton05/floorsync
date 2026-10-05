@@ -33,7 +33,7 @@ import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
 import { JobDot } from "@/domains/scheduling/ui/JobDot";
-import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
+import { useTimelineZoom } from "@/domains/scheduling/ui/useTimelineZoom";
 import { useJobSummaries } from "@/features/jobs/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
 import {
@@ -489,9 +489,8 @@ function PlannerPageContent() {
         () => (generation.status === "ready" ? timelineToPlan(generation.timeline) : null),
         [generation],
     );
-    // Zoom state for the plan chart: one number (pixels of track per hour) plus
-    // the visible window, shared between the navigator bar in the header and
-    // the chart's scroll container below.
+    // Zoom state for the plan chart: one number (pixels of track per hour),
+    // driven by scrolling over the chart.
     const timelineZoom = useTimelineZoom(plan?.schedule?.makespanMins ?? 0);
 
     // Colour is keyed to a job's position in the backlog rather than to its
@@ -608,7 +607,7 @@ function PlannerPageContent() {
         plan?.machines.find((machine) => machine.id === id)?.name ?? id;
 
     return (
-        <ManagerShell reportingDateProvider={false} actions={<PlannerActions
+        <ManagerShell reportingDateProvider={false} showDatePicker actions={<PlannerActions
             busy={busy}
             canGenerate={canGenerate}
             scheduleExists={latestSchedule !== null}
@@ -717,9 +716,6 @@ function PlannerPageContent() {
                                     makespan {formatDuration(schedule.makespanMins)} · {schedule.ops.length} operations ·{" "}
                                     {generation.createdAt === null ? "generated just now" : formatCreated(generation.createdAt)}
                                 </span>
-                                <div className="ml-auto min-w-0 flex-1 max-w-md">
-                                    <TimelineNavigator controls={timelineZoom} />
-                                </div>
                             </div>
                         )}
                     </CardHeader>

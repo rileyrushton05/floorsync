@@ -28,6 +28,7 @@ from floorsync_common.simulation.results import (
     ControlNotApplicable,
     ControlRecorded,
     ControlSpeedRequired,
+    NoActiveSimulation,
     ScheduleNotConfirmed,
     ScheduleNotFound,
     ScheduleNotGenerated,
@@ -201,6 +202,37 @@ async def get_schedule_simulation(
             )
         case ScheduleNotGenerated(schedule_id=ungenerated):
             raise schedule_not_generated(ungenerated)
+        case _:
+            assert_never(result)
+
+
+@router.get(
+    "/simulations/active",
+    response_model=SimulationResponse,
+    summary="Get the simulation operators should follow",
+)
+async def get_active_simulation(
+    db: DbSession,
+    current_user: CurrentUser,
+) -> SimulationResponse:
+    """Name the live simulation so an operator can find its schedule and timeline.
+
+    Operators cannot list schedules, so this is how they learn which one is running.
+    A running or paused simulation is preferred over one that has not started, and 404
+    means no simulation exists yet. Declared before `/simulations/{simulation_id}` so the
+    literal path is never read as an id.
+    """
+    async with db.begin():
+        result = await SimulationService.get_active_simulation(db)
+
+    match result:
+        case NoActiveSimulation():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No simulation has been created yet.",
+            )
+        case SimulationPositionResolved() | SimulationNotFound() | ScheduleNotGenerated():
+            return _position_response(result)
         case _:
             assert_never(result)
 

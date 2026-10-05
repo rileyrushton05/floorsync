@@ -95,6 +95,11 @@ class SimulationForScheduleNotFound(ExpectedOutcome):
 
 
 @dataclass(frozen=True, slots=True)
+class NoActiveSimulation(ExpectedOutcome):
+    """No simulation has been created yet, so there is none for operators to follow."""
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationPositionResolved:
     """Where a simulation sits, derived from its event log."""
 
@@ -104,6 +109,9 @@ class SimulationPositionResolved:
 
 
 type GetSimulationResult = SimulationPositionResolved | SimulationNotFound | ScheduleNotGenerated
+type GetActiveSimulationResult = (
+    SimulationPositionResolved | NoActiveSimulation | SimulationNotFound | ScheduleNotGenerated
+)
 type GetScheduleSimulationResult = (
     SimulationPositionResolved
     | ScheduleNotFound

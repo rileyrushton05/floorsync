@@ -9,7 +9,7 @@
 
 import type { InvalidParameter, ProblemDetail } from "./contracts";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 const apiFallbackMessage = (status: number, statusText: string) =>
     `The API answered ${status} ${statusText}.`;
@@ -58,7 +58,7 @@ export async function apiRequest<Body>(
 ): Promise<Body> {
     let response: Response;
     try {
-        response = await fetch(`${BASE_URL}${path}`, {
+        response = await fetch(`${API_BASE_URL}${path}`, {
             ...init,
             headers: {
                 Accept: "application/json",
@@ -72,7 +72,7 @@ export async function apiRequest<Body>(
         if (init?.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
             throw error;
         }
-        throw new ApiError(0, null, `Could not reach the API at ${BASE_URL}.`);
+        throw new ApiError(0, null, `Could not reach the API at ${API_BASE_URL}.`);
     }
 
     if (!response.ok) {

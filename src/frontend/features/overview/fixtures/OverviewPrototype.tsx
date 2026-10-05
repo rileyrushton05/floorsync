@@ -224,6 +224,7 @@ const MACHINE_TILES = [
 export default function ManagerDashboard() {
     return (
         <ManagerShell
+            showDatePicker
             // A render function so the notifications bell reads the reporting
             // date from inside the shell's provider rather than crashing.
             actions={<ManagerTopbarActions />}
@@ -233,7 +234,7 @@ export default function ManagerDashboard() {
     );
 }
 
-/** Notifications bell; the calendar control itself lives in ManagerTopbar. */
+/** Notifications bell for the overview's header. */
 function ManagerTopbarActions() {
     const { date: selectedDate } = useReportingDate();
     const weekId = weekIdForDate(selectedDate);
@@ -281,13 +282,13 @@ function ManagerTopbarActions() {
 }
 
 function OverviewBody() {
-  // The topbar's calendar owns the date; this screen reads it and derives the
+  // The shell owns the reporting date; this screen reads it and derives the
   // week bucket from it.
-  const { date: selectedDate, setDate: setSelectedDate } = useReportingDate();
+  const { date: selectedDate } = useReportingDate();
   const isDayView = true;
 
-  // The seeded data is weekly; the calendar picks the reporting date and the
-  // week bucket is derived from which seeded range it falls in.
+  // The seeded data is weekly; the week bucket is derived from which seeded
+  // range the date falls in.
   const weekId = useMemo(() => weekIdForDate(selectedDate), [selectedDate]);
   const week = useMemo(() => weeks.find((w) => w.id === weekId) ?? weeks[0], [weekId]);
 

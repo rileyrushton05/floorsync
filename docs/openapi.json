@@ -4257,6 +4257,33 @@
         ]
       }
     },
+    "/api/v1/simulations/active": {
+      "get": {
+        "description": "Name the live simulation so an operator can find its schedule and timeline.\n\nOperators cannot list schedules, so this is how they learn which one is running.\nA running or paused simulation is preferred over one that has not started, and 404\nmeans no simulation exists yet. Declared before `/simulations/{simulation_id}` so the\nliteral path is never read as an id.",
+        "operationId": "get_active_simulation_api_v1_simulations_active_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get the simulation operators should follow",
+        "tags": [
+          "simulation"
+        ]
+      }
+    },
     "/api/v1/simulations/{simulation_id}": {
       "get": {
         "description": "Derive where a simulation currently sits by replaying its event log.",
