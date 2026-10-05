@@ -9,8 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
  * Gantt container's scroll position in step with it. Zoomed all the way out,
  * the whole schedule fits the container exactly; zoomed all the way in, a
  * five-minute interval is wide enough to read. Scrolling the wheel over the
- * chart zooms around the pointer (Alt + +/- zooms around the middle of the
- * view), so what you are looking at stays put.
+ * chart zooms around the pointer, and Alt + +/- or the `TimelineZoomBar`
+ * zooms around the middle of the view, so what you are looking at stays put.
  */
 
 /** Matches `--gutter` in the Gantt chart: the pinned machine-name column. */
@@ -26,6 +26,12 @@ const WHEEL_NOTCH_PX = 100;
 export type TimelineZoomControls = {
     /** Pixels of track per hour — the zoom level itself. */
     hourPx: number;
+    /** Smallest `hourPx`: the zoom level at which the whole schedule fits. */
+    minHourPx: number;
+    /** Zoom by a factor, anchored on `anchorMins` or the middle of the view. */
+    zoomBy: (factor: number, anchorMins?: number) => void;
+    /** Zoom to an absolute level, in pixels of track per hour. */
+    setZoomLevel: (hourPx: number) => void;
     /** Bind onto the Gantt chart's scroll container. */
     chartProps: {
         ref: (node: HTMLDivElement | null) => void;
@@ -87,6 +93,11 @@ export function useTimelineZoom(totalMins: number): TimelineZoomControls {
             setHourPx(next);
         },
         [clampHourPx],
+    );
+
+    const setZoomLevel = useCallback(
+        (next: number) => zoomBy(next / liveRef.current.hourPx),
+        [zoomBy],
     );
 
     // Callback ref: observe the scroll container and own the wheel listener
@@ -186,13 +197,16 @@ export function useTimelineZoom(totalMins: number): TimelineZoomControls {
     return useMemo(
         () => ({
             hourPx: effectiveHourPx,
+            minHourPx,
+            zoomBy,
+            setZoomLevel,
             chartProps: {
                 ref: attach,
                 onPointerEnter: () => setHovered(true),
                 onPointerLeave: () => setHovered(false),
             },
         }),
-        [effectiveHourPx, attach],
+        [effectiveHourPx, minHourPx, zoomBy, setZoomLevel, attach],
     );
 }
 

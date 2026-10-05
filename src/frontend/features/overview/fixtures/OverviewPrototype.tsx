@@ -480,7 +480,7 @@ function OverviewBody() {
                     })
                     : week.label}
                 </div>
-                <CardTitle className="mt-1">Job {selectedJob.id} — {selectedJob.name}</CardTitle>
+                <CardTitle className="mt-1">Job {selectedJob.id}: {selectedJob.name}</CardTitle>
               </div>
               <Badge intent={statusIntent(selectedJob.status)}>{selectedJob.status}</Badge>
             </CardHeader>

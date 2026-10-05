@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeaderCount } from "@/components/ui/header-count";
 import {
     GridList,
     GridListDescription,
@@ -93,9 +94,11 @@ export function JobBacklogPanel({
 
     return (
         <Card>
-            <CardHeader className="flex-row items-center justify-between gap-2.5">
-                <CardTitle>Job backlog</CardTitle>
-                <Badge intent="outline">{openCount} open {openCount === 1 ? "job" : "jobs"}</Badge>
+            <CardHeader>
+                <CardTitle>
+                    Job backlog
+                    <HeaderCount label={`${openCount} open ${openCount === 1 ? "job" : "jobs"}`}>{openCount}</HeaderCount>
+                </CardTitle>
             </CardHeader>
             <CardContent>
                 <TextField

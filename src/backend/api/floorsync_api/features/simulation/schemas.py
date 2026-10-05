@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import Literal, cast
 from uuid import UUID
 
+from pydantic import Field
+
 from floorsync_api.schemas import RequestSchema, ResponseSchema
 from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.simulation.events import SimulatedTimePoint
@@ -12,7 +14,7 @@ from floorsync_common.simulation.timeline import Timeline
 
 type SimulationStatus = Literal["not_started", "running", "paused", "complete"]
 type SimulationControl = Literal[
-    "started", "paused", "resumed", "speed_changed", "reset", "completed"
+    "started", "paused", "resumed", "speed_changed", "reset", "completed", "seeked"
 ]
 
 
@@ -136,8 +138,11 @@ class SimulationEventRequest(RequestSchema):
     """Record one playback control action.
 
     ``speed`` is required for ``started``, ``resumed`` and ``speed_changed``, and
-    ignored otherwise.
+    ignored otherwise. ``position`` is the simulated time a ``seeked`` control moves
+    the play head to; it is required there, clamped to the makespan, and ignored
+    otherwise.
     """
 
     event_type: SimulationControl
     speed: Decimal | None = None
+    position: float | None = Field(default=None, ge=0, allow_inf_nan=False)

@@ -1,6 +1,5 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,8 +9,10 @@ import { Link } from "@/components/ui/link";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
+import { useSaveShortcutLabel } from "@/core/keyboard/useSaveShortcut";
 import { formatDuration, primaryRoute, routeMins, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
 import {
@@ -28,26 +29,13 @@ import { JOB_PRIORITIES, type JobDraft, type SaveGate } from "../model/editor";
 import { JobGraphDiagram } from "./JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
 
-/**
- * Which save chord to print, or null while there is no platform to ask.
- *
- * The server cannot know, and guessing then correcting on hydration would flash
- * the wrong label. `useSyncExternalStore` is the shape for exactly this: a
- * server snapshot of null, a client snapshot read off the platform, and no
- * subscription because the answer never changes within a session.
- */
-const NEVER_CHANGES = () => () => { };
-const readShortcut = () =>
-    /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent) ? "⌘S" : "Ctrl+S";
-const noShortcutOnServer = () => null;
-
 /** One figure in the draft summary. */
 function Stat({ value, label, hint }: { value: string; label: string; hint?: string }) {
     return (
-        <div className="rounded-lg border bg-muted p-3">
-            <div className="font-bold text-xl tabular-nums">{value}</div>
+        <div className="rounded-lg border bg-muted px-3 py-2">
+            <div className="font-bold text-lg tabular-nums">{value}</div>
             <div className="text-muted-fg text-xs">{label}</div>
-            {hint && <div className="mt-0.5 text-muted-fg text-xs opacity-80">{hint}</div>}
+            {hint && <div className="mt-0.5 hidden text-muted-fg text-xs opacity-80 xl:block">{hint}</div>}
         </div>
     );
 }
@@ -76,6 +64,7 @@ export function JobEditorPanel({
     graphError,
     onRetryGraph,
     onDiscard,
+    onCancelNew,
     notes,
     onNameChange,
     onPriorityChange,
@@ -110,6 +99,8 @@ export function JobEditorPanel({
     graphError: unknown;
     onRetryGraph: () => void;
     onDiscard: () => void;
+    /** Leave an unsaved new job for the one it was started from; omitted when there is none. */
+    onCancelNew?: () => void;
     notes: React.ReactNode;
     onNameChange: (name: string) => void;
     onPriorityChange: (priority: JobDraft["priority"]) => void;
@@ -143,7 +134,7 @@ export function JobEditorPanel({
     /** Retire this job from the backlog by hand. One way: there is no un-archive. */
     onRequestArchive: () => void;
 }) {
-    const shortcut = useSyncExternalStore(NEVER_CHANGES, readShortcut, noShortcutOnServer);
+    const shortcut = useSaveShortcutLabel();
     const readOnly = draft.backlogStatus !== "open";
     const scheduleId = draft.plannedByScheduleIds[0] ?? null;
     const workMins = totalWorkMins(draft);
@@ -176,6 +167,9 @@ export function JobEditorPanel({
     }));
 
     return (
+        // The card already stretches to the bottom of the screen (its grid row
+        // does); the flex chain down to the graph hands it all of that spare
+        // height, so the save row sits at the bottom instead of halfway up.
         <Card>
             <CardHeader className="flex-row items-center gap-3">
                 <span className="flex items-center gap-2.5">
@@ -190,6 +184,26 @@ export function JobEditorPanel({
                                 : draft.backlogStatus[0]?.toUpperCase() + draft.backlogStatus.slice(1)}
                         </Badge>
                     )}
+                    {/* Every control below is inert once the job has left the backlog;
+                        the tooltip says why and points at the one action that works. */}
+                    {readOnly && (
+                        <InfoTooltip label="Why this job is read-only">
+                            This job is {draft.backlogStatus}, so it is no longer editable or offered
+                            for scheduling. Duplicate it to start a new job from the same steps,
+                            machines and ordering.
+                            {draft.backlogStatus === "archived" && draft.archivedAt !== null && (
+                                <> Archived since {new Date(draft.archivedAt).toLocaleString()}.</>
+                            )}
+                        </InfoTooltip>
+                    )}
+                    {readOnly && scheduleId !== null && (
+                        <Link
+                            href={`/manager/schedules?schedule=${encodeURIComponent(scheduleId)}`}
+                            className="text-sm underline"
+                        >
+                            Open its schedule
+                        </Link>
+                    )}
                     {/* Unsaved work is otherwise invisible until something tries
                         to navigate away and a dialog appears out of nowhere. */}
                     {dirty && (
@@ -200,36 +214,8 @@ export function JobEditorPanel({
                 </span>
             </CardHeader>
 
-            <CardContent className="space-y-5">
+            <CardContent className="flex flex-1 flex-col gap-3 sm:gap-4">
                 {notes}
-
-                {/* Every control below is inert when the job has left the backlog, and a
-                    screen of dead inputs with no explanation is a bug report
-                    waiting to happen. The note says why and points at the one
-                    action that does work; the button itself stays in the action
-                    row with every other action rather than being repeated here. */}
-                {readOnly && (
-                    <Note intent="info" role="status">
-                        <strong>This job is {draft.backlogStatus}.</strong>
-                        <div className="mt-1">
-                            It is no longer editable or offered for scheduling. Duplicate it to start a
-                            new job from the same steps, machines and ordering.
-                            {scheduleId !== null && (
-                                <>
-                                    {" "}
-                                    <Link href={`/manager/schedules?schedule=${encodeURIComponent(scheduleId)}`} className="underline">
-                                        Open its schedule.
-                                    </Link>
-                                </>
-                            )}
-                        </div>
-                        {draft.backlogStatus === "archived" && draft.archivedAt !== null && (
-                            <div className="mt-1 text-sm">
-                                Archived since {new Date(draft.archivedAt).toLocaleString()}.
-                            </div>
-                        )}
-                    </Note>
-                )}
 
                 {/* Without this the editor would quietly present the straight
                     chain `draftFromJob` opens on as though it were the job. */}
@@ -276,7 +262,10 @@ export function JobEditorPanel({
                     </Select>
                 </div>
 
-                <div>
+                {/* Only a graph claims the card's spare height. With no steps
+                    yet there is nothing to grow into it, so the footer sits
+                    straight under the empty message instead of at the bottom. */}
+                <div className={`flex flex-col ${draft.operations.length > 0 ? "flex-1" : ""}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="font-semibold text-sm">Operations</h3>
                         {!readOnly && (
@@ -301,10 +290,10 @@ export function JobEditorPanel({
                         <div className="mt-3 rounded-xl border border-dashed p-6 text-center text-muted-fg text-sm">
                             {readOnly
                                 ? "This job has no operations recorded."
-                                : "No operations yet — a job needs at least one."}
+                                : "No operations yet. A job needs at least one."}
                         </div>
                     ) : (
-                        <div className="mt-3 flex flex-col gap-3">
+                        <div className="mt-2 flex flex-1 flex-col gap-2.5">
                             <JobGraphDiagram
                                 operations={graphOperations}
                                 selectedId={selectedOperationId}
@@ -423,6 +412,14 @@ export function JobEditorPanel({
                         under the pointer at the moment of the first keystroke.
                         Both go entirely for a read-only job, which has nothing
                         to save and so nothing to discard either. */}
+                    {/* A new job is otherwise only left by clicking some other
+                        job in the backlog, which is not where anyone looks for
+                        "never mind". Asks first if anything has been entered. */}
+                    {!readOnly && !draft.id && onCancelNew && (
+                        <Button intent="plain" onPress={onCancelNew} isDisabled={saving}>
+                            Cancel
+                        </Button>
+                    )}
                     {!readOnly && (
                         <Button
                             intent="outline"
