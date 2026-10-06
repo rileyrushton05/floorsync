@@ -159,9 +159,6 @@ class JobService:
             job.archived_at = datetime.now(UTC)
 
         await db.flush()
-        # `updated_at` is database-computed through `onupdate`, so an UPDATE expires it and reading
-        # it during serialisation would need a lazy reload that async SQLAlchemy cannot await.
-        await db.refresh(job)
         return JobUpdated(job=job)
 
     @staticmethod

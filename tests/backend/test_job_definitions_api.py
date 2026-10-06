@@ -7,8 +7,7 @@ this issues (atomicity, cascade behaviour, the deferred position constraint) is 
 `floorsync_common/operations/service.py`'s already-verified `replace_job_dependencies`, which this
 follows the same shape as, and spot-checked here with source-level structural assertions for the
 invariants a stubbed session cannot exercise -- the same substitute pattern
-`test_get_job_orders_operations_by_position` and
-`test_update_job_refreshes_database_computed_columns` already use in `test_jobs_api.py`.
+`test_get_job_orders_operations_by_position` already uses in `test_jobs_api.py`.
 """
 
 import inspect
