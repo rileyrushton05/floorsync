@@ -20,7 +20,6 @@ from floorsync_api.features.imports.schemas import (
 )
 from floorsync_api.problems import ProblemDetail, problem_response
 from floorsync_common.database.models.user import User
-from floorsync_common.imports.formats import read_import_file
 from floorsync_common.imports.plan import ImportIssue, ImportPlan
 from floorsync_common.imports.results import (
     FileUnreadable,
@@ -81,7 +80,8 @@ async def import_file(
     if dry_run:
         response.status_code = status.HTTP_200_OK
 
-    read = read_import_file(await file.read())
+    # Read before the transaction opens: parsing is pure and needs no connection.
+    read = ImportService.read_file(await file.read())
     match read:
         case FileUnreadable(issues=issues):
             if dry_run:

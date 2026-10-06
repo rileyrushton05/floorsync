@@ -11,18 +11,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from database_support import Sessions, run, transaction
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
-from test_live_update_outbox import Sessions, run, transaction
 
 from floorsync_api.dependencies.authentication import get_current_user
 from floorsync_api.dependencies.database import get_db_session
@@ -51,7 +52,7 @@ def api(database_url: str) -> Iterator[TestClient]:
     engine = create_async_engine(database_url, poolclass=NullPool)
     sessions = async_sessionmaker(engine, expire_on_commit=False, autobegin=False)
 
-    async def db_session() -> AsyncIterator[Any]:
+    async def db_session() -> AsyncIterator[AsyncSession]:
         async with sessions() as session:
             yield session
 
@@ -66,7 +67,7 @@ def api(database_url: str) -> Iterator[TestClient]:
         application.dependency_overrides.clear()
 
 
-def upload(client: TestClient, raw: bytes, *, dry_run: bool = False) -> Any:
+def upload(client: TestClient, raw: bytes, *, dry_run: bool = False) -> Response:
     return client.post(
         "/api/v1/imports",
         params={"dry_run": "true"} if dry_run else None,
@@ -79,7 +80,11 @@ def benchmark(name: str) -> bytes:
     return path.read_bytes()
 
 
-def edited_example(edit: Any) -> bytes:
+type Document = dict[str, Any]
+"""A decoded JSON import file."""
+
+
+def edited_example(edit: Callable[[Document], None]) -> bytes:
     document = json.loads(EXAMPLE)
     edit(document)
     return json.dumps(document).encode()
@@ -252,7 +257,7 @@ def test_the_job_builder_can_edit_an_imported_job(api: TestClient) -> None:
 
     screen_id, _, door_id = upload(api, edited_example(listed_out_of_order)).json()["job_ids"]
 
-    def resave(job_id: str, reorder: Any) -> Any:
+    def resave(job_id: str, reorder: Callable[[list[Document]], list[Document]]) -> Response:
         definition = api.get(f"/api/v1/jobs/{job_id}/definition").json()
         operations = [
             {
@@ -370,13 +375,13 @@ def test_a_route_to_an_inactive_machine_is_refused(api: TestClient, database_url
 def test_two_imports_creating_the_same_machine_both_succeed_and_share_it(
     database_url: str,
 ) -> None:
-    def a_file(job: str) -> ImportPlan:
+    def a_file(job: str, *, category: str, salary: int) -> ImportPlan:
         return plan_of(
             json.dumps(
                 {
                     "format": "floorsync",
                     "version": 1,
-                    "machines": [{"name": "Shared Saw", "category": "Cutting"}],
+                    "machines": [{"name": "Shared Saw", "category": category, "salary": salary}],
                     "jobs": [
                         {
                             "name": job,
@@ -395,11 +400,16 @@ def test_two_imports_creating_the_same_machine_both_succeed_and_share_it(
     async def race(sessions: Sessions) -> tuple[ImportPlanResult, ImportPlanResult, bool]:
         async with sessions() as first, sessions() as second:
             await first.begin()
-            first_result = await ImportService.import_plan(first, a_file("First"))
+            first_result = await ImportService.import_plan(
+                first, a_file("First", category="Cutting", salary=50)
+            )
 
             async def second_import() -> ImportPlanResult:
                 await second.begin()
-                result = await ImportService.import_plan(second, a_file("Second"))
+                # Disagrees with the first file, but only learns of its machine once inserting.
+                result = await ImportService.import_plan(
+                    second, a_file("Second", category="Milling", salary=10)
+                )
                 await second.commit()
                 return result
 
@@ -416,15 +426,23 @@ def test_two_imports_creating_the_same_machine_both_succeed_and_share_it(
     assert isinstance(first, ImportApplied) and isinstance(second, ImportApplied)
     assert first.summary.machines_created == ("Shared Saw",)
     assert first.summary.categories_created == ("Cutting",)
+    assert [warning.code for warning in first.warnings] == []
     # Planned as new, but made by the first import by the time it was inserted: reused, and said so.
     assert second.summary.machines_created == ()
     assert second.summary.machines_reused == ("Shared Saw",)
+    # Its own category was only for the machine it ended up not creating, so it is not kept.
     assert second.summary.categories_created == ()
+    (differs,) = second.warnings
+    assert (differs.code, differs.location) == ("machine_differs", "machines[0]")
+    assert "'Cutting'" in differs.message and "salary 50.00" in differs.message
 
     async def check(sessions: Sessions) -> None:
         async with transaction(sessions) as db:
+            shared = await db.scalar(select(Machine))
+            assert shared is not None and shared.salary == Decimal("50.00")
             assert await db.scalar(select(func.count()).select_from(Machine)) == 1
-            assert await db.scalar(select(func.count()).select_from(Category)) == 1
+            assert list(await db.scalars(select(Category.name))) == ["Cutting"]
+            assert await db.scalar(select(Category.id)) == shared.category_id
             machines = await db.scalars(select(Compatibility.machine_id).distinct())
             assert len(list(machines)) == 1
 
