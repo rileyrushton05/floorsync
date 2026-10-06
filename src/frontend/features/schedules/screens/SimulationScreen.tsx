@@ -1,573 +1,572 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/field";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
-import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
-import { Slider, SliderFill, SliderThumb, SliderTrack } from "@/components/ui/slider";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableColumn,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { useAuth } from "@/core/auth/AuthProvider";
+import { PageMessage } from "@/core/feedback/PageMessage";
+import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
+import { useLiveUpdates, type LiveStatus } from "@/core/live-updates/useLiveUpdates";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { buildJobColors } from "@/domains/scheduling/colors";
-import { formatDuration, formatOffset } from "@/domains/scheduling/format";
+import { formatDuration } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
-import type { GeneratedSchedule } from "@/domains/scheduling/types";
 import { GanttChart } from "@/domains/scheduling/ui/GanttChart";
-import { JobDot } from "@/domains/scheduling/ui/JobDot";
-import { TimelineNavigator, useTimelineZoom } from "@/domains/scheduling/ui/TimelineNavigator";
+import { useTimelineZoom } from "@/domains/scheduling/ui/useTimelineZoom";
 import { useJobSummaries } from "@/features/jobs/data/queries";
-import { useScheduleSummaries, useScheduleTimeline } from "@/features/schedules/data/queries";
-import { toScheduleOption } from "@/features/schedules/model/schedule";
-import { ScheduleBar } from "@/features/schedules/ui/ScheduleBar";
-import { ArrowPathIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useActiveSimulation } from "@/features/operator/data/queries";
+import type { SimulationPosition } from "@/features/schedules/data/api";
+import { scheduleKeys } from "@/features/schedules/data/keys";
+import {
+    SIMULATION_FALLBACK_POLL_MS,
+    useCreateSimulation,
+    useRecordSimulationEvent,
+    useScheduleSimulation,
+    useScheduleSummaries,
+    useScheduleTimeline,
+} from "@/features/schedules/data/queries";
+import {
+    matchesScheduleQuery,
+    scheduleDisplayName,
+    strategyLabel,
+    toScheduleRow,
+} from "@/features/schedules/model/archive";
+import {
+    DEFAULT_SPEED,
+    PLAYBACK_INTENT,
+    PLAYBACK_LABEL,
+    clamp,
+    floorTotals,
+    interpolatedMinutes,
+    jobsAt,
+    machinesAt,
+    playbackStatus,
+} from "@/features/schedules/model/simulation";
+import { PlaybackControls } from "@/features/schedules/ui/PlaybackControls";
+import { SimulationSchedulePanel } from "@/features/schedules/ui/SimulationSchedulePanel";
+import { FloorTotalsStrip, JobProgressPanel, MachinesNowPanel } from "@/features/schedules/ui/SimulationFloor";
+import { ArrowPathIcon, CalendarDaysIcon, SignalIcon, SignalSlashIcon } from "@heroicons/react/24/outline";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Simulation.
  *
- * Runs a clock across a schedule held in the database. Nothing here changes the
- * schedule — this view answers "what does the shop look like N minutes in?",
- * where the scheduler answers "what is the plan?".
+ * The timeline is an immutable read of a confirmed schedule. Playback is not a
+ * browser-only animation: starting, pausing, resetting, changing speed and
+ * scrubbing each append a control to the simulation API's event log, so every
+ * manager and operator watching sees the same clock, and the page can be
+ * closed and reopened at the same point.
  *
- * Everything on screen comes from two API reads: `GET /schedules` to choose
- * between the schedules that exist, then `GET /schedules/{id}/timeline` for the
- * one picked. Every start and end time was computed by the backend's resolver;
- * this page places bars and moves a clock across them.
+ * Between reads the clock is carried forward locally at the speed the API
+ * reported, so the play head moves smoothly. Changes made elsewhere arrive
+ * over the live-update socket, which only nudges a re-read; while it is down
+ * the page polls instead.
  *
- * Playback is local. A confirmed schedule's timeline is immutable, so the clock
- * animates against a payload fetched once rather than polling for a position.
- *
- * Speed is expressed as shop-minutes per real second, so 60x means one hour of
- * the schedule passes every second.
+ * Scrubbing previews locally while the pointer moves and records one `seeked`
+ * control when it settles, so a drag is one event rather than hundreds.
  */
 
-const SPEEDS = [
-    { value: 1, label: "1×", hint: "1 min/s" },
-    { value: 10, label: "10×", hint: "10 min/s" },
-    { value: 60, label: "60×", hint: "1 hr/s" },
-];
+/** How long a keyboard or step scrub waits for more input before it is recorded. */
+const SCRUB_SETTLE_MS = 350;
+/** The repaint interval of the local clock while playing, in ms. */
+const FRAME_MS = 50;
 
-const TICK_MS = 100;
-
-type MachineActivity =
-    | { kind: "running"; jobId: string; opName: string; opIndex: number; opTotal: number; progressPct: number; endMins: number }
-    | { kind: "idle"; nextStartMins: number | null }
-    | { kind: "finished" };
-
-function machineActivity(schedule: GeneratedSchedule, machineId: string, nowMins: number): MachineActivity {
-    const ops = schedule.ops.filter((op) => op.machineId === machineId);
-    const running = ops.find((op) => op.startMins <= nowMins && op.endMins > nowMins);
-    if (running) {
-        return {
-            kind: "running",
-            jobId: running.jobId,
-            opName: running.opName,
-            opIndex: running.opIndex,
-            opTotal: running.opTotal,
-            progressPct: ((nowMins - running.startMins) / (running.endMins - running.startMins)) * 100,
-            endMins: running.endMins,
-        };
-    }
-    const upcoming = ops.filter((op) => op.startMins > nowMins);
-    if (upcoming.length === 0) return { kind: "finished" };
-    return { kind: "idle", nextStartMins: Math.min(...upcoming.map((op) => op.startMins)) };
-}
-
-const ACTIVITY_INTENT = {
-    running: "info",
-    idle: "warning",
-    finished: "success",
-} as const;
-
-const STATE_INTENT = {
-    Done: "success",
-    Running: "info",
-    Waiting: "secondary",
-} as const;
-
-/** A full-page state for when there is nothing to draw yet. */
-function Placeholder({
-    title,
-    children,
-    onRetry,
-    danger = false,
-}: {
-    title: string;
-    children: React.ReactNode;
-    onRetry?: () => void;
-    danger?: boolean;
-}) {
+export default function SimulationPage() {
     return (
-        <ManagerPageState title={title} error={danger}>
-            {children}
-            {onRetry && <Button intent="outline" size="sm" className="mt-3" onPress={onRetry}><ArrowPathIcon />Try again</Button>}
-        </ManagerPageState>
+        <Suspense>
+            <SimulationPageInner />
+        </Suspense>
     );
 }
 
-export default function SimulationPage() {
-    const [simMins, setSimMins] = useState(0);
-    const [playing, setPlaying] = useState(false);
-    const [speed, setSpeed] = useState(10);
-    const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
-
-    const { user } = useAuth();
+function SimulationPageInner() {
+    const queryClient = useQueryClient();
     const schedulesQuery = useScheduleSummaries();
-    // A schedule linked from the Schedules archive arrives as `?schedule=<id>`
-    // and is honoured until the manager picks one themselves.
-    const searchParams = useSearchParams();
-    const linkedScheduleId = searchParams.get("schedule");
-    const [userChoiceId, setUserChoiceId] = useState<string | null>(null);
-    const schedules = useMemo(() => schedulesQuery.data ?? [], [schedulesQuery.data]);
-    const defaultScheduleId = schedules.find((schedule) => schedule.status === "confirmed")?.id ?? schedules[0]?.id ?? null;
-    const selectedOverrideId = userChoiceId ?? linkedScheduleId;
-    const selectedId = schedules.some((schedule) => schedule.id === selectedOverrideId)
-        ? selectedOverrideId
-        : defaultScheduleId;
     const jobsQuery = useJobSummaries();
+    const linkedScheduleId = useSearchParams().get("schedule");
+    const [userChoiceId, setUserChoiceId] = useState<string | null>(null);
+    const [query, setQuery] = useState("");
+    const [startSpeed, setStartSpeed] = useState(DEFAULT_SPEED);
+    const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+    const [highlightedMachineId, setHighlightedMachineId] = useState<string | null>(null);
+
+    // ── Which schedule ─────────────────────────────────────────────────────
+    const schedules = useMemo(() => schedulesQuery.data ?? [], [schedulesQuery.data]);
+    const confirmedRows = useMemo(
+        () => schedules.filter((schedule) => schedule.status === "confirmed").map(toScheduleRow)
+            .sort((left, right) => Date.parse(right.confirmedAt ?? right.createdAt) - Date.parse(left.confirmedAt ?? left.createdAt)),
+        [schedules],
+    );
+    const visibleRows = useMemo(
+        () => confirmedRows.filter((row) => matchesScheduleQuery(row, query)),
+        [confirmedRows, query],
+    );
+    const selectedOverrideId = userChoiceId ?? linkedScheduleId;
+    const selectedId = confirmedRows.some((row) => row.id === selectedOverrideId)
+        ? selectedOverrideId
+        : confirmedRows[0]?.id ?? null;
+    const selected = confirmedRows.find((row) => row.id === selectedId) ?? null;
+
+    // ── Live sync ──────────────────────────────────────────────────────────
+    // Keyed by schedule, so a status reported for the previous schedule's
+    // socket never stops this one polling before its own socket is up.
+    const [live, setLive] = useState<{ scheduleId: string | null; status: LiveStatus }>({
+        scheduleId: null,
+        status: "connecting",
+    });
+    const liveStatus: LiveStatus = live.scheduleId === selectedId ? live.status : "connecting";
+    const simulationQuery = useScheduleSimulation(
+        selectedId,
+        liveStatus === "live" ? false : SIMULATION_FALLBACK_POLL_MS,
+    );
+    const simulation = simulationQuery.data ?? null;
+    const refetchSimulation = useCallback(() => {
+        if (selectedId === null) return;
+        void queryClient.invalidateQueries({ queryKey: scheduleKeys.simulation(selectedId), exact: true });
+    }, [queryClient, selectedId]);
+    useLiveUpdates(
+        simulation?.id ?? null,
+        refetchSimulation,
+        (status) => setLive({ scheduleId: selectedId, status }),
+    );
+    const operatorSimulation = useActiveSimulation(false).data ?? null;
+
     const timelineQuery = useScheduleTimeline(selectedId);
     const timeline = timelineQuery.data ?? null;
     const plan = useMemo(() => (timeline ? timelineToPlan(timeline) : null), [timeline]);
-    // Zoom state for the playback chart: shared between the navigator bar in
-    // the header and the chart's scroll container below.
-    const timelineZoom = useTimelineZoom(plan?.schedule?.makespanMins ?? 0);
-    const scheduleOptions = useMemo(() => schedules.map(toScheduleOption), [schedules]);
+    const makespan = plan?.schedule.makespanMins ?? simulation?.makespan ?? 0;
+    const timelineZoom = useTimelineZoom(Number.isFinite(makespan) ? makespan : 0);
 
-    const activeSchedule = plan?.schedule ?? null;
-    const [playingPlan, setPlayingPlan] = useState(activeSchedule);
+    const createSimulation = useCreateSimulation();
+    const recordEvent = useRecordSimulationEvent();
 
-    // Colour is keyed off the backlog, exactly as the scheduler screen keys it,
-    // so a job wears the same colour here as it does on the plan it came from
-    // and in the job builder. A timeline lane carries no creation time, so
-    // building from `plan.jobs` would order by the backend's lane order instead
-    // and hand the same job two different colours on two screens. The plan's own
-    // jobs stay the fallback for when the backlog could not be read.
-    const backlog = jobsQuery.data ?? null;
-    const colors = useMemo(() => buildJobColors(backlog ?? plan?.jobs ?? []), [backlog, plan]);
-    const jobLabel = useCallback(
-        (jobId: string) => plan?.jobs.find((job) => job.id === jobId)?.name ?? jobId,
-        [plan],
-    );
-    const makespan = activeSchedule?.makespanMins ?? 0;
-    const atEnd = activeSchedule !== null && simMins >= makespan;
-    /** Latched "play" only actually advances the clock while there is schedule left. */
-    // Hovering a machine card tints that machine's row in the plan playback.
-    const [hoveredMachineId, setHoveredMachineId] = useState<string | null>(null);
-
-    const running = playing && !atEnd;
-
-    // Switching schedules invalidates the position we were at. Rewinding during
-    // render rather than from an effect avoids painting one frame of the new
-    // schedule at the old schedule's clock.
-    if (activeSchedule !== playingPlan) {
-        setPlayingPlan(activeSchedule);
-        setSimMins(0);
-        setPlaying(false);
-        setHighlightedJobId(null);
-    }
-
-    // Torn down the moment the clock reaches the makespan, so a finished run
-    // costs nothing rather than ticking against a clamped value.
+    // ── The clock ──────────────────────────────────────────────────────────
+    const status = playbackStatus(simulation);
+    const running = status === "running";
+    const readAtMs = simulationQuery.dataUpdatedAt;
+    const [nowMs, setNowMs] = useState(0);
     useEffect(() => {
-        if (!running || !activeSchedule) return;
-        const id = setInterval(() => {
-            setSimMins((previous) =>
-                Math.min(previous + speed * (TICK_MS / 1000), activeSchedule.makespanMins),
-            );
-        }, TICK_MS);
-        return () => clearInterval(id);
-    }, [running, speed, activeSchedule]);
+        if (!running) return;
+        let frame = 0;
+        let last = 0;
+        const tick = (time: number) => {
+            if (time - last >= FRAME_MS) {
+                last = time;
+                setNowMs(Date.now());
+            }
+            frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(frame);
+    }, [running]);
+    const serverMins = simulation === null ? 0 : interpolatedMinutes(simulation, readAtMs, nowMs);
 
-    if (schedulesQuery.isPending) {
-        return (
-            <Placeholder title="Signing in and loading schedules…">
-                Reading <code>GET /api/v1/schedules</code>.
-            </Placeholder>
-        );
+    // A scrub in progress: shown immediately, recorded when it settles.
+    const [scrubMins, setScrubMins] = useState<number | null>(null);
+    const scrubGeneration = useRef(0);
+    const latestScrub = useRef<number | null>(null);
+    const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => () => clearTimeout(settleTimer.current), []);
+
+    const displayMins = scrubMins ?? serverMins;
+    const started = status !== "not_started" || scrubMins !== null;
+    const persistedSpeed = Number(simulation?.speed);
+    const speed = (status === "running" || status === "paused") && Number.isFinite(persistedSpeed)
+        ? persistedSpeed
+        : startSpeed;
+    const controlsPending = createSimulation.isPending || (recordEvent.isPending && recordEvent.variables?.eventType !== "seeked");
+
+    // A schedule has one simulation; the first control on a fresh schedule
+    // creates it. Remembered per schedule so two quick presses cannot create
+    // it twice and trip the API's one-per-schedule conflict.
+    const creating = useRef<{ scheduleId: string; promise: Promise<SimulationPosition> } | null>(null);
+    function ensureSimulation(): Promise<SimulationPosition> | null {
+        if (selectedId === null) return null;
+        if (simulation !== null) return Promise.resolve(simulation);
+        if (creating.current?.scheduleId !== selectedId) {
+            const promise = createSimulation.mutateAsync(selectedId);
+            creating.current = { scheduleId: selectedId, promise };
+            promise.catch(() => {
+                if (creating.current?.promise === promise) creating.current = null;
+            });
+        }
+        return creating.current.promise;
     }
 
+    // ── Completion ─────────────────────────────────────────────────────────
+    // The API derives completion from elapsed time but records it only when
+    // asked. Re-read the position when the local clock says the plan should
+    // have ended, then turn that derived boundary into one durable event.
+    useEffect(() => {
+        if (simulation === null || !simulation.is_running || simulation.is_complete) return;
+        const speedPerSecond = Number(simulation.speed);
+        if (!Number.isFinite(speedPerSecond) || speedPerSecond <= 0) return;
+        const remainingMs = ((simulation.makespan - simulation.simulated_time) / speedPerSecond) * 1000;
+        const timer = setTimeout(refetchSimulation, Math.max(0, remainingMs - (Date.now() - readAtMs)) + 150);
+        return () => clearTimeout(timer);
+    }, [readAtMs, refetchSimulation, simulation]);
+
+    const completionRequested = useRef<string | null>(null);
+    useEffect(() => {
+        if (simulation === null) return;
+        if (!simulation.is_complete) {
+            // Reset or scrubbed back: a later finish must be recorded again.
+            if (completionRequested.current === simulation.id) completionRequested.current = null;
+            return;
+        }
+        if (simulation.status !== "running" || completionRequested.current === simulation.id) return;
+        completionRequested.current = simulation.id;
+        recordEvent.mutate(
+            { simulationId: simulation.id, eventType: "completed" },
+            {
+                onError: (error) => {
+                    // Another tab recorded it first; re-read rather than alarm anyone.
+                    if (error instanceof ApiError && error.status === 409) {
+                        refetchSimulation();
+                        return;
+                    }
+                    completionRequested.current = null;
+                    reportMutationError(error);
+                },
+            },
+        );
+    }, [recordEvent, refetchSimulation, simulation]);
+
+    // A simulation that ran out while nobody had it open is still `running` in
+    // the log, so operators would follow it forever. Any manager's visit
+    // records the finish it reached, which hands the floor on.
+    const settledOperatorSimulation = useRef<string | null>(null);
+    useEffect(() => {
+        if (
+            operatorSimulation === null
+            || operatorSimulation.id === simulation?.id
+            || !operatorSimulation.is_complete
+            || operatorSimulation.status !== "running"
+            || settledOperatorSimulation.current === operatorSimulation.id
+        ) return;
+        settledOperatorSimulation.current = operatorSimulation.id;
+        // Best effort and unrequested, so a refusal is not the manager's to see.
+        recordEvent.mutate({ simulationId: operatorSimulation.id, eventType: "completed" }, { onError: () => undefined });
+    }, [operatorSimulation, recordEvent, simulation?.id]);
+
+    // ── Controls ───────────────────────────────────────────────────────────
+    async function togglePlayback() {
+        if (controlsPending) return;
+        try {
+            const current = await ensureSimulation();
+            if (current === null) return;
+            const currentStatus = playbackStatus(current);
+            if (currentStatus === "running") {
+                await recordEvent.mutateAsync({ simulationId: current.id, eventType: "paused" });
+            } else if (currentStatus === "paused") {
+                await recordEvent.mutateAsync({ simulationId: current.id, eventType: "resumed", speed });
+            } else {
+                // Finished: play again from the top.
+                if (currentStatus === "complete") {
+                    await recordEvent.mutateAsync({ simulationId: current.id, eventType: "reset" });
+                }
+                await recordEvent.mutateAsync({ simulationId: current.id, eventType: "started", speed });
+            }
+        } catch (error) {
+            reportMutationError(error);
+        }
+    }
+
+    async function resetPlayback() {
+        if (simulation === null || controlsPending) return;
+        cancelScrub();
+        try {
+            await recordEvent.mutateAsync({ simulationId: simulation.id, eventType: "reset" });
+        } catch (error) {
+            reportMutationError(error);
+        }
+    }
+
+    async function changeSpeed(nextSpeed: number) {
+        setStartSpeed(nextSpeed);
+        if (simulation === null || (status !== "running" && status !== "paused")) return;
+        try {
+            await recordEvent.mutateAsync({ simulationId: simulation.id, eventType: "speed_changed", speed: nextSpeed });
+        } catch (error) {
+            reportMutationError(error);
+        }
+    }
+
+    function cancelScrub() {
+        clearTimeout(settleTimer.current);
+        scrubGeneration.current += 1;
+        latestScrub.current = null;
+        setScrubMins(null);
+    }
+
+    /** Show `mins` now; record it once input settles. */
+    function previewScrub(mins: number) {
+        const target = clamp(mins, 0, makespan);
+        scrubGeneration.current += 1;
+        latestScrub.current = target;
+        setScrubMins(target);
+        clearTimeout(settleTimer.current);
+        settleTimer.current = setTimeout(() => void commitScrub(), SCRUB_SETTLE_MS);
+    }
+
+    /** Record the latest previewed minute as one seek. */
+    async function commitScrub() {
+        clearTimeout(settleTimer.current);
+        const target = latestScrub.current;
+        if (target === null) return;
+        latestScrub.current = null;
+        const generation = scrubGeneration.current;
+        try {
+            const current = await ensureSimulation();
+            if (current === null) return;
+            await recordEvent.mutateAsync({ simulationId: current.id, eventType: "seeked", position: target });
+        } catch (error) {
+            reportMutationError(error);
+        } finally {
+            // Keep showing the preview if the manager scrubbed again meanwhile.
+            if (generation === scrubGeneration.current) setScrubMins(null);
+        }
+    }
+
+    // Space plays and pauses, unless something focused already owns the key.
+    useEffect(() => {
+        const onKey = (event: KeyboardEvent) => {
+            if (event.code !== "Space" || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+            const target = event.target as HTMLElement | null;
+            if (target?.closest("input, textarea, select, button, a, [role=slider], [role=row], [role=gridcell], [contenteditable=true]")) return;
+            event.preventDefault();
+            void togglePlaybackRef.current();
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, []);
+    const togglePlaybackRef = useRef(togglePlayback);
+    useEffect(() => {
+        togglePlaybackRef.current = togglePlayback;
+    });
+
+    // ── Derived floor state ────────────────────────────────────────────────
+    const colors = useMemo(() => buildJobColors(jobsQuery.data ?? plan?.jobs ?? []), [jobsQuery.data, plan]);
+    const jobNames = useMemo(() => new Map(plan?.jobs.map((job) => [job.id, job.name]) ?? []), [plan]);
+    const jobName = useCallback((jobId: string) => jobNames.get(jobId) ?? jobId, [jobNames]);
+    const floorMins = started ? displayMins : null;
+    const machinesNow = useMemo(
+        () => (plan ? machinesAt(plan.schedule, plan.machines, floorMins) : []),
+        [floorMins, plan],
+    );
+    const jobsNow = useMemo(() => (plan ? jobsAt(plan.schedule, jobName, floorMins) : []), [floorMins, jobName, plan]);
+    const totals = plan ? floorTotals(plan.schedule, machinesNow, jobsNow, floorMins) : null;
+
+    // ── Page states ────────────────────────────────────────────────────────
     if (schedulesQuery.error instanceof ApiError && schedulesQuery.error.isForbidden) {
         return (
-            <Placeholder title="This needs a manager account">
-                <p>
-                    You are signed in as <strong>{user?.name}</strong> ({user?.role}). Reading
-                    schedules is restricted to managers, so there is nothing to simulate here.
-                </p>
-                <p className="mt-2">Sign out and sign in with a manager account to continue.</p>
-            </Placeholder>
+            <ManagerPageState title="This needs a manager account">
+                Running a simulation is restricted to managers.
+            </ManagerPageState>
         );
     }
-
-    if (schedulesQuery.error) {
+    if (schedulesQuery.error && !schedulesQuery.data) {
         return (
-            <Placeholder title="Could not load schedules." danger onRetry={() => void schedulesQuery.refetch()}>
+            <ManagerPageState title="Could not load schedules" error>
                 <p>{errorMessage(schedulesQuery.error)}</p>
-                <p className="mt-1 text-muted-fg">
-                    The API answered, but not with a schedule list. Check it is running and that
-                    the database has been migrated.
-                </p>
-            </Placeholder>
+                <Button intent="outline" size="sm" className="mt-3" onPress={() => void schedulesQuery.refetch()}>
+                    <ArrowPathIcon /> Try again
+                </Button>
+            </ManagerPageState>
         );
     }
-
-    if (schedules.length === 0) {
-        return (
-            <Placeholder title="No schedules in the database">
-                Nothing has been scheduled yet. Seed one with{" "}
-                <code>make db-seed instance=abz5</code>, then reload.
-            </Placeholder>
-        );
+    if (schedulesQuery.isPending) {
+        return <ManagerPageState title="Loading schedules…">Reading confirmed schedules from the API.</ManagerPageState>;
     }
 
-    const scheduleBar = (
-        <ScheduleBar
-            schedules={scheduleOptions}
-            selectedId={selectedId}
-            onSelect={setUserChoiceId}
-            timelineSummary={timeline
-                ? {
-                    jobs: timeline.jobs.length,
-                    machines: timeline.machines.length,
-                    operations: timeline.operations.length,
-                }
-                : null}
-        />
+    const schedulesLink = (
+        <Link href="/manager/schedules" className={buttonStyles({ intent: "outline" })}>
+            <CalendarDaysIcon /> All schedules
+        </Link>
     );
 
-    if (!activeSchedule) {
+    if (confirmedRows.length === 0) {
         return (
-            <ManagerShell>
-                {scheduleBar}
-                <main className="flex flex-1 items-center justify-center p-5">
-                    <div className="w-full max-w-prose">
-                        {timelineQuery.error ? (
-                            <Note intent="danger" role="alert">
-                                <div>
-                                    <strong>That schedule could not be resolved.</strong>
-                                    <p className="mt-1">{errorMessage(timelineQuery.error)}</p>
-                                    <p className="mt-1 text-muted-fg">
-                                        A schedule with no entries has no timeline. Pick another, or
-                                        seed one with <code>make db-seed instance=abz5</code>.
-                                    </p>
-                                </div>
-                            </Note>
-                        ) : (
-                            <div className="rounded-lg border border-dashed bg-overlay p-8 text-center">
-                                <h2 className="font-semibold text-lg">Resolving the schedule…</h2>
-                                <p className="mt-2 text-muted-fg text-sm">
-                                    The backend is placing every operation on the clock from the
-                                    schedule&apos;s entries and dependencies.
-                                </p>
-                            </div>
-                        )}
-                    </div>
+            <ManagerShell actions={schedulesLink}>
+                <main className="flex flex-1 flex-col items-center justify-center gap-4 p-5">
+                    <PageMessage title={schedules.length === 0 ? "No schedules yet" : "No confirmed schedules to simulate"}>
+                        {schedules.length === 0
+                            ? "Plan some open jobs in the Planner, then save the schedule to run it here."
+                            : "Only confirmed schedules can be simulated. Save a draft from the Planner, or confirm one on the Schedules page."}
+                    </PageMessage>
+                    <Link href="/manager/planner" className={buttonStyles()}>Open the Planner</Link>
                 </main>
             </ManagerShell>
         );
     }
 
-    const activeMachines = plan?.machines ?? [];
-    const activeJobs = plan?.jobs ?? [];
-    const completedOps = activeSchedule.ops.filter((op) => op.endMins <= simMins).length;
-    const runningOps = activeSchedule.ops.filter(
-        (op) => op.startMins < simMins && op.endMins > simMins,
-    ).length;
-    const overallPct = makespan === 0 ? 0 : Math.round((simMins / makespan) * 100);
-    const usedMachines = activeMachines.filter((machine) =>
-        activeSchedule.ops.some((op) => op.machineId === machine.id),
-    );
+    const operatorsFollowOther = operatorSimulation !== null
+        && operatorSimulation.schedule_id !== selectedId
+        && operatorSimulation.status !== "not_started";
+    const operatorScheduleName = (() => {
+        const row = confirmedRows.find((candidate) => candidate.id === operatorSimulation?.schedule_id);
+        return row ? `“${scheduleDisplayName(row)}”` : "another schedule";
+    })();
 
     return (
-        <ManagerShell actions={<>
-            {/* `shrink-0` + nowrap: the cluster keeps one row inside the topbar
-                even when space is tight — the flexible centre (calendar) and
-                navigation absorb the compression instead of the controls
-                wrapping onto a second row and stretching the header. */}
-            <div className="flex flex-nowrap items-center gap-2.5 whitespace-nowrap shrink-0">
-                <Button
-                    size="sq-sm"
-                    onPress={() => {
-                        if (atEnd) setSimMins(0);
-                        setPlaying((value) => (atEnd ? true : !value));
+        <ManagerShell actions={schedulesLink}>
+            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.7fr)_minmax(0,2.3fr)]">
+                <SimulationSchedulePanel
+                    total={confirmedRows.length}
+                    rows={visibleRows}
+                    selectedId={selectedId}
+                    operatorScheduleId={operatorSimulation?.status === "not_started" ? null : operatorSimulation?.schedule_id ?? null}
+                    query={query}
+                    onQueryChange={setQuery}
+                    onSelect={(id) => {
+                        if (id === selectedId) return;
+                        cancelScrub();
+                        setHighlightedJobId(null);
+                        setUserChoiceId(id);
                     }}
-                    aria-label={running ? "Pause simulation" : "Play simulation"}
-                >
-                    {running ? <PauseIcon /> : <PlayIcon />}
-                </Button>
-                <Button
-                    intent="outline"
-                    size="sm"
-                    onPress={() => {
-                        setPlaying(false);
-                        setSimMins(0);
-                    }}
-                >
-                    Reset
-                </Button>
+                />
 
-                <ToggleGroup
-                    aria-label="Playback speed"
-                    selectionMode="single"
-                    disallowEmptySelection
-                    selectedKeys={new Set([String(speed)])}
-                    onSelectionChange={(keys) => {
-                        const [first] = Array.from(keys);
-                        if (typeof first === "string") setSpeed(Number(first));
-                    }}
-                >
-                    {SPEEDS.map((option) => (
-                        <ToggleGroupItem
-                            key={option.value}
-                            id={String(option.value)}
-                            aria-label={`${option.label} speed — ${option.hint}`}
-                        >
-                            {option.label}
-                        </ToggleGroupItem>
-                    ))}
-                </ToggleGroup>
+                <div className="flex min-w-0 flex-col gap-5">
+                    {schedulesQuery.error && (
+                        <Note intent="warning" role="status">
+                            Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}
+                        </Note>
+                    )}
 
-                {/* Least essential item in the cluster: dropped below `sm` so
-                    the controls keep their row without squeezing the tabs. */}
-                <span className="hidden font-semibold tabular-nums whitespace-nowrap sm:inline">{formatOffset(simMins)}</span>
-            </div>
-        </>}>
-
-            {scheduleBar}
-
-            <div className="flex items-center gap-4 border-b bg-navbar px-7 py-2.5">
-                <Slider
-                    aria-label="Scrub the simulation clock"
-                    className="flex-1"
-                    minValue={0}
-                    maxValue={makespan}
-                    step={1}
-                    value={simMins}
-                    onChange={(value) => {
-                        setPlaying(false);
-                        setSimMins(Array.isArray(value) ? value[0] : value);
-                    }}
-                >
-                    <Label className="sr-only">Scrub</Label>
-                    <SliderTrack>
-                        <SliderFill />
-                        <SliderThumb />
-                    </SliderTrack>
-                </Slider>
-                <span className="shrink-0 text-muted-fg text-sm tabular-nums">
-                    {formatDuration(makespan)}
-                </span>
-            </div>
-
-            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2.4fr)_minmax(220px,0.7fr)]">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Machines now</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <ul className="space-y-2.5">
-                            {usedMachines.map((machine) => {
-                                const activity = machineActivity(activeSchedule, machine.id, simMins);
-                                return (
-                                    <li
-                                        key={machine.id}
-                                        className={`rounded-lg border p-3 transition-colors ${hoveredMachineId === machine.id
-                                            ? "border-primary/40 bg-primary/15"
-                                            : "border-border bg-muted"
-                                            }`}
-                                        onMouseEnter={() => setHoveredMachineId(machine.id)}
-                                        onMouseLeave={() =>
-                                            setHoveredMachineId((previous) =>
-                                                previous === machine.id ? null : previous,
-                                            )
-                                        }
+                    <Card className="min-w-0">
+                        <CardHeader className="gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                                <CardTitle className={`truncate text-2xl ${selected?.name ? "" : "text-muted-fg italic"}`}>
+                                    {selected ? scheduleDisplayName(selected) : "–"}
+                                </CardTitle>
+                                <Badge intent={PLAYBACK_INTENT[status]}>{PLAYBACK_LABEL[status]}</Badge>
+                                {simulation !== null && <LiveBadge status={liveStatus} />}
+                            </div>
+                            <p className="text-muted-fg text-sm">
+                                {selected ? strategyLabel(selected.strategy) : ""}
+                                {plan && ` · ${count(plan.jobs.length, "job")} on ${count(machinesNow.length, "machine")} · ${count(plan.schedule.ops.length, "operation")} · makespan ${formatDuration(makespan)}`}
+                            </p>
+                            <CardAction>
+                                {selected && (
+                                    <Link
+                                        href={`/manager/schedules?schedule=${encodeURIComponent(selected.id)}`}
+                                        className={buttonStyles({ intent: "plain", size: "sm" })}
                                     >
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="font-semibold text-sm">{machine.name}</span>
-                                            <Badge intent={ACTIVITY_INTENT[activity.kind]}>
-                                                {activity.kind === "running"
-                                                    ? "Running"
-                                                    : activity.kind === "idle"
-                                                        ? "Idle"
-                                                        : "Done"}
-                                            </Badge>
-                                        </div>
-                                        <div className="text-muted-fg text-xs">{machine.operator}</div>
-                                        {activity.kind === "running" && (
-                                            <>
-                                                <div className="mt-2 flex items-center gap-1.5 text-xs">
-                                                    <JobDot colors={colors} jobId={activity.jobId} size="sm" />
-                                                    <strong>{jobLabel(activity.jobId)}</strong> · Op {activity.opIndex}/
-                                                    {activity.opTotal} {activity.opName}
-                                                </div>
-                                                <ProgressBar
-                                                    aria-label={`${machine.name} current operation progress`}
-                                                    value={activity.progressPct}
-                                                    className="mt-2"
-                                                >
-                                                    <ProgressBarTrack className="min-w-0" />
-                                                </ProgressBar>
-                                                <div className="mt-1.5 text-muted-fg text-xs">
-                                                    finishes {formatOffset(activity.endMins)}
-                                                </div>
-                                            </>
-                                        )}
-                                        {activity.kind === "idle" && (
-                                            <div className="mt-1.5 text-muted-fg text-xs">
-                                                next job at {formatOffset(activity.nextStartMins ?? 0)}
-                                            </div>
-                                        )}
-                                        {activity.kind === "finished" && (
-                                            <div className="mt-1.5 text-muted-fg text-xs">all work complete</div>
-                                        )}
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    </CardContent>
-                </Card>
+                                        Schedule details
+                                    </Link>
+                                )}
+                            </CardAction>
+                        </CardHeader>
+                        <CardContent className="flex flex-col gap-4">
+                            {simulationQuery.error && (
+                                <Note intent="danger" role="alert">
+                                    <strong>Could not read the simulation&apos;s position.</strong>{" "}
+                                    {errorMessage(simulationQuery.error)}
+                                </Note>
+                            )}
+                            {operatorsFollowOther && (
+                                <Note intent="info" role="status">
+                                    Operator screens are following {operatorScheduleName}, not this schedule.
+                                    Reset that simulation to hand the floor to this one.
+                                </Note>
+                            )}
 
-                <Card className="min-w-0">
-                    <CardHeader className="gap-3">
-                        <CardTitle>Schedule playback</CardTitle>
-                        <div className="flex flex-wrap items-center gap-4">
-                            <div className="flex flex-wrap items-center gap-3 text-muted-fg text-xs">
-                                <span className={`flex items-center gap-1.5 transition-colors ${atEnd ? "font-semibold text-success" : ""}`}>
-                                    <span className={`size-2.5 rounded-xs transition-colors ${atEnd ? "bg-success" : "bg-fg/25"}`} />✓ Completed
-                                </span>
-                                <span className={`flex items-center gap-1.5 transition-colors ${runningOps > 0 ? "font-semibold text-primary" : ""}`}>
-                                    <span className={`size-2.5 rounded-xs transition-colors ${runningOps > 0 ? "bg-primary" : "bg-fg/25"}`} />▶ Running
-                                </span>
-                                <span className={`flex items-center gap-1.5 transition-colors ${simMins <= 0 ? "font-semibold text-warning" : ""}`}>
-                                    <span className={`size-2.5 rounded-xs transition-colors ${simMins <= 0 ? "bg-warning" : "bg-fg/10"}`} />Upcoming
-                                </span>
-                            </div>
-                            <div className="ml-auto min-w-0 flex-1 max-w-md">
-                                <TimelineNavigator controls={timelineZoom} />
-                            </div>
+                            {plan ? (
+                                <>
+                                    <PlaybackControls
+                                        status={status}
+                                        nowMins={displayMins}
+                                        makespanMins={makespan}
+                                        speed={speed}
+                                        pending={controlsPending || simulationQuery.isPending}
+                                        canReset={simulation !== null && (status !== "not_started" || serverMins > 0)}
+                                        onTogglePlay={() => void togglePlayback()}
+                                        onReset={() => void resetPlayback()}
+                                        onStep={(delta) => previewScrub(displayMins + delta)}
+                                        onSpeedChange={(next) => void changeSpeed(next)}
+                                        onScrub={previewScrub}
+                                        onScrubEnd={(mins) => {
+                                            latestScrub.current = clamp(mins, 0, makespan);
+                                            void commitScrub();
+                                        }}
+                                    />
+                                    {totals && <FloorTotalsStrip totals={totals} started={started} />}
+                                    <GanttChart
+                                        machines={plan.machines}
+                                        jobs={plan.jobs}
+                                        schedule={plan.schedule}
+                                        colors={colors}
+                                        mode="simulation"
+                                        nowMins={floorMins}
+                                        selectedJobId={highlightedJobId}
+                                        highlightedMachineId={highlightedMachineId}
+                                        zoom={timelineZoom}
+                                        followNow={running && scrubMins === null}
+                                        onSelectJob={(jobId) => setHighlightedJobId((previous) => (previous === jobId ? null : jobId))}
+                                        onScrub={previewScrub}
+                                        onScrubEnd={() => void commitScrub()}
+                                    />
+                                </>
+                            ) : timelineQuery.error ? (
+                                <PageMessage title="This schedule's timeline could not be read" tone="danger">
+                                    <p>{errorMessage(timelineQuery.error)}</p>
+                                    <Button intent="outline" size="sm" className="mt-3" onPress={() => void timelineQuery.refetch()}>
+                                        <ArrowPathIcon /> Try again
+                                    </Button>
+                                </PageMessage>
+                            ) : (
+                                <p className="py-10 text-center text-muted-fg text-sm" role="status">
+                                    Reading this schedule&apos;s timeline…
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {plan && (
+                        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                            <MachinesNowPanel
+                                machines={machinesNow}
+                                colors={colors}
+                                jobName={jobName}
+                                highlightedMachineId={highlightedMachineId}
+                                onHighlightMachine={setHighlightedMachineId}
+                            />
+                            <JobProgressPanel
+                                jobs={jobsNow}
+                                colors={colors}
+                                selectedJobId={highlightedJobId}
+                                onSelectJob={setHighlightedJobId}
+                            />
                         </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex items-center gap-3">
-                            {/* The blue fill bar is live too: it is a real slider
-                                (click / drag anywhere on the track to move the
-                                clock) with a visually hidden thumb, so keyboard
-                                and screen-reader users still get a control. */}
-                            <Slider
-                                aria-label="Elapsed share of the schedule"
-                                className="flex-1"
-                                minValue={0}
-                                maxValue={makespan}
-                                step={1}
-                                value={simMins}
-                                onChange={(value) => {
-                                    setPlaying(false);
-                                    setSimMins(Array.isArray(value) ? value[0] : value);
-                                }}
-                            >
-                                <SliderTrack className="min-w-0">
-                                    <SliderFill />
-                                    <SliderThumb className="size-0 opacity-0 ring-0" />
-                                </SliderTrack>
-                            </Slider>
-                            <span className="shrink-0 text-muted-fg text-xs">
-                                {completedOps} done · {runningOps} running ·{" "}
-                                {activeSchedule.ops.length - completedOps - runningOps} to go
-                            </span>
-                        </div>
-
-                        <GanttChart
-                            machines={activeMachines}
-                            jobs={activeJobs}
-                            schedule={activeSchedule}
-                            colors={colors}
-                            mode="simulation"
-                            nowMins={simMins}
-                            selectedJobId={highlightedJobId}
-                            highlightedMachineId={hoveredMachineId}
-                            zoom={timelineZoom}
-                            onSelectJob={(jobId) =>
-                                setHighlightedJobId((previous) => (previous === jobId ? null : jobId))
-                            }
-                            // Dragging the black "now" line scrubs the clock. Pause
-                            // while dragging so the tick interval does not fight
-                            // the pointer for the position.
-                            onScrub={(mins) => {
-                                setPlaying(false);
-                                setSimMins(mins);
-                            }}
-                        />
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Job progress</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <Table
-                            aria-label="Job progress"
-                            selectionMode="single"
-                            selectionBehavior="replace"
-                            selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
-                            onSelectionChange={(keys) => {
-                                if (keys === "all") return;
-                                const [first] = Array.from(keys);
-                                if (typeof first === "string") {
-                                    setHighlightedJobId((previous) => (previous === first ? null : first));
-                                } else {
-                                    setHighlightedJobId(null);
-                                }
-                            }}
-                        >
-                            <TableHeader>
-                                <TableColumn isRowHeader>Job</TableColumn>
-                                <TableColumn>Ops</TableColumn>
-                                <TableColumn>State</TableColumn>
-                            </TableHeader>
-                            <TableBody items={activeSchedule.order.map((id) => ({ id }))}>
-                                {({ id }) => {
-                                    const jobOps = activeSchedule.ops.filter((op) => op.jobId === id);
-                                    const done = jobOps.filter((op) => op.endMins <= simMins).length;
-                                    const finish = activeSchedule.jobFinish[id] ?? 0;
-                                    const start = activeSchedule.jobStart[id] ?? 0;
-                                    const state =
-                                        simMins >= finish ? "Done" : simMins >= start ? "Running" : "Waiting";
-                                    return (
-                                        <TableRow id={id}>
-                                            <TableCell>
-                                                <span className="flex items-center gap-1.5">
-                                                    <JobDot colors={colors} jobId={id} size="sm" />
-                                                    {jobLabel(id)}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell className="tabular-nums">
-                                                {done}/{jobOps.length}
-                                            </TableCell>
-                                            <TableCell>
-                                                <Badge intent={STATE_INTENT[state]}>{state}</Badge>
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                }}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
+                    )}
+                </div>
             </main>
         </ManagerShell>
+    );
+}
+
+function count(n: number, noun: string): string {
+    return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+const LIVE_BADGE: Record<LiveStatus, { intent: "success" | "warning" | "danger"; label: string; title: string }> = {
+    live: { intent: "success", label: "Live", title: "Changes from other managers appear immediately." },
+    connecting: { intent: "warning", label: "Connecting…", title: "Checking for changes every few seconds until the live connection is up." },
+    offline: { intent: "danger", label: "Offline", title: "The live connection is down; checking for changes every few seconds." },
+};
+
+function LiveBadge({ status }: { status: LiveStatus }) {
+    const badge = LIVE_BADGE[status];
+    return (
+        <Badge intent={badge.intent} title={badge.title}>
+            {status === "offline" ? <SignalSlashIcon data-slot="icon" aria-hidden /> : <SignalIcon data-slot="icon" aria-hidden />}
+            {badge.label}
+        </Badge>
     );
 }

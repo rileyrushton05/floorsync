@@ -9,16 +9,19 @@ import { buildJobColors } from "@/domains/scheduling/colors";
 import type { JobDef, OperationDef } from "@/domains/scheduling/types";
 import {
     JobGraphWriteError,
+    useArchiveJob,
     useCreateJobDefinition,
     useDeleteJobDefinition,
     useJobDefinitions,
     useJobDependencies,
     useUpdateJobDefinition,
 } from "@/features/jobs/data/queries";
+import { scheduleReferences, type ScheduleReferences } from "@/features/jobs/data/api";
+import { useDeleteSchedule } from "@/features/schedules/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
 import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
@@ -26,6 +29,7 @@ import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
 import { edgesForSavedOperations } from "@/features/jobs/model/dependencies";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
 import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
+import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import {
     DEFAULT_SORT,
     EMPTY_JOB_DRAFT,
@@ -69,6 +73,11 @@ function JobsPageInner() {
     const createJob = useCreateJobDefinition();
     const updateJob = useUpdateJobDefinition();
     const deleteJob = useDeleteJobDefinition();
+    const archiveJob = useArchiveJob();
+    // Deleting a job the scheduler has only proposed means clearing the
+    // proposals first: schedule entries are what the API refuses the delete
+    // over, and a draft is the one kind it will let go of.
+    const deleteSchedule = useDeleteSchedule();
     const machines = useMemo(
         () =>
             (machineQuery.data ?? []).map((machine) => ({
@@ -82,7 +91,12 @@ function JobsPageInner() {
     const jobs = useMemo(() => jobQuery.data ?? [], [jobQuery.data]);
     const loading = machineQuery.isPending || jobQuery.isPending;
     const loadError = machineQuery.error ?? jobQuery.error;
-    const saving = createJob.isPending || updateJob.isPending || deleteJob.isPending;
+    const saving =
+        createJob.isPending ||
+        updateJob.isPending ||
+        deleteJob.isPending ||
+        archiveJob.isPending ||
+        deleteSchedule.isPending;
     const searchParams = useSearchParams();
     const [draft, setDraft] = useState<JobDraft>(() => (jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT));
     // The job as the API has it. Anything the draft says differently is unsaved
@@ -99,8 +113,11 @@ function JobsPageInner() {
     const [isCreating, setIsCreating] = useState(false);
     /** A job switch or a new job, held back until unsaved work is dealt with. */
     const [pendingOpen, setPendingOpen] = useState<
-        { kind: "job"; job: JobDef } | { kind: "new" } | { kind: "duplicate" } | null
+        { kind: "job"; job: JobDef } | { kind: "cancel"; job: JobDef } | { kind: "new" } | { kind: "duplicate" } | null
     >(null);
+    // The job that was open when a new job (or a copy) was started, so
+    // cancelling the new one goes back to it rather than to the top of the list.
+    const [returnJobId, setReturnJobId] = useState<string | null>(null);
     // Operations are only ever created by a click, so a plain counter is a safe
     // key source — no ids are generated during render.
     const opCounter = useRef(0);
@@ -108,7 +125,13 @@ function JobsPageInner() {
     // the dialog mounted while the zoom-out animation plays.
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const [deleteClosing, setDeleteClosing] = useState(false);
-    const [filters, setFilters] = useState<JobFilters>(INITIAL_FILTERS);
+    // Another screen can open the backlog narrowed to one machine
+    // (?machine=<id>). Every status is shown, since a machine is still bound to
+    // the archived jobs that route through it.
+    const [filters, setFilters] = useState<JobFilters>(() => {
+        const machineId = searchParams.get("machine");
+        return machineId ? { ...INITIAL_FILTERS, status: "All", machineId } : INITIAL_FILTERS;
+    });
     // Which step the graph has open. Held here rather than in the graph because
     // the operation cards highlight the same selection and edit the same draft.
     const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
@@ -118,6 +141,16 @@ function JobsPageInner() {
     const [focusOperationId, setFocusOperationId] = useState<string | null>(null);
     /** A step removal held back until it is confirmed — the edit is not undoable. */
     const [pendingOperationRemoval, setPendingOperationRemoval] = useState<number | null>(null);
+    /** An archive held back until it is confirmed — there is no un-archive. */
+    const [confirmingArchive, setConfirmingArchive] = useState(false);
+    /**
+     * A delete the API refused, with the draft schedules standing in its way.
+     *
+     * Only set when every blocker is a draft: that is the one case the page can
+     * do something about, by deleting the proposals and asking again. A
+     * confirmed schedule in the way is reported as the refusal it is.
+     */
+    const [blockingDrafts, setBlockingDrafts] = useState<ScheduleReferences | null>(null);
 
     // The floor definition arrives after authentication. Select its first job
     // only while the editor is pristine, so a delayed API response never
@@ -215,16 +248,8 @@ function JobsPageInner() {
         cancelLabel: "Stay on this page",
     });
 
-    /**
-     * Ctrl+S / ⌘S saves, exactly as pressing the button would.
-     *
-     * Bound on the window rather than on the form: the draft is edited from two
-     * panels and a diagram, so the cursor is rarely inside the thing being
-     * saved. The default is always prevented while this screen is mounted —
-     * letting the browser's "Save page as…" sheet open instead would be a worse
-     * answer to the shortcut than doing nothing.
-     */
-    function saveFromShortcut() {
+    /** Ctrl+S / ⌘S saves, exactly as pressing the button would. */
+    useSaveShortcut(() => {
         // A dialog is a question waiting on an answer; saving the draft behind
         // it would act on something the manager has already stepped away from.
         if (pendingOpen !== null || pendingOperationRemoval !== null || confirmingDelete) return;
@@ -236,25 +261,7 @@ function JobsPageInner() {
         // Silence is the honest answer to "save" when there is nothing to save.
         // Anything else was an action that did not happen, so it has to say why.
         if (gate.held && gate.reason !== null) toast.warning(gate.reason);
-    }
-
-    const shortcutRef = useRef(saveFromShortcut);
-    useEffect(() => {
-        shortcutRef.current = saveFromShortcut;
     });
-
-    useEffect(() => {
-        function onKeyDown(event: KeyboardEvent) {
-            const chord = (event.metaKey || event.ctrlKey) && !event.altKey;
-            if (!chord || event.key.toLowerCase() !== "s") return;
-            event.preventDefault();
-            // Holding the keys down should ask once, not once per repeat.
-            if (!event.repeat) shortcutRef.current();
-        }
-
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, []);
 
     /** Set the draft *and* the baseline: this is the job as the API has it. */
     function openDraft(next: JobDraft) {
@@ -270,6 +277,7 @@ function JobsPageInner() {
     }
 
     function openNewJob() {
+        setReturnJobId(draft.id ?? returnJobId);
         setIsCreating(true);
         openDraft(EMPTY_JOB_DRAFT);
         setSelectedOperationId(null);
@@ -293,6 +301,7 @@ function JobsPageInner() {
      * — a complete new job nobody has written yet.
      */
     function openDuplicate() {
+        setReturnJobId(draft.id ?? returnJobId);
         setIsCreating(true);
         setDraft(duplicateDraft(draft));
         setBaselineDraft(EMPTY_JOB_DRAFT);
@@ -312,6 +321,17 @@ function JobsPageInner() {
         if (job.id === draft.id) return;
         if (dirty) setPendingOpen({ kind: "job", job });
         else openJob(job);
+    }
+
+    // Where cancelling a new job lands: the job it was started from if that
+    // still exists, otherwise the one the screen opens on. Null when the floor
+    // has no jobs at all, in which case there is nothing to cancel back to.
+    const cancelTarget = jobs.find((job) => job.id === returnJobId) ?? firstJobToOpen ?? null;
+
+    function cancelNewJob() {
+        if (cancelTarget === null) return;
+        if (dirty) setPendingOpen({ kind: "cancel", job: cancelTarget });
+        else openJob(cancelTarget);
     }
 
     // Copying replaces the draft, so it is the same loss as switching jobs and
@@ -508,20 +528,81 @@ function JobsPageInner() {
         }
     }
 
-    async function removeJob() {
+    /**
+     * Delete the open job, optionally clearing the drafts that block it first.
+     *
+     * The API refuses the delete while any schedule entry points at the job's
+     * work, and says which schedules those are. A draft is a proposal nobody
+     * has committed to, so the page can offer to delete it and ask again —
+     * which is the whole of `clearDrafts`. A confirmed schedule is a record of
+     * what the floor was told to do and is reported as the refusal it is.
+     */
+    async function removeJob(clearDrafts: readonly string[] = []) {
         if (!draft.id) return;
         const removedName = draft.name;
         try {
+            for (const scheduleId of clearDrafts) {
+                await deleteSchedule.mutateAsync({ id: scheduleId });
+            }
             await deleteJob.mutateAsync(draft.id);
             setIsCreating(false);
             openDraft(EMPTY_JOB_DRAFT);
-            setConfirmingDelete(false);
-            setDeleteClosing(false);
-            toast.success(`“${removedName}” deleted.`);
+            closeDeletePrompts();
+            toast.success(
+                clearDrafts.length === 0
+                    ? `“${removedName}” deleted.`
+                    : `“${removedName}” deleted, along with ${clearDrafts.length} draft ${clearDrafts.length === 1 ? "schedule" : "schedules"}.`,
+            );
         } catch (error) {
+            // Asking a second time would only be the same refusal: the drafts
+            // this round already deleted are gone, so whatever is in the way now
+            // is something the page cannot clear.
+            const references = clearDrafts.length === 0 ? scheduleReferences(error) : null;
+            if (references !== null && references.confirmedScheduleIds.length === 0) {
+                setConfirmingDelete(false);
+                setDeleteClosing(false);
+                setBlockingDrafts(references);
+                return;
+            }
             reportMutationError(error);
-            setConfirmingDelete(false);
-            setDeleteClosing(false);
+            closeDeletePrompts();
+        }
+    }
+
+    function closeDeletePrompts() {
+        setConfirmingDelete(false);
+        setDeleteClosing(false);
+        setBlockingDrafts(null);
+    }
+
+    /**
+     * Retire the open job from the backlog by hand.
+     *
+     * One way, so it is confirmed first (decision 0018). The editor is reopened
+     * on the job as the API now has it — read-only, and from the *saved*
+     * baseline rather than the draft: an archived job cannot be saved, so
+     * keeping unsaved edits on screen would only offer work that can no longer
+     * go anywhere.
+     */
+    async function archiveJobInEditor() {
+        if (!draft.id) return;
+        const archivedName = draft.name;
+        try {
+            const archived = await archiveJob.mutateAsync(draft.id);
+            setConfirmingArchive(false);
+            setIsCreating(false);
+            openDraft({
+                ...baselineDraft,
+                archivedAt: archived.archived_at,
+                backlogStatus: archived.backlog_status,
+                plannedByScheduleIds: archived.planned_by_schedule_ids,
+            });
+            setSelectedOperationId(null);
+            setFocusOperationId(null);
+            toast.success(`“${archivedName}” archived.`);
+        } catch (error) {
+            setConfirmingArchive(false);
+            reportMutationError(error);
         }
     }
 
@@ -530,7 +611,7 @@ function JobsPageInner() {
     const notes = (
         <>
             {loading && (
-                <Note intent="info" role="status">
+                <Note role="status">
                     Loading the job backlog and machines…
                 </Note>
             )}
@@ -556,7 +637,7 @@ function JobsPageInner() {
                 </Button>
             }
         >
-            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_2fr]">
+            <main className="grid flex-1 grid-cols-1 gap-3 p-3 sm:gap-5 sm:p-5 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2fr)]">
                 <JobBacklogPanel
                     jobs={jobs}
                     visibleJobs={visibleJobs}
@@ -583,6 +664,7 @@ function JobsPageInner() {
                     graphError={graphError}
                     onRetryGraph={() => void dependencyQuery.refetch()}
                     onDiscard={discardChanges}
+                    onCancelNew={cancelTarget === null ? undefined : cancelNewJob}
                     notes={notes}
                     onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
                     onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
@@ -603,6 +685,7 @@ function JobsPageInner() {
                     canDuplicate={canDuplicate}
                     onDuplicate={duplicateJob}
                     onRequestDelete={() => setConfirmingDelete(true)}
+                    onRequestArchive={() => setConfirmingArchive(true)}
                 />
             </main>
 
@@ -617,17 +700,25 @@ function JobsPageInner() {
                     title={
                         pendingOpen.kind === "duplicate"
                             ? "Duplicate with unsaved changes?"
-                            : "Discard unsaved changes?"
+                            : pendingOpen.kind === "cancel"
+                                ? "Cancel this new job?"
+                                : "Discard unsaved changes?"
                     }
                     description={
                         pendingOpen.kind === "new"
                             ? `“${draft.name.trim() || "This job"}” has changes that have not been saved. Starting a new job discards them.`
-                            : pendingOpen.kind === "duplicate"
-                                ? `The copy is made from what is on screen, unsaved changes included. “${draft.name.trim() || "This job"}” itself stays as it was last saved.`
-                                : `“${draft.name.trim() || "This job"}” has changes that have not been saved. Opening “${pendingOpen.job.name}” discards them.`
+                            : pendingOpen.kind === "cancel"
+                                ? `“${draft.name.trim() || "This new job"}” has not been created yet. Cancelling throws it away.`
+                                : pendingOpen.kind === "duplicate"
+                                    ? `The copy is made from what is on screen, unsaved changes included. “${draft.name.trim() || "This job"}” itself stays as it was last saved.`
+                                    : `“${draft.name.trim() || "This job"}” has changes that have not been saved. Opening “${pendingOpen.job.name}” discards them.`
                     }
                     confirmLabel={
-                        pendingOpen.kind === "duplicate" ? "Duplicate job" : "Discard changes"
+                        pendingOpen.kind === "duplicate"
+                            ? "Duplicate job"
+                            : pendingOpen.kind === "cancel"
+                                ? "Discard job"
+                                : "Discard changes"
                     }
                     cancelLabel="Keep editing"
                     danger={pendingOpen.kind !== "duplicate"}
@@ -661,8 +752,40 @@ function JobsPageInner() {
                     jobName={draft.name}
                     sequenceNumber={sequenceNumbers.get(draft.id)}
                     closing={deleteClosing}
-                    onConfirm={removeJob}
+                    onConfirm={() => void removeJob()}
                     onDismiss={dismissDelete}
+                />
+            )}
+
+            {/* The delete was refused, and everything in the way is a draft.
+                Asked as its own question rather than folded into the first
+                confirmation: deleting someone's proposed schedules is a
+                separate consequence, and until the API refused there was no way
+                to know it applied. */}
+            {blockingDrafts !== null && (
+                <ConfirmDialog
+                    title={
+                        blockingDrafts.draftScheduleIds.length === 1
+                            ? "Delete the draft schedule too?"
+                            : `Delete ${blockingDrafts.draftScheduleIds.length} draft schedules too?`
+                    }
+                    description={`“${draft.name.trim() || "This job"}” appears in ${blockingDrafts.draftScheduleIds.length === 1 ? "a draft schedule" : `${blockingDrafts.draftScheduleIds.length} draft schedules`}, which is why it cannot be removed on its own. Deleting ${blockingDrafts.draftScheduleIds.length === 1 ? "that draft" : "those drafts"} clears the way, and then the job goes. Neither can be undone, and nothing confirmed is touched.`}
+                    confirmLabel="Delete drafts and job"
+                    cancelLabel="Keep everything"
+                    danger
+                    onCancel={() => setBlockingDrafts(null)}
+                    onConfirm={() => void removeJob(blockingDrafts.draftScheduleIds)}
+                />
+            )}
+
+            {confirmingArchive && draft.id && (
+                <ConfirmDialog
+                    title={`Archive “${draft.name.trim() || "this job"}”?`}
+                    description={`Archiving takes the job out of the backlog, so it is no longer offered for scheduling and becomes read-only. There is no un-archive duplicating it is the way to a version you can edit.${dirty ? " Unsaved changes here are discarded." : ""}`}
+                    confirmLabel="Archive job"
+                    cancelLabel="Keep it open"
+                    onCancel={() => setConfirmingArchive(false)}
+                    onConfirm={() => void archiveJobInEditor()}
                 />
             )}
         </ManagerShell>

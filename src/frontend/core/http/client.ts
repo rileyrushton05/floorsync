@@ -9,10 +9,13 @@
 
 import type { InvalidParameter, ProblemDetail } from "./contracts";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 const apiFallbackMessage = (status: number, statusText: string) =>
     `The API answered ${status} ${statusText}.`;
+
+/** RFC 9457's own members. Anything else a problem carries is an extension. */
+const STANDARD_MEMBERS = new Set(["type", "title", "status", "detail", "instance", "invalid_params"]);
 
 export class ApiError extends Error {
     constructor(
@@ -55,7 +58,7 @@ export async function apiRequest<Body>(
 ): Promise<Body> {
     let response: Response;
     try {
-        response = await fetch(`${BASE_URL}${path}`, {
+        response = await fetch(`${API_BASE_URL}${path}`, {
             ...init,
             headers: {
                 Accept: "application/json",
@@ -69,7 +72,7 @@ export async function apiRequest<Body>(
         if (init?.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
             throw error;
         }
-        throw new ApiError(0, null, `Could not reach the API at ${BASE_URL}.`);
+        throw new ApiError(0, null, `Could not reach the API at ${API_BASE_URL}.`);
     }
 
     if (!response.ok) {
@@ -105,6 +108,9 @@ async function problemDetail(response: Response): Promise<ProblemDetail | null> 
             detail: typeof value.detail === "string" ? value.detail : null,
             instance: typeof value.instance === "string" ? value.instance : null,
             invalid_params: invalidParams,
+            extensions: Object.fromEntries(
+                Object.entries(value).filter(([name]) => !STANDARD_MEMBERS.has(name)),
+            ),
         };
     } catch {
         // A proxy failure need not be JSON.

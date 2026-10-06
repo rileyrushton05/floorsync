@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/calendar";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { CalendarIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
+import { getLocalTimeZone, type CalendarDate } from "@internationalized/date";
 import { useReportingDate } from "./ReportingDate";
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -25,7 +25,10 @@ function formatShortDate(date: Date): string {
 }
 
 /**
- * The "Wed, 16 Sep" calendar control every manager page carries in the topbar.
+ * The "Wed, 16 Sep" calendar control in the manager header, beside the section
+ * name, on the pages that read the reporting date (`showDatePicker`). The
+ * Planner does not use it: it asks for a plan's start date when Generate is
+ * pressed (`PlanStartDateDialog`).
  *
  * No min/max bounds: every month is navigable and every past or future day is
  * clickable — the previous seeded-fortnight bounds were why the arrows and
@@ -68,9 +71,4 @@ export function ReportingDatePicker() {
             </PopoverContent>
         </Popover>
     );
-}
-
-/** Today in the manager's timezone, as the picker's default selection. */
-export function todayValue(): CalendarDate {
-    return today(getLocalTimeZone());
 }

@@ -8,7 +8,7 @@ one model file under `floorsync_common/database/models/`.
 All tables get `id` (UUID v4, `UUIDPrimaryKeyMixin`) and `created_at` / `updated_at`
 (`TimestampMixin`) unless noted. Omitted below for brevity.
 
-![Physical schema diagram: all 13 tables, columns, types and keys, generated from this document](diagrams/database-schema.png)
+![Physical schema diagram: all 16 tables with their columns, types, keys and relationships, generated from the SQLAlchemy models; created_at and updated_at are omitted](diagrams/database-schema.png)
 
 ## categories
 
@@ -230,6 +230,7 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 |---|---|---|
 | status | Text | not null, CHECK status IN ('draft', 'confirmed', 'discarded') |
 | strategy | Text | not null |
+| starts_at | DateTime(timezone=True) | not null, indexed — requested schedule start time |
 | runtime_ms | Integer | nullable — elapsed engine time only, excluding database/API work |
 | input_operation_count | Integer | nullable — number of operations in this run's input |
 | makespan | Integer | nullable — set once generation completes |
@@ -350,8 +351,13 @@ job-level dependency anywhere in this schema — which jobs wait on which is der
 | started_at | DateTime(timezone=True) | nullable — null until started |
 | speed | Numeric(5,2) | not null, default 1 |
 | completed_at | DateTime(timezone=True) | nullable |
+| live_sequence | BigInteger | not null, default 0 |
 
 One simulation per schedule; reset re-initialises this row rather than creating a new one.
+
+`live_sequence` counts the `simulation.changed` notifications this simulation has issued (decision
+0017). It is bumped with a single `UPDATE ... RETURNING` by `LiveUpdateOutboxService`, never read
+and incremented in two steps, so concurrent controls always get distinct numbers.
 
 **`started_at` + `speed` alone can't correctly derive simulated time across a pause.** `elapsed =
 (now - started_at) * speed` keeps advancing in real time even while paused, which breaks "preserve
@@ -369,13 +375,44 @@ data has to exist anyway.
 | column | type | constraints |
 |---|---|---|
 | simulation_id | Uuid | FK -> simulations.id, not null, ondelete CASCADE, indexed |
-| event_type | Text | not null, CHECK event_type IN ('started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed') |
+| event_type | Text | not null, CHECK event_type IN ('started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed', 'seeked') |
 | occurred_at | DateTime(timezone=True) | not null, server_default now() |
 | speed | Numeric(5,2) | nullable — set only on 'started', 'resumed', 'speed_changed' |
+| position | Double | nullable, >= 0 — set on, and only on, 'seeked': the simulated time the play head jumped to, clamped to the makespan |
 
 `ondelete CASCADE` from Simulation is correct here in the same way it's correct for Schedule
 Dependency: the event log has no meaning independent of the simulation it describes, and Simulation
 itself is already RESTRICT-protected from casual deletion.
+
+## live_update_outbox
+
+A notification owed to the live dashboards, written in the same transaction as the change it
+describes (decision 0017, #148). Redis pub/sub is fire-and-forget, so the change and this row
+commit together; the API publishes the row straight after commit and a relay retries any row Redis
+never accepted. Rolling back the change rolls back the row, so nothing is announced that did not
+happen.
+
+| column | type | constraints |
+|---|---|---|
+| topic | Text | not null, CHECK topic IN ('simulation.changed') |
+| aggregate_id | Uuid | not null, the simulation's id, **not** a FK (see below) |
+| sequence | BigInteger | not null, CHECK sequence > 0, **unique with aggregate_id** |
+| payload | JSONB | not null, the versioned envelope from `live_updates.contracts` |
+| published_at | DateTime(timezone=True) | nullable, null until Redis accepted it |
+| attempt_count | Integer | not null, default 0, CHECK >= 0 |
+| next_attempt_at | DateTime(timezone=True) | not null, server_default now() |
+| last_error_code | Text | nullable |
+
+Partial index `(next_attempt_at, created_at) WHERE published_at IS NULL`: the relay's only read,
+kept the size of the backlog rather than the history.
+
+`payload` is the schema's one JSONB column, and the conventions doc's test for one is met: it is
+written once, read back whole, and never queried by field. It is the public wire contract, not a
+serialised model, so a column rename elsewhere must not change it.
+
+`aggregate_id` is deliberately not a foreign key. The outbox is generic over topics and the row is
+a record of a notification owed, not part of the simulation's own history; it constrains nothing
+and is constrained by nothing. Published rows accumulate until a separate retention task exists.
 
 ## Deletion policy
 

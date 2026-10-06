@@ -1,11 +1,15 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, StringConstraints, model_validator
 
 from floorsync_api.schemas import RequestSchema, ResponseSchema
+
+type ScheduleName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+]
 
 
 class ScheduleCreateRequest(RequestSchema):
@@ -92,8 +96,10 @@ class ScheduleSummaryResponse(ResponseSchema):
     """
 
     id: UUID
+    name: str | None
     status: Literal["draft", "confirmed", "discarded"]
     strategy: str
+    starts_at: datetime
     makespan: int | None
     input_operation_count: int | None
     created_at: datetime
@@ -102,20 +108,40 @@ class ScheduleSummaryResponse(ResponseSchema):
 
 
 class ScheduleUpdateRequest(RequestSchema):
-    """A lifecycle transition (decision 0015).
+    """A rename, a lifecycle transition (decision 0015), or both at once.
 
     `confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a
     confirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that
     is not wanted is deleted. Repeating the schedule's current status is a harmless no-op.
+
+    `name` can be set in any status, since it labels the run rather than changing what it planned.
+    Sending both is how the Planner saves: name the draft and confirm it in one request, so a
+    refused transition never leaves a renamed draft behind. Explicit nulls are rejected.
     """
 
-    status: Literal["confirmed", "discarded"]
+    status: Literal["confirmed", "discarded"] | None = None
+    name: ScheduleName | None = None
+
+    @model_validator(mode="after")
+    def require_a_change(self) -> "ScheduleUpdateRequest":
+        nulled = [
+            field
+            for field in ("status", "name")
+            if field in self.model_fields_set and getattr(self, field) is None
+        ]
+        if nulled:
+            raise ValueError(f"{', '.join(nulled)} cannot be null")
+        if self.status is None and self.name is None:
+            raise ValueError("send a status, a name, or both")
+        return self
 
 
 class ScheduleResponse(ResponseSchema):
     id: UUID
+    name: str | None
     status: Literal["draft", "confirmed", "discarded"]
     strategy: str
+    starts_at: datetime
     runtime_ms: int | None
     input_operation_count: int | None
     makespan: int | None

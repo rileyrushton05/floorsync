@@ -1,39 +1,36 @@
 "use client";
 
-import { UserMenu } from "@/core/auth/UserMenu";
-import { Wordmark } from "./Logo";
-import { ManagerNavigation } from "./ManagerNavigation";
+import { Button } from "@/components/ui/button";
+import { Bars3Icon } from "@heroicons/react/24/outline";
+import { usePathname } from "next/navigation";
+import { sectionLabel } from "./ManagerNavigation";
 import { ReportingDatePicker } from "./ReportingDatePicker";
 
 /**
- * Shared topbar chrome for every manager route.
- *
- * The "Manager" label is a plain, non-interactive heading: it is spaced away
- * from the wordmark and carries no hover affordance, so it never reads as a
- * link the way the section tabs next to it do.
+ * The header above every manager page's content: the current section's name,
+ * the reporting-date picker on pages that use the date, and that page's own
+ * actions. Navigation lives in the sidebar; below `lg`, where the sidebar is
+ * tucked away, the menu button here opens it.
  */
-export function ManagerTopbar({ children }: { children?: React.ReactNode }) {
+export function ManagerTopbar({
+    onOpenMenu,
+    showDatePicker,
+    children,
+}: {
+    onOpenMenu: () => void;
+    showDatePicker: boolean;
+    children?: React.ReactNode;
+}) {
+    const pathname = usePathname();
+
     return (
-        <header className="flex flex-nowrap items-center gap-5 border-b bg-navbar px-7 py-3.5 whitespace-nowrap">
-            <div className="flex items-center gap-5 flex-shrink-0">
-                <Wordmark />
-                {/* Not clickable — a static section label, deliberately given a
-                    gap from the wordmark and no hover/cursor affordance. */}
-                <span
-                    aria-hidden
-                    className="border-s border-border pl-4 font-bold text-muted-fg text-xs uppercase tracking-[0.06em] select-none"
-                >
-                    Manager
-                </span>
-            </div>
-            <ManagerNavigation />
-            {/* The reporting-date calendar sits dead-centre of the bar on every
-                manager page, between the section tabs and the page actions. */}
-            <div className="flex min-w-fit flex-1 items-center justify-center">
-                <ReportingDatePicker />
-            </div>
-            {children}
-            <UserMenu />
+        <header className="flex min-h-15 flex-nowrap items-center gap-4 border-b bg-navbar px-5 py-2.5 whitespace-nowrap">
+            <Button intent="plain" size="sq-sm" aria-label="Open navigation" onPress={onOpenMenu} className="lg:hidden">
+                <Bars3Icon />
+            </Button>
+            <h1 className="m-0 font-bold text-lg tracking-tight">{sectionLabel(pathname)}</h1>
+            {showDatePicker && <ReportingDatePicker />}
+            <div className="ml-auto flex items-center gap-2.5">{children}</div>
         </header>
     );
 }

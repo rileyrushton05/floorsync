@@ -957,6 +957,26 @@
         "title": "JobUpdateRequest",
         "type": "object"
       },
+      "LiveUpdateTicketResponse": {
+        "description": "A one-time ticket to authenticate the `/ws` connection this account is about to open.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_at"
+        ],
+        "title": "LiveUpdateTicketResponse",
+        "type": "object"
+      },
       "MachineCreateRequest": {
         "additionalProperties": false,
         "description": "A machine a manager is adding to the floor.\n\ncategory_id and salary are optional: nothing in the scheduler reads a machine's category, and a\nmachine with no recorded salary is excluded from a schedule's labour total rather than counted\nas free. Requiring either would block entering a machine whose details are not settled yet.",
@@ -1597,6 +1617,11 @@
         "title": "ScheduleGenerationStatusResponse",
         "type": "object"
       },
+      "ScheduleName": {
+        "maxLength": 120,
+        "minLength": 1,
+        "type": "string"
+      },
       "ScheduleResponse": {
         "properties": {
           "confirmed_at": {
@@ -1669,6 +1694,17 @@
             ],
             "title": "Makespan"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "runtime_ms": {
             "anyOf": [
               {
@@ -1679,6 +1715,11 @@
               }
             ],
             "title": "Runtime Ms"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -1720,8 +1761,10 @@
         },
         "required": [
           "id",
+          "name",
           "status",
           "strategy",
+          "starts_at",
           "runtime_ms",
           "input_operation_count",
           "makespan",
@@ -1795,6 +1838,22 @@
             ],
             "title": "Makespan"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "draft",
@@ -1811,8 +1870,10 @@
         },
         "required": [
           "id",
+          "name",
           "status",
           "strategy",
+          "starts_at",
           "makespan",
           "input_operation_count",
           "created_at",
@@ -1824,20 +1885,34 @@
       },
       "ScheduleUpdateRequest": {
         "additionalProperties": false,
-        "description": "A lifecycle transition (decision 0015).\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.",
+        "description": "A rename, a lifecycle transition (decision 0015), or both at once.\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.\n\n`name` can be set in any status, since it labels the run rather than changing what it planned.\nSending both is how the Planner saves: name the draft and confirm it in one request, so a\nrefused transition never leaves a renamed draft behind. Explicit nulls are rejected.",
         "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
-            "enum": [
-              "confirmed",
-              "discarded"
+            "anyOf": [
+              {
+                "enum": [
+                  "confirmed",
+                  "discarded"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Status",
-            "type": "string"
+            "title": "Status"
           }
         },
-        "required": [
-          "status"
-        ],
         "title": "ScheduleUpdateRequest",
         "type": "object"
       },
@@ -1962,7 +2037,8 @@
           "resumed",
           "speed_changed",
           "reset",
-          "completed"
+          "completed",
+          "seeked"
         ],
         "type": "string"
       },
@@ -1984,10 +2060,22 @@
       },
       "SimulationEventRequest": {
         "additionalProperties": false,
-        "description": "Record one playback control action.\n\n``speed`` is required for ``started``, ``resumed`` and ``speed_changed``, and\nignored otherwise.",
+        "description": "Record one playback control action.\n\n``speed`` is required for ``started``, ``resumed`` and ``speed_changed``, and\nignored otherwise. ``position`` is the simulated time a ``seeked`` control moves\nthe play head to; it is required there, clamped to the makespan, and ignored\notherwise.",
         "properties": {
           "event_type": {
             "$ref": "#/components/schemas/SimulationControl"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
           },
           "speed": {
             "anyOf": [
@@ -3113,6 +3201,36 @@
         ]
       }
     },
+    "/api/v1/live-updates/tickets": {
+      "post": {
+        "description": "Issue a short-lived, single-use ticket bound to the caller's account.\n\nAny signed-in account may request one -- the socket's own subscription check is what limits\nwhat that ticket can then see. Never cached: a ticket is single-use, so a cached response\nwould hand out one that already looks valid but can never actually be redeemed twice.",
+        "operationId": "create_ticket_api_v1_live_updates_tickets_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveUpdateTicketResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "Live updates are unavailable; fall back to polling"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Issue a one-time ticket to authenticate a live-update WebSocket",
+        "tags": [
+          "live-updates"
+        ]
+      }
+    },
     "/api/v1/machines": {
       "get": {
         "description": "List machines by name, a page at a time.",
@@ -3987,7 +4105,7 @@
         ]
       },
       "patch": {
-        "description": "Move a schedule through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269).",
+        "description": "Rename a schedule and/or move it through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269). Confirming is\nrefused while another confirmed schedule plans any of the same jobs, and the refusal names that\nschedule, so a job is never in two plans at once.\n\n`{\"name\": ...}` labels the schedule in any status. When both are sent the transition runs\nfirst, and a refused transition answers before anything is renamed.",
         "operationId": "update_schedule_api_v1_schedules__schedule_id__patch",
         "parameters": [
           {
@@ -4026,7 +4144,7 @@
             "description": "The schedule does not exist"
           },
           "409": {
-            "description": "A draft cannot be discarded (delete it instead), or the schedule's simulation has started so it cannot be withdrawn"
+            "description": "A draft cannot be discarded (delete it instead), the schedule's simulation has started so it cannot be withdrawn, or confirming would put a job in a second confirmed schedule (withdraw that one first)"
           },
           "422": {
             "content": {
@@ -4044,15 +4162,64 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Confirm or discard a schedule",
+        "summary": "Rename, confirm or discard a schedule",
         "tags": [
           "schedules"
         ]
       }
     },
+    "/api/v1/schedules/{schedule_id}/simulation": {
+      "get": {
+        "description": "Recover the one simulation for a schedule, including its replayed clock.\n\nA manager normally reaches the simulation screen with a schedule id, not a\nsimulation id. Returning 404 when no simulation has been created keeps\n\"start simulation\" an explicit action while allowing a refresh to recover\nany existing event log.",
+        "operationId": "get_schedule_simulation_api_v1_schedules__schedule_id__simulation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get a schedule's persisted simulation position",
+        "tags": [
+          "simulation"
+        ]
+      }
+    },
     "/api/v1/schedules/{schedule_id}/timeline": {
       "get": {
-        "description": "Resolve a schedule's entries and dependencies into start and end times.\n\nThe result is immutable for a confirmed schedule, so a client should fetch it\nonce per schedule and animate locally rather than polling.",
+        "description": "Resolve a schedule's entries and dependencies into start and end times.\n\nThe result is immutable for a confirmed schedule. Clients use it to draw the\nplan, then read the schedule's simulation endpoint for a durable position.",
         "operationId": "get_schedule_timeline_api_v1_schedules__schedule_id__timeline_get",
         "parameters": [
           {
@@ -4101,7 +4268,7 @@
     },
     "/api/v1/simulations": {
       "post": {
-        "description": "Create the simulation for a confirmed schedule.\n\nA schedule has at most one simulation; resetting re-initialises that row\nrather than creating another, so a repeat request reports a conflict.",
+        "description": "Create the simulation for a confirmed schedule.\n\nA schedule has at most one simulation; resetting re-initialises that row\nrather than creating another, so a repeat request reports a conflict.\n\nCreating a simulation is a change too (decision 0017), so it is announced on the live channel\nwith cause \"created\" alongside the response -- it appends no `simulation_events` row, which is\nwhy this is enqueued here rather than inside `SimulationService.create_simulation` itself.",
         "operationId": "create_simulation_api_v1_simulations_post",
         "requestBody": {
           "content": {
@@ -4141,6 +4308,33 @@
           }
         ],
         "summary": "Start simulating a confirmed schedule",
+        "tags": [
+          "simulation"
+        ]
+      }
+    },
+    "/api/v1/simulations/active": {
+      "get": {
+        "description": "Name the live simulation so an operator can find its schedule and timeline.\n\nOperators cannot list schedules, so this is how they learn which one is running.\nA running or paused simulation is preferred over one that has not started, and 404\nmeans no simulation exists yet. Declared before `/simulations/{simulation_id}` so the\nliteral path is never read as an id.",
+        "operationId": "get_active_simulation_api_v1_simulations_active_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get the simulation operators should follow",
         "tags": [
           "simulation"
         ]
@@ -4197,7 +4391,7 @@
     },
     "/api/v1/simulations/{simulation_id}/events": {
       "post": {
-        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.",
+        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, seek, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.\n\nA recorded control is announced on the live channel (decision 0017): the outbox row commits\nin the same transaction as the event, and is published to Redis only once that transaction\nhas committed, so a client never sees a notification for a change that did not happen.",
         "operationId": "create_simulation_event_api_v1_simulations__simulation_id__events_post",
         "parameters": [
           {
@@ -4301,6 +4495,29 @@
           }
         },
         "summary": "Check API process liveness",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/health/live-updates": {
+      "get": {
+        "description": "Report on the live-update subsystem alone.\n\nDeliberately not folded into `/health/ready`: Redis being down must not pull this instance out\nof rotation for ordinary REST traffic (decision 0017's whole premise), so this is a signal for\nwhoever wants to alert on live delivery specifically, not a traffic gate.",
+        "operationId": "live_updates_health_health_live_updates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "Live delivery is degraded"
+          }
+        },
+        "summary": "Check live-update delivery health",
         "tags": [
           "system"
         ]

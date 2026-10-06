@@ -150,6 +150,8 @@ make check
 
 `make check` runs Python formatting, linting, typing and tests, then frontend linting, type checking and a production build. The optional Git hook installed by `make install-hooks` runs the same suite before every push; use `git push --no-verify` only when a failing check is clearly understood and noted in the PR.
 
+Tests that need a real PostgreSQL live in `tests/integration` and skip when none is reachable, so `make check` never needs one. With the Compose database up (`docker compose up -d postgres`), `make test-integration` runs them against a separate `floorsync_test` database that they create, migrate and empty themselves. In CI, the backend job starts a PostgreSQL container and runs them only when a pull request touches migrations, database models, simulation, live updates or dependencies, so other pull requests spend no extra Actions minutes on them.
+
 See [the technical foundation](docs/architecture.md) for component boundaries and tooling decisions.
 
 This repository has already been created for your team, with all team members and teaching staff added.

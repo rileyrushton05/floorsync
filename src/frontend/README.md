@@ -27,9 +27,15 @@ timeline into the shared Gantt model. A completed generation invalidates the
 schedule collection; acceptance alone does not, because no schedule exists at
 that point.
 
-The manager overview and operator queue are explicitly prototype features until
-their backend contracts exist. Their fixtures/prototype components live only in
-their feature areas; API-backed manager features never use them as a fallback.
+The manager overview is an explicitly prototype feature until its backend
+contract exists; its fixtures live only in its feature area, and API-backed
+features never use them as a fallback.
+
+The operator screen is API-backed: `GET /simulations/active` names the live
+simulation, the schedule timeline is filtered to the account's machine, and the
+`/ws` live-update socket (`core/live-updates`) triggers a refetch, with polling as
+the fallback. Only "Mark complete" is local prototype state until the API can
+record operation completion.
 
 ## Backend-authoritative mutations
 

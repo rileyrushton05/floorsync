@@ -10,6 +10,7 @@ unique index) belongs in integration tests once the migration exists.
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -28,6 +29,7 @@ from floorsync_common.simulation import (
 )
 from floorsync_common.simulation.results import (
     ControlNotApplicable,
+    ControlPositionRequired,
     ControlRecorded,
     ControlSpeedRequired,
     ScheduleNotConfirmed,
@@ -35,6 +37,7 @@ from floorsync_common.simulation.results import (
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -43,6 +46,7 @@ from floorsync_common.simulation.service import (
     ScheduleTimelineService,
     SimulationService,
     control_is_applicable,
+    control_requires_position,
     control_requires_speed,
 )
 
@@ -97,7 +101,7 @@ class FakeSession:
         schedule: FakeSchedule | None = None,
         simulation: FakeSimulation | None = None,
         entry_rows: list[tuple[UUID, UUID, UUID, int, str, str, str, datetime]] | None = None,
-        event_rows: list[tuple[str, datetime, Decimal | None]] | None = None,
+        event_rows: list[tuple[str, datetime, Decimal | None, float | None]] | None = None,
     ) -> None:
         self.schedule = schedule
         self.simulation = simulation
@@ -105,6 +109,8 @@ class FakeSession:
         self.event_rows = event_rows if event_rows is not None else []
         self.added: list[Any] = []
         self.flushes = 0
+        self.simulation_reads: list[bool] = []
+        """Whether each read of `simulations` asked for the row lock."""
 
     def begin(self) -> FakeTransaction:
         return FakeTransaction()
@@ -126,6 +132,7 @@ class FakeSession:
         if "FROM schedules" in rendered:
             return FakeResult(scalar=self.schedule)
         if "FROM simulations" in rendered:
+            self.simulation_reads.append("FOR UPDATE" in rendered)
             return FakeResult(scalar=self.simulation)
         if "FROM simulation_events" in rendered:
             return FakeResult(rows=self.event_rows)
@@ -179,6 +186,10 @@ def timeline_of(
         (SimulationEventType.RESET, "complete", True),
         (SimulationEventType.COMPLETED, "running", True),
         (SimulationEventType.COMPLETED, "paused", False),
+        (SimulationEventType.SEEKED, "not_started", True),
+        (SimulationEventType.SEEKED, "running", True),
+        (SimulationEventType.SEEKED, "paused", True),
+        (SimulationEventType.SEEKED, "complete", True),
     ],
 )
 def test_control_transitions(event_type: SimulationEventType, status: str, expected: bool) -> None:
@@ -191,6 +202,13 @@ def test_only_speed_setting_controls_require_a_speed() -> None:
     assert control_requires_speed(SimulationEventType.SPEED_CHANGED)
     assert not control_requires_speed(SimulationEventType.PAUSED)
     assert not control_requires_speed(SimulationEventType.RESET)
+    assert not control_requires_speed(SimulationEventType.SEEKED)
+
+
+def test_only_a_seek_requires_a_position() -> None:
+    assert control_requires_position(SimulationEventType.SEEKED)
+    assert not control_requires_position(SimulationEventType.STARTED)
+    assert not control_requires_position(SimulationEventType.RESET)
 
 
 # -- timeline service ----------------------------------------------------
@@ -273,7 +291,7 @@ def test_get_simulation_derives_position_from_the_event_log() -> None:
     session = FakeSession(
         schedule=FakeSchedule(),
         simulation=FakeSimulation(status="running"),
-        event_rows=[("started", NOW, Decimal("1"))],
+        event_rows=[("started", NOW, Decimal("1"), None)],
     )
 
     result = run(
@@ -300,7 +318,7 @@ def test_get_simulation_clamps_at_the_makespan() -> None:
     session = FakeSession(
         schedule=FakeSchedule(),
         simulation=FakeSimulation(status="running"),
-        event_rows=[("started", NOW, Decimal("1"))],
+        event_rows=[("started", NOW, Decimal("1"), None)],
     )
 
     result = run(
@@ -312,6 +330,32 @@ def test_get_simulation_clamps_at_the_makespan() -> None:
     assert isinstance(result, SimulationPositionResolved)
     assert result.position.time == 5
     assert result.position.is_complete is True
+
+
+def test_get_schedule_simulation_recovers_the_position_from_a_schedule_id() -> None:
+    session = FakeSession(
+        schedule=FakeSchedule(),
+        simulation=FakeSimulation(status="running"),
+        event_rows=[("started", NOW, Decimal("1"), None)],
+    )
+
+    result = run(
+        SimulationService.get_simulation_for_schedule(
+            session, schedule_id=SCHEDULE_ID, at=NOW + timedelta(seconds=2)
+        )
+    )
+
+    assert isinstance(result, SimulationPositionResolved)
+    assert result.simulation.id == SIMULATION_ID
+    assert result.position.time == pytest.approx(2.0)
+
+
+def test_get_schedule_simulation_reports_that_it_has_not_been_started() -> None:
+    session = FakeSession(schedule=FakeSchedule(), simulation=None)
+
+    result = run(SimulationService.get_simulation_for_schedule(session, schedule_id=SCHEDULE_ID))
+
+    assert result == SimulationForScheduleNotFound(schedule_id=SCHEDULE_ID)
 
 
 # -- recording control actions -------------------------------------------
@@ -339,6 +383,34 @@ def test_record_control_appends_an_event_and_projects_status() -> None:
     assert simulation.status == "running"
     assert simulation.started_at == NOW
     assert simulation.speed == Decimal("2")
+
+
+def test_record_control_holds_the_simulation_row_for_the_transaction() -> None:
+    """Two managers pressing buttons at once must queue on the row (decision 0017), so the
+    second judges the status the first left and announces the next sequence in event order."""
+
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation())
+
+    run(
+        SimulationService.record_control(
+            session,
+            simulation_id=SIMULATION_ID,
+            event_type=SimulationEventType.STARTED,
+            speed=Decimal("2"),
+        )
+    )
+
+    assert session.simulation_reads == [True]
+
+
+def test_get_simulation_reads_without_locking() -> None:
+    """A dashboard poll must never queue behind a manager's control."""
+
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="running"))
+
+    run(SimulationService.get_simulation(session, simulation_id=SIMULATION_ID))
+
+    assert session.simulation_reads == [False]
 
 
 def test_record_control_rejects_an_inapplicable_transition() -> None:
@@ -389,6 +461,102 @@ def test_record_control_reset_clears_the_projection() -> None:
     assert simulation.started_at is None
 
 
+def test_record_control_seek_keeps_a_running_simulation_running() -> None:
+    simulation = FakeSimulation(status="running")
+    simulation.started_at = NOW
+    session = FakeSession(schedule=FakeSchedule(), simulation=simulation)
+
+    result = run(
+        SimulationService.record_control(
+            session,
+            simulation_id=SIMULATION_ID,
+            event_type=SimulationEventType.SEEKED,
+            seek_to=1.0,
+            at=NOW,
+        )
+    )
+
+    assert isinstance(result, ControlRecorded)
+    assert session.added[0].event_type == "seeked"
+    assert session.added[0].position == 1.0
+    assert session.added[0].speed is None
+    assert simulation.status == "running"
+
+
+def test_record_control_seek_parks_a_finished_simulation_paused() -> None:
+    simulation = FakeSimulation(status="complete")
+    simulation.started_at = NOW
+    simulation.completed_at = NOW
+    session = FakeSession(schedule=FakeSchedule(), simulation=simulation)
+
+    result = run(
+        SimulationService.record_control(
+            session,
+            simulation_id=SIMULATION_ID,
+            event_type=SimulationEventType.SEEKED,
+            seek_to=1.0,
+            at=NOW,
+        )
+    )
+
+    assert isinstance(result, ControlRecorded)
+    assert simulation.status == "paused"
+    assert simulation.completed_at is None
+
+
+def test_record_control_seek_before_starting_parks_it_paused() -> None:
+    simulation = FakeSimulation(status="not_started")
+    session = FakeSession(schedule=FakeSchedule(), simulation=simulation)
+
+    run(
+        SimulationService.record_control(
+            session,
+            simulation_id=SIMULATION_ID,
+            event_type=SimulationEventType.SEEKED,
+            seek_to=1.0,
+            at=NOW,
+        )
+    )
+
+    assert simulation.status == "paused"
+    assert simulation.started_at == NOW
+
+
+def test_record_control_seek_is_clamped_to_the_makespan_and_completes() -> None:
+    simulation = FakeSimulation(status="paused")
+    session = FakeSession(schedule=FakeSchedule(), simulation=simulation)
+    makespan = timeline_of().makespan
+
+    run(
+        SimulationService.record_control(
+            session,
+            simulation_id=SIMULATION_ID,
+            event_type=SimulationEventType.SEEKED,
+            seek_to=makespan + 1_000,
+            at=NOW,
+        )
+    )
+
+    assert session.added[0].position == makespan
+    assert simulation.status == "complete"
+    assert simulation.completed_at == NOW
+
+
+def test_record_control_seek_requires_a_position() -> None:
+    session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="paused"))
+
+    result = run(
+        SimulationService.record_control(
+            session, simulation_id=SIMULATION_ID, event_type=SimulationEventType.SEEKED, at=NOW
+        )
+    )
+
+    assert result == ControlPositionRequired(
+        simulation_id=SIMULATION_ID, event_type=SimulationEventType.SEEKED
+    )
+    assert session.added == []
+
+
 def test_record_control_completion_writes_nothing_onto_jobs() -> None:
     """The floor has done the work; that the jobs are done is read from this simulation
     (decision 0019), so completion touches no job row."""
@@ -430,6 +598,28 @@ def test_timeline_response_separates_lanes_from_operations() -> None:
 
 
 # -- routes --------------------------------------------------------------
+
+
+def _stub_live_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Silence the live-update side effect for a route test that isn't about it.
+
+    `FakeSession` has no `.scalar()`/`.get()` support for the outbox's sequence allocation, and
+    this file's own concern is simulation lifecycle/position, not delivery -- see
+    `tests/backend/test_live_updates.py` for the outbox service itself.
+    """
+    from floorsync_api.features.live_updates.publisher import OutboxPublisher
+    from floorsync_common.live_updates.service import LiveUpdateOutboxService
+
+    async def fake_enqueue(*_: object, **__: object) -> Any:
+        return SimpleNamespace(outbox_id=uuid4())
+
+    async def fake_publish(*_: object, **__: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        LiveUpdateOutboxService, "enqueue_simulation_change", staticmethod(fake_enqueue)
+    )
+    monkeypatch.setattr(OutboxPublisher, "publish_now", staticmethod(fake_publish))
 
 
 def build_client(session: FakeSession, *, role: str = "manager") -> TestClient:
@@ -488,7 +678,7 @@ def test_simulation_route_returns_the_derived_position() -> None:
         FakeSession(
             schedule=FakeSchedule(),
             simulation=FakeSimulation(status="running"),
-            event_rows=[("started", NOW, Decimal("1"))],
+            event_rows=[("started", NOW, Decimal("1"), None)],
         )
     )
 
@@ -501,7 +691,23 @@ def test_simulation_route_returns_the_derived_position() -> None:
     assert body["speed"] == "1"
 
 
-def test_event_route_records_a_control_action() -> None:
+def test_schedule_simulation_route_recovers_the_derived_position() -> None:
+    client = build_client(
+        FakeSession(
+            schedule=FakeSchedule(),
+            simulation=FakeSimulation(status="running"),
+            event_rows=[("started", NOW, Decimal("1"), None)],
+        )
+    )
+
+    response = client.get(f"/api/v1/schedules/{SCHEDULE_ID}/simulation")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(SIMULATION_ID)
+
+
+def test_event_route_records_a_control_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_live_updates(monkeypatch)
     session = FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation())
     client = build_client(session)
 
@@ -529,6 +735,48 @@ def test_event_route_rejects_an_inapplicable_control() -> None:
     assert response.headers["content-type"] == "application/problem+json"
 
 
+def test_event_route_records_a_seek(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_live_updates(monkeypatch)
+    simulation = FakeSimulation(status="paused")
+    session = FakeSession(schedule=FakeSchedule(), simulation=simulation)
+    client = build_client(session)
+
+    response = client.post(
+        f"/api/v1/simulations/{SIMULATION_ID}/events",
+        json={"event_type": "seeked", "position": 1.5},
+    )
+
+    assert response.status_code == 201
+    assert session.added[0].position == 1.5
+
+
+def test_event_route_requires_a_seek_position() -> None:
+    client = build_client(
+        FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="paused"))
+    )
+
+    response = client.post(
+        f"/api/v1/simulations/{SIMULATION_ID}/events", json={"event_type": "seeked"}
+    )
+
+    assert response.status_code == 422
+    assert "position" in response.json()["detail"]
+
+
+def test_event_route_rejects_a_negative_seek_position() -> None:
+    client = build_client(
+        FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation(status="paused"))
+    )
+
+    response = client.post(
+        f"/api/v1/simulations/{SIMULATION_ID}/events",
+        json={"event_type": "seeked", "position": -1},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["type"] == "urn:floorsync:problem:request-validation"
+
+
 def test_event_route_rejects_an_unknown_control_before_reaching_the_service() -> None:
     client = build_client(FakeSession(schedule=FakeSchedule(), simulation=FakeSimulation()))
 
@@ -551,10 +799,39 @@ def test_event_route_rejects_unknown_fields() -> None:
     assert response.status_code == 422
 
 
-def test_create_simulation_route_sets_a_location_header() -> None:
+def test_create_simulation_route_sets_a_location_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_live_updates(monkeypatch)
     client = build_client(FakeSession(schedule=FakeSchedule(), simulation=None))
 
     response = client.post("/api/v1/simulations", json={"schedule_id": str(SCHEDULE_ID)})
 
     assert response.status_code == 201
     assert response.headers["location"].startswith("/api/v1/simulations/")
+
+
+def test_active_simulation_route_is_open_to_an_operator() -> None:
+    client = build_client(
+        FakeSession(
+            schedule=FakeSchedule(),
+            simulation=FakeSimulation(status="running"),
+            event_rows=[("started", NOW, Decimal("1"), None)],
+        ),
+        role="operator",
+    )
+
+    response = client.get("/api/v1/simulations/active")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(SIMULATION_ID)
+    assert body["schedule_id"] == str(SCHEDULE_ID)
+    assert body["status"] == "running"
+
+
+def test_active_simulation_route_reports_none_as_a_problem() -> None:
+    client = build_client(FakeSession(simulation=None), role="operator")
+
+    response = client.get("/api/v1/simulations/active")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/problem+json"

@@ -33,17 +33,22 @@ from floorsync_common.simulation.events import (
 from floorsync_common.simulation.floorsync import FloorSyncScheduleAdapter
 from floorsync_common.simulation.results import (
     ControlNotApplicable,
+    ControlPositionRequired,
     ControlRecorded,
     ControlSpeedRequired,
     CreateSimulationResult,
+    GetActiveSimulationResult,
+    GetScheduleSimulationResult,
     GetSimulationResult,
     GetTimelineResult,
+    NoActiveSimulation,
     RecordControlResult,
     ScheduleNotConfirmed,
     ScheduleNotFound,
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -64,6 +69,9 @@ _ALLOWED_FROM: Final[dict[SimulationEventType, frozenset[str]]] = {
         {STATUS_NOT_STARTED, STATUS_RUNNING, STATUS_PAUSED, STATUS_COMPLETE}
     ),
     SimulationEventType.COMPLETED: frozenset({STATUS_RUNNING}),
+    SimulationEventType.SEEKED: frozenset(
+        {STATUS_NOT_STARTED, STATUS_RUNNING, STATUS_PAUSED, STATUS_COMPLETE}
+    ),
 }
 
 _SPEED_REQUIRED: Final[frozenset[SimulationEventType]] = frozenset(
@@ -86,6 +94,11 @@ def control_is_applicable(event_type: SimulationEventType, status: str) -> bool:
 def control_requires_speed(event_type: SimulationEventType) -> bool:
     """Return whether a control action must carry the speed it sets."""
     return event_type in _SPEED_REQUIRED
+
+
+def control_requires_position(event_type: SimulationEventType) -> bool:
+    """Return whether a control action must carry the position it moves the play head to."""
+    return event_type is SimulationEventType.SEEKED
 
 
 class ScheduleTimelineService:
@@ -172,12 +185,52 @@ class SimulationService:
         )
 
     @staticmethod
+    async def get_active_simulation(
+        db: AsyncSession, *, at: datetime | None = None
+    ) -> GetActiveSimulationResult:
+        """Read the simulation operators should follow, when one has been created."""
+        simulation = await queries.load_active_simulation(db)
+        if simulation is None:
+            return NoActiveSimulation()
+        return await SimulationService.get_simulation(db, simulation_id=simulation.id, at=at)
+
+    @staticmethod
+    async def get_simulation_for_schedule(
+        db: AsyncSession, *, schedule_id: UUID, at: datetime | None = None
+    ) -> GetScheduleSimulationResult:
+        """Read a schedule's one persisted simulation, when it has been started.
+
+        The browser selects a schedule before it knows its simulation id. This
+        lookup makes refresh/re-entry recover the event-sourced position without
+        teaching clients to parse a conflict response from ``create_simulation``.
+        """
+        schedule = await queries.load_schedule(db, schedule_id)
+        if schedule is None:
+            return ScheduleNotFound(schedule_id=schedule_id)
+
+        simulation = await queries.load_simulation_for_schedule(db, schedule_id)
+        if simulation is None:
+            return SimulationForScheduleNotFound(schedule_id=schedule_id)
+
+        timeline = await SimulationService._resolve_timeline(db, schedule_id)
+        if timeline is None:
+            return ScheduleNotGenerated(schedule_id=schedule_id)
+
+        position = await SimulationService._derive_position(
+            db, simulation_id=simulation.id, makespan=timeline.makespan, at=at
+        )
+        return SimulationPositionResolved(
+            simulation=simulation, position=position, makespan=timeline.makespan
+        )
+
+    @staticmethod
     async def record_control(
         db: AsyncSession,
         *,
         simulation_id: UUID,
         event_type: SimulationEventType,
         speed: Decimal | None = None,
+        seek_to: float | None = None,
         at: datetime | None = None,
     ) -> RecordControlResult:
         """Append a control action to the log and re-derive the position.
@@ -186,10 +239,16 @@ class SimulationService:
         ``simulations`` are updated alongside it as a readable projection, not as
         a second source of truth. Completion writes nothing onto the schedule's
         jobs: that they are done is read from this simulation (decision 0019).
+
+        The simulation row is locked for the rest of the transaction, so concurrent
+        controls are applied one at a time against the status the previous one left.
+
+        A ``seeked`` control's ``seek_to`` is clamped to the schedule's makespan before it is
+        stored, so the log never records a play head past the end of the plan.
         """
         occurred_at = at or datetime.now(UTC)
 
-        simulation = await queries.load_simulation(db, simulation_id)
+        simulation = await queries.lock_simulation(db, simulation_id)
         if simulation is None:
             return SimulationNotFound(simulation_id=simulation_id)
 
@@ -203,9 +262,18 @@ class SimulationService:
         if control_requires_speed(event_type) and speed is None:
             return ControlSpeedRequired(simulation_id=simulation_id, event_type=event_type)
 
+        if control_requires_position(event_type) and seek_to is None:
+            return ControlPositionRequired(simulation_id=simulation_id, event_type=event_type)
+
         timeline = await SimulationService._resolve_timeline(db, simulation.schedule_id)
         if timeline is None:
             return ScheduleNotGenerated(schedule_id=simulation.schedule_id)
+
+        stored_position = (
+            min(max(seek_to, 0.0), float(timeline.makespan))
+            if control_requires_position(event_type) and seek_to is not None
+            else None
+        )
 
         db.add(
             SimulationEvent(
@@ -213,10 +281,16 @@ class SimulationService:
                 event_type=str(event_type),
                 occurred_at=occurred_at,
                 speed=speed,
+                position=stored_position,
             )
         )
         SimulationService._project_onto_simulation(
-            simulation, event_type=event_type, speed=speed, occurred_at=occurred_at
+            simulation,
+            event_type=event_type,
+            speed=speed,
+            position=stored_position,
+            makespan=timeline.makespan,
+            occurred_at=occurred_at,
         )
         await db.flush()
 
@@ -258,6 +332,8 @@ class SimulationService:
         *,
         event_type: SimulationEventType,
         speed: Decimal | None,
+        position: float | None,
+        makespan: int,
         occurred_at: datetime,
     ) -> None:
         """Update the readable columns on ``simulations`` to match the new event."""
@@ -285,3 +361,15 @@ class SimulationService:
             case SimulationEventType.COMPLETED:
                 simulation.status = STATUS_COMPLETE
                 simulation.completed_at = occurred_at
+            case SimulationEventType.SEEKED:
+                # Scrubbing to the end finishes the run; anywhere else leaves a
+                # running simulation running and parks any other one, paused.
+                if simulation.started_at is None:
+                    simulation.started_at = occurred_at
+                if position is not None and position >= makespan:
+                    simulation.status = STATUS_COMPLETE
+                    simulation.completed_at = occurred_at
+                else:
+                    if simulation.status != STATUS_RUNNING:
+                        simulation.status = STATUS_PAUSED
+                    simulation.completed_at = None

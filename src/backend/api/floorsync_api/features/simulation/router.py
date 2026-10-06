@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from floorsync_api.dependencies.authentication import CurrentUser, require_roles
 from floorsync_api.dependencies.database import DbSession
+from floorsync_api.features.live_updates.publisher import OutboxPublisher
 from floorsync_api.features.simulation.schemas import (
     SimulationCreateRequest,
     SimulationEventRequest,
@@ -20,16 +21,21 @@ from floorsync_api.features.simulation.schemas import (
     TimelineResponse,
 )
 from floorsync_common.database.models.user import User
+from floorsync_common.live_updates.contracts import LiveUpdateCause
+from floorsync_common.live_updates.service import LiveUpdateOutboxService
 from floorsync_common.simulation.events import SimulationEventType
 from floorsync_common.simulation.results import (
     ControlNotApplicable,
+    ControlPositionRequired,
     ControlRecorded,
     ControlSpeedRequired,
+    NoActiveSimulation,
     ScheduleNotConfirmed,
     ScheduleNotFound,
     ScheduleNotGenerated,
     SimulationAlreadyExists,
     SimulationCreated,
+    SimulationForScheduleNotFound,
     SimulationNotFound,
     SimulationPositionResolved,
     TimelineResolved,
@@ -77,8 +83,8 @@ async def get_schedule_timeline(
 ) -> TimelineResponse:
     """Resolve a schedule's entries and dependencies into start and end times.
 
-    The result is immutable for a confirmed schedule, so a client should fetch it
-    once per schedule and animate locally rather than polling.
+    The result is immutable for a confirmed schedule. Clients use it to draw the
+    plan, then read the schedule's simulation endpoint for a durable position.
     """
     async with db.begin():
         result = await ScheduleTimelineService.get_timeline(db, schedule_id=schedule_id)
@@ -110,7 +116,13 @@ async def create_simulation(
 
     A schedule has at most one simulation; resetting re-initialises that row
     rather than creating another, so a repeat request reports a conflict.
+
+    Creating a simulation is a change too (decision 0017), so it is announced on the live channel
+    with cause "created" alongside the response -- it appends no `simulation_events` row, which is
+    why this is enqueued here rather than inside `SimulationService.create_simulation` itself.
     """
+    occurred_at = datetime.now(UTC)
+    outbox_id: UUID | None = None
     async with db.begin():
         created = await SimulationService.create_simulation(db, schedule_id=command.schedule_id)
         match created:
@@ -134,8 +146,96 @@ async def create_simulation(
             case _:
                 assert_never(created)
 
+        match resolved:
+            case SimulationPositionResolved():
+                enqueued = await LiveUpdateOutboxService.enqueue_simulation_change(
+                    db,
+                    simulation=resolved.simulation,
+                    position=resolved.position,
+                    makespan=resolved.makespan,
+                    cause="created",
+                    occurred_at=occurred_at,
+                )
+                outbox_id = enqueued.outbox_id
+            case SimulationNotFound() | ScheduleNotGenerated():
+                # get_simulation failed right after creating it -- nothing to announce;
+                # _position_response below raises the appropriate error for both cases.
+                pass
+            case _:
+                assert_never(resolved)
+
+    if outbox_id is not None:
+        await OutboxPublisher.publish_now(outbox_id)
+
     response.headers["Location"] = f"/api/v1/simulations/{simulation.id}"
     return _position_response(resolved)
+
+
+@router.get(
+    "/schedules/{schedule_id}/simulation",
+    response_model=SimulationResponse,
+    summary="Get a schedule's persisted simulation position",
+)
+async def get_schedule_simulation(
+    schedule_id: UUID,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> SimulationResponse:
+    """Recover the one simulation for a schedule, including its replayed clock.
+
+    A manager normally reaches the simulation screen with a schedule id, not a
+    simulation id. Returning 404 when no simulation has been created keeps
+    "start simulation" an explicit action while allowing a refresh to recover
+    any existing event log.
+    """
+    async with db.begin():
+        result = await SimulationService.get_simulation_for_schedule(db, schedule_id=schedule_id)
+
+    match result:
+        case SimulationPositionResolved():
+            return _position_response(result)
+        case ScheduleNotFound(schedule_id=missing):
+            raise schedule_not_found(missing)
+        case SimulationForScheduleNotFound(schedule_id=missing):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No simulation has been started for schedule {missing}.",
+            )
+        case ScheduleNotGenerated(schedule_id=ungenerated):
+            raise schedule_not_generated(ungenerated)
+        case _:
+            assert_never(result)
+
+
+@router.get(
+    "/simulations/active",
+    response_model=SimulationResponse,
+    summary="Get the simulation operators should follow",
+)
+async def get_active_simulation(
+    db: DbSession,
+    current_user: CurrentUser,
+) -> SimulationResponse:
+    """Name the live simulation so an operator can find its schedule and timeline.
+
+    Operators cannot list schedules, so this is how they learn which one is running.
+    A running or paused simulation is preferred over one that has not started, and 404
+    means no simulation exists yet. Declared before `/simulations/{simulation_id}` so the
+    literal path is never read as an id.
+    """
+    async with db.begin():
+        result = await SimulationService.get_active_simulation(db)
+
+    match result:
+        case NoActiveSimulation():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No simulation has been created yet.",
+            )
+        case SimulationPositionResolved() | SimulationNotFound() | ScheduleNotGenerated():
+            return _position_response(result)
+        case _:
+            assert_never(result)
 
 
 @router.get(
@@ -171,19 +271,51 @@ async def create_simulation_event(
     """Append a control action and return the position it produces.
 
     Control actions are a subordinate resource rather than verbs in the path, so
-    play, pause, resume, speed change, reset and completion all post here. The
+    play, pause, resume, speed change, seek, reset and completion all post here. The
     `Location` header points at the simulation the action affected, since events
     are not individually addressable.
+
+    A recorded control is announced on the live channel (decision 0017): the outbox row commits
+    in the same transaction as the event, and is published to Redis only once that transaction
+    has committed, so a client never sees a notification for a change that did not happen.
     """
     occurred_at = datetime.now(UTC)
+    event_type = SimulationEventType(command.event_type)
+    outbox_id: UUID | None = None
     async with db.begin():
         result = await SimulationService.record_control(
             db,
             simulation_id=simulation_id,
-            event_type=SimulationEventType(command.event_type),
+            event_type=event_type,
             speed=command.speed,
+            seek_to=command.position,
             at=occurred_at,
         )
+
+        match result:
+            case ControlRecorded():
+                enqueued = await LiveUpdateOutboxService.enqueue_simulation_change(
+                    db,
+                    simulation=result.simulation,
+                    position=result.position,
+                    makespan=result.makespan,
+                    cause=_live_update_cause(event_type),
+                    occurred_at=occurred_at,
+                )
+                outbox_id = enqueued.outbox_id
+            case (
+                SimulationNotFound()
+                | ScheduleNotGenerated()
+                | ControlNotApplicable()
+                | ControlSpeedRequired()
+                | ControlPositionRequired()
+            ):
+                pass
+            case _:
+                assert_never(result)
+
+    if outbox_id is not None:
+        await OutboxPublisher.publish_now(outbox_id)
 
     match result:
         case ControlRecorded(simulation=simulation, position=position, makespan=makespan):
@@ -202,6 +334,11 @@ async def create_simulation_event(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"A speed is required to record '{event_type}'.",
+            )
+        case ControlPositionRequired(event_type=event_type):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"A position is required to record '{event_type}'.",
             )
         case _:
             assert_never(result)
@@ -224,3 +361,28 @@ def _position_response(
             raise schedule_not_generated(ungenerated)
         case _:
             assert_never(result)
+
+
+def _live_update_cause(event_type: SimulationEventType) -> LiveUpdateCause:
+    """Map a persisted control to the wire cause it announces (decision 0017).
+
+    Not a reuse of `SimulationEventType`'s own value: `cause` is a wire contract `live_updates`
+    owns independently, so a database rename must not silently change what a client reads.
+    """
+    match event_type:
+        case SimulationEventType.STARTED:
+            return "started"
+        case SimulationEventType.PAUSED:
+            return "paused"
+        case SimulationEventType.RESUMED:
+            return "resumed"
+        case SimulationEventType.SPEED_CHANGED:
+            return "speed_changed"
+        case SimulationEventType.RESET:
+            return "reset"
+        case SimulationEventType.COMPLETED:
+            return "completed"
+        case SimulationEventType.SEEKED:
+            return "seeked"
+        case _:
+            assert_never(event_type)
