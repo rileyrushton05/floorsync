@@ -1,12 +1,12 @@
-# Risk: Single Algorithm May Underperform in Some Scenarios
+# Risk: Exact Solver May Underperform the ReSched Baseline, Unproven Either Way
 
 ## Description
 
-The team has decided to ship a single scheduling algorithm. In some scenarios, this chosen algorithm may perform worse than a different approach. Since there's no alternative algorithm to compare against, it may be difficult to demonstrate the effectiveness of the solution in all cases.
+The exact Gurobi solver the team built may perform worse than ReSched, the learned policy Pasindu provided as the project's baseline, in some scenarios. Without a saved, run comparison between the two, it may be difficult to demonstrate the effectiveness of the solution in all cases.
 
 ## Likelihood
 
-Medium (up from Low)
+Medium
 
 ## Impact
 
@@ -14,11 +14,12 @@ High
 
 ## Mitigation Plan
 
-- Test the chosen algorithm against industry-standard benchmarks
-- Document the scenarios where the algorithm is expected to perform well
+- Test the exact solver against ReSched on industry-standard benchmarks
+- Document the scenarios where the exact solver is expected to perform well
 - Provide clear justification for algorithm selection in the project documentation
-- Tune algorithm parameters extensively for common manufacturing scenarios
-- **(Checkpoint 2)** Remaining: no naive or first-available-machine baseline exists in the codebase yet (#114, #115, #159 not started). The final report's success criteria explicitly require demonstrating measurable improvement over a naive or manual baseline, so this is now the most exposed item on the register: the risk is no longer "the algorithm might lose to a baseline," it is "there is no baseline to compare against at all." This risk and `risk-04` describe the same gap from two angles and should be read together.
+- Tune solver parameters extensively for common manufacturing scenarios
+- **(Checkpoint 2)** Done: both algorithms exist and share one contract, so either can be selected per run from the Planner (ReSched as the baseline, Exact as the team's own contribution)
+- **(Checkpoint 2)** Remaining: no automated harness yet runs both on identical input and records makespan, utilisation, cost and computation time as saved evidence (#114, #115, #159 not started), so the measurable improvement the final report's success criteria require is still unproven even though both algorithms are ready. This risk and `risk-04` describe the same gap from two angles and should be read together.
 
 ## Contingency Plan
 
