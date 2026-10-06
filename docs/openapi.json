@@ -561,7 +561,7 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
-      "ImportFormatValue": {
+      "ImportFormat": {
         "enum": [
           "floorsync",
           "jobshop",
@@ -569,12 +569,42 @@
         ],
         "type": "string"
       },
+      "ImportIssueCode": {
+        "enum": [
+          "empty_file",
+          "not_utf8",
+          "not_json",
+          "duplicate_key",
+          "too_deeply_nested",
+          "not_an_object",
+          "unknown_format",
+          "unsupported_version",
+          "invalid_benchmark",
+          "too_large",
+          "missing_field",
+          "unknown_field",
+          "wrong_type",
+          "invalid_value",
+          "duplicate_machine",
+          "duplicate_route",
+          "duplicate_operation_name",
+          "unknown_predecessor",
+          "self_dependency",
+          "duplicate_dependency",
+          "dependency_cycle",
+          "unknown_machine",
+          "inactive_machine",
+          "machine_differs",
+          "similar_machine_name",
+          "resched_unsupported"
+        ],
+        "type": "string"
+      },
       "ImportIssueResponse": {
         "description": "One problem with a file, or a warning about it.\n\n`code` is stable and listed in docs/importing.md. `location` points into the file, such as\n`jobs[2].operations[0].routes[1].duration`, or is null for the file as a whole.",
         "properties": {
           "code": {
-            "title": "Code",
-            "type": "string"
+            "$ref": "#/components/schemas/ImportIssueCode"
           },
           "location": {
             "anyOf": [
@@ -610,7 +640,7 @@
           "format": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ImportFormatValue"
+                "$ref": "#/components/schemas/ImportFormat"
               },
               {
                 "type": "null"

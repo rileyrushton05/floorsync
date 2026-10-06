@@ -1,9 +1,7 @@
-from typing import Literal
 from uuid import UUID
 
 from floorsync_api.schemas import ResponseSchema
-
-type ImportFormatValue = Literal["floorsync", "jobshop", "flexible-jobshop"]
+from floorsync_common.imports.plan import ImportFormat, ImportIssueCode
 
 
 class ImportIssueResponse(ResponseSchema):
@@ -13,7 +11,7 @@ class ImportIssueResponse(ResponseSchema):
     `jobs[2].operations[0].routes[1].duration`, or is null for the file as a whole.
     """
 
-    code: str
+    code: ImportIssueCode
     message: str
     location: str | None
 
@@ -38,7 +36,7 @@ class ImportReportResponse(ResponseSchema):
     jobs in the file's order, and is empty for a dry run, which keeps nothing.
     """
 
-    format: ImportFormatValue | None
+    format: ImportFormat | None
     dry_run: bool
     importable: bool
     summary: ImportSummaryResponse | None
