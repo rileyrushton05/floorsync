@@ -128,6 +128,10 @@ precedence edges, branching included.
 
 Unlike `make db-seed`, an import never deletes anything.
 
+A classic instance's `jobs` and `machines` are counts the file declares rather than lists it
+contains, so a file of a few bytes can declare millions. Those counts are checked against the
+`too_large` limits before anything is built from them.
+
 ## Issue codes
 
 | Code | Meaning |
@@ -136,6 +140,7 @@ Unlike `make db-seed`, an import never deletes anything.
 | `unknown_format` | Neither a FloorSync file nor a benchmark |
 | `unsupported_version` | A FloorSync `version` other than 1 |
 | `invalid_benchmark` | A benchmark file the seed parsers refuse; the message says why |
+| `too_large` | More than one import can add: 1,000 machines, 10,000 jobs, or 100,000 machines, jobs, operations and routes in total |
 | `missing_field`, `unknown_field`, `wrong_type` | A FloorSync field is missing, not allowed, or the wrong type |
 | `invalid_value` | A value out of range, blank, or with too many decimals |
 | `duplicate_machine` | The file declares a machine twice |

@@ -50,9 +50,16 @@ UX of its own (#299).
    route commits only an applied, real import; it rolls back a dry run and every refusal.
 7. **Concurrent imports share new machines rather than fail.** New machines and categories are
    inserted with `ON CONFLICT DO NOTHING` in name order, so a second import creating the same
-   machine waits for the first, then reuses it, and reports it as reused.
-8. **The existing 1 MiB request limit is the size limit.** Every committed benchmark fits (the
-   largest, `behnke58`, is 583 KB with 9,748 routes), so no route-specific exception is needed.
+   machine waits for the first, then reuses it, and reports it as reused. Its `machine_differs`
+   warnings are judged against that machine as it then is, and a category it inserted only for
+   the machine it did not get to create is removed again rather than left empty.
+8. **The existing 1 MiB request limit bounds the file; count limits bound what it describes.**
+   Every committed benchmark fits in 1 MiB (the largest, `behnke58`, is 583 KB with 9,748
+   routes). The size alone is not enough: a classic benchmark declares its job and machine counts
+   rather than listing them, so a few bytes can ask for millions. An import is refused
+   (`too_large`) above 1,000 machines, 10,000 jobs, or 100,000 rows in total, checked before a
+   declared count is expanded, and a whole number too large for any field (`1e5000000`) is
+   refused before it is converted. The largest committed benchmark is far below every limit.
 
 ## Rationale
 
