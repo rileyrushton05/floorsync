@@ -77,7 +77,9 @@ async def a_confirmed_schedule_with_a_simulation(sessions: Sessions) -> UUID:
         db.add_all([machine, job])
         await db.flush()
         operation = Operation(job_id=job.id, name="cut", position=1)
-        schedule = Schedule(status=SCHEDULE_CONFIRMED, strategy="test", confirmed_at=T0)
+        schedule = Schedule(
+            status=SCHEDULE_CONFIRMED, strategy="test", starts_at=T0, confirmed_at=T0
+        )
         db.add_all([operation, schedule])
         await db.flush()
         db.add(

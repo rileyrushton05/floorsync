@@ -136,6 +136,7 @@ def test_exact_worker_closes_the_read_transaction_before_solving(monkeypatch: An
         plan: object,
         runtime_ms: int,
         input_operation_count: int,
+        starts_at: datetime,
         strategy: str | None = None,
         job_ids: Collection[UUID],
     ) -> ScheduleStored:
@@ -143,6 +144,7 @@ def test_exact_worker_closes_the_read_transaction_before_solving(monkeypatch: An
         assert plan == "plan"
         assert runtime_ms == 1234
         assert input_operation_count == len("operation_data")
+        assert starts_at == datetime(2026, 9, 6, 8, tzinfo=UTC)
         assert strategy == EXACT_SOLVER_STRATEGY
         assert list(job_ids) == [JOB_ID]
 
@@ -275,7 +277,7 @@ def test_exact_worker_passes_the_selection_to_load_input_and_store_draft(monkeyp
 
     job_id = uuid4()
     seen_by_load_input: list[Collection[UUID]] = []
-    seen_by_store_draft: list[Collection[UUID]] = []
+    seen_by_store_draft: list[tuple[Collection[UUID], datetime]] = []
 
     def load_input(_: object, *, starts_at: datetime, job_ids: Collection[UUID]) -> SchedulingInput:
         seen_by_load_input.append(job_ids)
@@ -293,10 +295,11 @@ def test_exact_worker_passes_the_selection_to_load_input_and_store_draft(monkeyp
         plan: object,
         runtime_ms: int,
         input_operation_count: int,
+        starts_at: datetime,
         strategy: str | None = None,
         job_ids: Collection[UUID],
     ) -> ScheduleStored:
-        seen_by_store_draft.append(job_ids)
+        seen_by_store_draft.append((job_ids, starts_at))
 
         class _Schedule:
             id = uuid4()
@@ -312,7 +315,7 @@ def test_exact_worker_passes_the_selection_to_load_input_and_store_draft(monkeyp
     schedules.generate_schedule_exact.run("2026-09-06T08:00:00+00:00", [str(job_id)])
 
     assert seen_by_load_input == [[job_id]]
-    assert seen_by_store_draft == [[job_id]]
+    assert seen_by_store_draft == [([job_id], datetime(2026, 9, 6, 8, tzinfo=UTC))]
 
 
 def test_a_task_needs_a_selection(monkeypatch: Any) -> None:

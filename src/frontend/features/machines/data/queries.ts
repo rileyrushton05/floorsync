@@ -53,7 +53,7 @@ export function useDeleteMachine() {
         mutationFn: (id: string) => deleteMachine(id, requireToken(token)),
         onSuccess: async () => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: machineKeys.all }),
+                queryClient.invalidateQueries({ queryKey: machineKeys.all, exact: true }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
             ]);
@@ -69,10 +69,11 @@ export function useSaveMachine() {
             id === null
                 ? createMachine(values, requireToken(token))
                 : updateMachine(id, values, requireToken(token)),
-        onSuccess: async (machine) => {
-            queryClient.setQueryData(machineKeys.detail(machine.id), machine);
+        onSuccess: async () => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: machineKeys.all }),
+                // Exact: the categories live under the same prefix and a
+                // machine write never changes them.
+                queryClient.invalidateQueries({ queryKey: machineKeys.all, exact: true }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
             ]);

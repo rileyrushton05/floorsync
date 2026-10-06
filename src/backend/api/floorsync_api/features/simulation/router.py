@@ -26,8 +26,10 @@ from floorsync_common.live_updates.service import LiveUpdateOutboxService
 from floorsync_common.simulation.events import SimulationEventType
 from floorsync_common.simulation.results import (
     ControlNotApplicable,
+    ControlPositionRequired,
     ControlRecorded,
     ControlSpeedRequired,
+    NoActiveSimulation,
     ScheduleNotConfirmed,
     ScheduleNotFound,
     ScheduleNotGenerated,
@@ -224,12 +226,16 @@ async def get_active_simulation(
     async with db.begin():
         result = await SimulationService.get_active_simulation(db)
 
-    if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No simulation has been created yet.",
-        )
-    return _position_response(result)
+    match result:
+        case NoActiveSimulation():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No simulation has been created yet.",
+            )
+        case SimulationPositionResolved() | SimulationNotFound() | ScheduleNotGenerated():
+            return _position_response(result)
+        case _:
+            assert_never(result)
 
 
 @router.get(
@@ -265,7 +271,7 @@ async def create_simulation_event(
     """Append a control action and return the position it produces.
 
     Control actions are a subordinate resource rather than verbs in the path, so
-    play, pause, resume, speed change, reset and completion all post here. The
+    play, pause, resume, speed change, seek, reset and completion all post here. The
     `Location` header points at the simulation the action affected, since events
     are not individually addressable.
 
@@ -282,6 +288,7 @@ async def create_simulation_event(
             simulation_id=simulation_id,
             event_type=event_type,
             speed=command.speed,
+            seek_to=command.position,
             at=occurred_at,
         )
 
@@ -301,6 +308,7 @@ async def create_simulation_event(
                 | ScheduleNotGenerated()
                 | ControlNotApplicable()
                 | ControlSpeedRequired()
+                | ControlPositionRequired()
             ):
                 pass
             case _:
@@ -326,6 +334,11 @@ async def create_simulation_event(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"A speed is required to record '{event_type}'.",
+            )
+        case ControlPositionRequired(event_type=event_type):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"A position is required to record '{event_type}'.",
             )
         case _:
             assert_never(result)
@@ -369,5 +382,7 @@ def _live_update_cause(event_type: SimulationEventType) -> LiveUpdateCause:
             return "reset"
         case SimulationEventType.COMPLETED:
             return "completed"
+        case SimulationEventType.SEEKED:
+            return "seeked"
         case _:
             assert_never(event_type)

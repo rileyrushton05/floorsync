@@ -32,7 +32,7 @@ ARCHIVED_JOB = "archived_job"
 """The selection names a job a manager retired by hand."""
 
 PLANNED_JOB = "planned_job"
-"""The selection names a job a confirmed schedule already plans (or has already run)."""
+"""The selection names a job a confirmed schedule has already run."""
 
 
 def selection_issues(
@@ -72,7 +72,9 @@ def selection_issues(
             for job_id in unknown
         )
 
-    claimed = sorted(job_id for job_id in selected if backlog[job_id].status != "open")
+    claimed = sorted(
+        job_id for job_id in selected if backlog[job_id].status in ("archived", "done")
+    )
     if claimed:
         return tuple(_claimed_issue(job_id, backlog[job_id]) for job_id in claimed)
 
@@ -102,15 +104,8 @@ def _claimed_issue(job_id: UUID, backlog: JobBacklog) -> SchedulingIssue:
                 job_id=job_id,
                 schedule_id=backlog.schedule_ids[-1],
             )
-        case "planned":
-            return SchedulingIssue(
-                PLANNED_JOB,
-                "A confirmed schedule already plans this job; discard it to plan the job again.",
-                job_id=job_id,
-                schedule_id=backlog.schedule_ids[-1],
-            )
-        case "open":
-            raise ValueError("An open job is not a claimed one.")
+        case "open" | "planned":
+            raise ValueError("An open or planned job is not a claimed one.")
         case _:
             assert_never(backlog.status)
 

@@ -205,6 +205,7 @@ async def _seed_schedule(
                 "id": schedule_id,
                 "status": "confirmed",
                 "strategy": solution.solver,
+                "starts_at": confirmed_at,
                 "makespan": solution.makespan,
                 "confirmed_at": confirmed_at,
             }
@@ -476,6 +477,7 @@ async def _seed_flexible_schedule(
                 "id": schedule_id,
                 "status": "confirmed",
                 "strategy": solution.solver,
+                "starts_at": confirmed_at,
                 "makespan": solution.makespan,
                 "confirmed_at": confirmed_at,
             }

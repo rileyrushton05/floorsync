@@ -1617,6 +1617,11 @@
         "title": "ScheduleGenerationStatusResponse",
         "type": "object"
       },
+      "ScheduleName": {
+        "maxLength": 120,
+        "minLength": 1,
+        "type": "string"
+      },
       "ScheduleResponse": {
         "properties": {
           "confirmed_at": {
@@ -1689,6 +1694,17 @@
             ],
             "title": "Makespan"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "runtime_ms": {
             "anyOf": [
               {
@@ -1699,6 +1715,11 @@
               }
             ],
             "title": "Runtime Ms"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -1740,8 +1761,10 @@
         },
         "required": [
           "id",
+          "name",
           "status",
           "strategy",
+          "starts_at",
           "runtime_ms",
           "input_operation_count",
           "makespan",
@@ -1815,6 +1838,22 @@
             ],
             "title": "Makespan"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "draft",
@@ -1831,8 +1870,10 @@
         },
         "required": [
           "id",
+          "name",
           "status",
           "strategy",
+          "starts_at",
           "makespan",
           "input_operation_count",
           "created_at",
@@ -1844,20 +1885,34 @@
       },
       "ScheduleUpdateRequest": {
         "additionalProperties": false,
-        "description": "A lifecycle transition (decision 0015).\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.",
+        "description": "A rename, a lifecycle transition (decision 0015), or both at once.\n\n`confirmed` makes a draft the plan, or restores a discarded one; `discarded` withdraws a\nconfirmed schedule the floor has not acted on. There is no way back to `draft`: a draft that\nis not wanted is deleted. Repeating the schedule's current status is a harmless no-op.\n\n`name` can be set in any status, since it labels the run rather than changing what it planned.\nSending both is how the Planner saves: name the draft and confirm it in one request, so a\nrefused transition never leaves a renamed draft behind. Explicit nulls are rejected.",
         "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
-            "enum": [
-              "confirmed",
-              "discarded"
+            "anyOf": [
+              {
+                "enum": [
+                  "confirmed",
+                  "discarded"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Status",
-            "type": "string"
+            "title": "Status"
           }
         },
-        "required": [
-          "status"
-        ],
         "title": "ScheduleUpdateRequest",
         "type": "object"
       },
@@ -1982,7 +2037,8 @@
           "resumed",
           "speed_changed",
           "reset",
-          "completed"
+          "completed",
+          "seeked"
         ],
         "type": "string"
       },
@@ -2004,10 +2060,22 @@
       },
       "SimulationEventRequest": {
         "additionalProperties": false,
-        "description": "Record one playback control action.\n\n``speed`` is required for ``started``, ``resumed`` and ``speed_changed``, and\nignored otherwise.",
+        "description": "Record one playback control action.\n\n``speed`` is required for ``started``, ``resumed`` and ``speed_changed``, and\nignored otherwise. ``position`` is the simulated time a ``seeked`` control moves\nthe play head to; it is required there, clamped to the makespan, and ignored\notherwise.",
         "properties": {
           "event_type": {
             "$ref": "#/components/schemas/SimulationControl"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
           },
           "speed": {
             "anyOf": [
@@ -4037,7 +4105,7 @@
         ]
       },
       "patch": {
-        "description": "Move a schedule through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269).",
+        "description": "Rename a schedule and/or move it through its lifecycle (decision 0015).\n\n`{\"status\": \"confirmed\"}` makes a draft the plan and records who confirmed it and when; on a\ndiscarded schedule it restores it. `{\"status\": \"discarded\"}` withdraws a confirmed schedule\nthe floor has not acted on: a simulation created for it but never started is removed with it,\none with any control recorded refuses the withdrawal. Neither touches the jobs the schedule\nplanned; the backlog reads what a plan claims from the schedule itself (#269). Confirming is\nrefused while another confirmed schedule plans any of the same jobs, and the refusal names that\nschedule, so a job is never in two plans at once.\n\n`{\"name\": ...}` labels the schedule in any status. When both are sent the transition runs\nfirst, and a refused transition answers before anything is renamed.",
         "operationId": "update_schedule_api_v1_schedules__schedule_id__patch",
         "parameters": [
           {
@@ -4076,7 +4144,7 @@
             "description": "The schedule does not exist"
           },
           "409": {
-            "description": "A draft cannot be discarded (delete it instead), or the schedule's simulation has started so it cannot be withdrawn"
+            "description": "A draft cannot be discarded (delete it instead), the schedule's simulation has started so it cannot be withdrawn, or confirming would put a job in a second confirmed schedule (withdraw that one first)"
           },
           "422": {
             "content": {
@@ -4094,7 +4162,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Confirm or discard a schedule",
+        "summary": "Rename, confirm or discard a schedule",
         "tags": [
           "schedules"
         ]
@@ -4323,7 +4391,7 @@
     },
     "/api/v1/simulations/{simulation_id}/events": {
       "post": {
-        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.\n\nA recorded control is announced on the live channel (decision 0017): the outbox row commits\nin the same transaction as the event, and is published to Redis only once that transaction\nhas committed, so a client never sees a notification for a change that did not happen.",
+        "description": "Append a control action and return the position it produces.\n\nControl actions are a subordinate resource rather than verbs in the path, so\nplay, pause, resume, speed change, seek, reset and completion all post here. The\n`Location` header points at the simulation the action affected, since events\nare not individually addressable.\n\nA recorded control is announced on the live channel (decision 0017): the outbox row commits\nin the same transaction as the event, and is published to Redis only once that transaction\nhas committed, so a client never sees a notification for a change that did not happen.",
         "operationId": "create_simulation_event_api_v1_simulations__simulation_id__events_post",
         "parameters": [
           {

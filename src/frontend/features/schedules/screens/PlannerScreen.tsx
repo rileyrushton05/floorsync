@@ -1,13 +1,17 @@
-﻿"use client";
+"use client";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonStyles } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeaderCount } from "@/components/ui/header-count";
+import { Input, InputGroup } from "@/components/ui/input";
 import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { TextField } from "@/components/ui/text-field";
 import {
     Table,
     TableBody,
@@ -17,12 +21,16 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { useAuth } from "@/core/auth/AuthProvider";
+import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
+import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { reportingDateStartsAt } from "@/core/shell/ReportingDate";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -33,14 +41,21 @@ import { useJobSummaries } from "@/features/jobs/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
 import {
     GenerationTimeout,
+    useDeleteSchedule,
     useRequestSchedule,
     useScheduleGeneration,
     useScheduleSummaries,
     useScheduleTimeline,
     useScheduleValidation,
+    useUpdateSchedule,
 } from "@/features/schedules/data/queries";
-import { ArrowPathIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { formatCreatedAt, shortScheduleId, strategyLabel } from "@/features/schedules/model/archive";
+import { PlanStartDateDialog } from "@/features/schedules/ui/PlanStartDateDialog";
+import { SavePlanPanel, type SavePanelState } from "@/features/schedules/ui/SavePlanPanel";
+import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
     type ScheduleStrategy,
@@ -48,22 +63,42 @@ import {
     type SchedulingIssue,
 } from "../data/api";
 
+const JOB_SORTS = [
+    { id: "newest", label: "Newest" },
+    { id: "oldest", label: "Oldest" },
+    { id: "name", label: "Name A–Z" },
+] as const;
+
+type JobSort = (typeof JOB_SORTS)[number]["id"];
+
+const JOB_STATUS_FILTERS = [
+    { id: "all", label: "All" },
+    { id: "open", label: "Unplanned" },
+    { id: "planned", label: "Planned" },
+] as const;
+
+type JobStatusFilter = (typeof JOB_STATUS_FILTERS)[number]["id"];
+
 /**
- * Planner (schedule builder).
+ * Planner: where a schedule is made.
  *
- * This page answers "what would the plan look like?" — the simulation answers
- * "what does the shop look like N minutes in?". It has no playback controls and
- * no wall-clock dates: the output is a plan measured from T+0.
+ * The flow is Schedules → "New schedule" → here: pick the open jobs, choose an
+ * engine, generate, then name the plan and save it. Saving confirms it (so it
+ * can be run in the simulation) and returns to the Schedules page with it
+ * selected. "Open in planner" on an unsaved draft lands here too, via
+ * `?schedule=<id>`, to finish naming and saving it.
  *
  * **Generation happens on the backend.** Pressing Generate posts to
  * `POST /api/v1/schedules`, which queues the run and answers 202 immediately.
  * The run itself happens on a worker, so the page then polls
  * `GET /api/v1/schedules/generations/{id}` until it reports an outcome, and on
  * success reads `GET /api/v1/schedules/{id}/timeline` for the schedule it made.
+ * The worker stores every completed run as an unnamed draft; saving is a
+ * `PATCH` that names it and, unless kept as a draft, confirms it.
  *
  * Nothing here computes a time. `domains/scheduling/timeline.ts` translates the timeline into
- * the `GeneratedSchedule` the chart already draws — renaming and regrouping
- * only — so what is on screen is the engine's arithmetic rather than a second
+ * the `GeneratedSchedule` the chart already draws (renaming and regrouping
+ * only), so what is on screen is the engine's arithmetic rather than a second
  * opinion about it.
  */
 
@@ -72,7 +107,7 @@ import {
  *
  * The transient states carry the generation id because it is the only handle on
  * a run in flight, and the one thing worth quoting when something stalls. The
- * terminal states are the six the API reports, split so each gets a screen that
+ * terminal states are the ones the API reports, split so each gets a screen that
  * says what actually happened rather than one shared "it didn't work".
  */
 type Generation =
@@ -80,8 +115,9 @@ type Generation =
     | { status: "queued"; generationId: string }
     | { status: "running"; generationId: string }
     | { status: "drawing"; scheduleId: string }
-    /** `createdAt` is null for a plan generated in this session — it is "just now". */
+    /** `createdAt` is null for a plan generated in this session; it is "just now". */
     | { status: "ready"; scheduleId: string; timeline: ScheduleTimeline; createdAt: string | null }
+    | { status: "missing"; scheduleId: string }
     | { status: "rejected"; issues: SchedulingIssue[] }
     | { status: "unavailable"; message: string }
     | { status: "failed"; message: string }
@@ -96,32 +132,12 @@ const IN_FLIGHT: ReadonlySet<Generation["status"]> = new Set([
 
 /** The engines a manager can choose between when queuing a run. */
 const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
-    { value: "resched", label: "ReSched", hint: "Learned policy — fast, approximate" },
-    { value: "exact", label: "Exact", hint: "Gurobi MILP — optimal, slower" },
+    { value: "resched", label: "ReSched", hint: "Learned policy, fast, approximate" },
+    { value: "exact", label: "Exact", hint: "Gurobi MILP, optimal, slower" },
 ];
 
-/** `2026-09-07T04:11:22Z` → `7 Sep, 14:11`, in the reader's own timezone. */
-function formatCreated(iso: string): string {
-    const at = new Date(iso);
-    if (Number.isNaN(at.getTime())) return iso;
-    return at.toLocaleString(undefined, {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
-}
-
-/**
- * The first segment of a UUID: enough to quote a run, short enough to read.
- *
- * Runs only. A *job* is never identified this way — a manager picks jobs by
- * name, while a generation id is an operational handle they may have to quote
- * to someone looking at the worker.
- */
-function shortId(id: string): string {
-    return id.split("-")[0] ?? id;
-}
+/** How long to poll a generation before giving up on it, in ms. */
+const GENERATION_DEADLINE_MS = 180_000;
 
 /** A full-page state for when the floor itself could not be read. */
 function Placeholder({
@@ -148,7 +164,7 @@ function Placeholder({
  *
  * One branch per outcome. The distinctions matter: a rejected run is a problem
  * with the floor's data and lists what, a missing runtime is a deployment
- * problem, and a timeout means nothing ever picked the command up — three
+ * problem, and a timeout means nothing ever picked the command up. Three
  * different people fix those three things.
  */
 function GenerationState({ generation }: { generation: Generation }) {
@@ -156,7 +172,7 @@ function GenerationState({ generation }: { generation: Generation }) {
         case "queued":
         case "running":
             return (
-                <div className="rounded-lg border border-dashed p-8 text-center">
+                <div className="rounded-lg border border-dashed p-8 text-center" role="status">
                     <h3 className="font-semibold text-lg">
                         {generation.status === "queued"
                             ? "Queued for the scheduling engine…"
@@ -165,21 +181,33 @@ function GenerationState({ generation }: { generation: Generation }) {
                     <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
                         {generation.status === "queued"
                             ? "The command is on the queue, waiting for a worker to pick it up."
-                            : "A worker is running the scheduling engine over the floor's operations."}{" "}
-                        Run <code>{shortId(generation.generationId)}</code>.
+                            : "A worker is running the scheduling engine over the selected jobs."}{" "}
+                        Run <code>{shortScheduleId(generation.generationId)}</code>.
                     </p>
                 </div>
             );
 
         case "drawing":
             return (
-                <div className="rounded-lg border border-dashed p-8 text-center">
-                    <h3 className="font-semibold text-lg">Reading the schedule…</h3>
+                <div className="rounded-lg border border-dashed p-8 text-center" role="status">
+                    <h3 className="font-semibold text-lg">Reading the plan…</h3>
                     <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
-                        The plan was written. Resolving it onto the clock with{" "}
-                        <code>GET /schedules/{shortId(generation.scheduleId)}/timeline</code>.
+                        Schedule <code>{shortScheduleId(generation.scheduleId)}</code> was written.
+                        Loading its timeline to draw it.
                     </p>
                 </div>
+            );
+
+        case "missing":
+            return (
+                <Note intent="warning" role="alert" indicator={false}>
+                    <strong>That schedule no longer exists</strong>
+                    <p className="mt-1">
+                        Schedule <code>{shortScheduleId(generation.scheduleId)}</code> may have been
+                        deleted. Generate a new plan, or{" "}
+                        <Link href="/manager/schedules" className="underline">go back to Schedules</Link>.
+                    </p>
+                </Note>
             );
 
         case "rejected":
@@ -187,7 +215,7 @@ function GenerationState({ generation }: { generation: Generation }) {
                 <Note intent="danger" role="alert" indicator={false}>
                     <div className="flex items-center gap-2">
                         <ExclamationCircleIcon className="size-5" />
-                        <strong>The floor as it stands cannot be scheduled</strong>
+                        <strong>This selection cannot be scheduled</strong>
                     </div>
                     <p className="mt-1">
                         The engine validated the operations, machines and dependencies in the
@@ -204,16 +232,16 @@ function GenerationState({ generation }: { generation: Generation }) {
                     ) : (
                         <p className="mt-2">The engine reported no specific reason.</p>
                     )}
-                    {/* This issue names no operation, and a run covers the whole
-                        database, so without this the manager is told the floor
-                        failed with no way to find the job responsible. */}
+                    {/* This issue names no operation, so without this the
+                        manager is told the run failed with no way to find the
+                        job responsible. */}
                     {generation.issues.some((issue) => issue.code === "unsupported_dependency_shape") && (
                         <p className="mt-2">
-                            This selection includes a job whose steps branch —
-                            two steps waiting on the same earlier one, or one step waiting on
-                            several — stops the whole floor being planned.{" "}
+                            This selection includes a job whose steps branch
+                            (two steps waiting on the same earlier one, or one step waiting on
+                            several). ReSched cannot plan that shape; try the Exact engine, or{" "}
                             <Link href="/manager/jobs" className="underline">
-                                Open the job backlog
+                                open the job backlog
                             </Link>{" "}
                             and look for a job whose graph splits or merges rather than running as
                             one line.
@@ -235,9 +263,10 @@ function GenerationState({ generation }: { generation: Generation }) {
                 <Note intent="warning" role="alert" indicator={false}>
                     <strong>Nothing picked up the run</strong>
                     <p className="mt-1">
-                        Polling for run <code>{shortId(generation.generationId)}</code> stopped
-                        before the API reported a terminal result. Refresh to check its current
-                        status, or ask an administrator to inspect the worker.
+                        Polling for run <code>{shortScheduleId(generation.generationId)}</code> stopped
+                        before the API reported a result. If it finishes later it will appear on the
+                        Schedules page as an untitled draft; otherwise ask an administrator to
+                        inspect the worker.
                     </p>
                 </Note>
             );
@@ -259,10 +288,11 @@ function GenerationState({ generation }: { generation: Generation }) {
                 <div className="rounded-lg border border-dashed p-8 text-center">
                     <h3 className="font-semibold text-lg">No plan yet</h3>
                     <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
-                        Press <strong className="text-fg">Generate schedule</strong>. The scheduling
-                        engine assigns the selected jobs&apos; operations to compatible machines and
-                        places them on the earliest slots that respect their dependencies.
-                        The run happens on a worker, so this page will wait for it.
+                        Tick the jobs to include, choose an engine, then press{" "}
+                        <strong className="text-fg">Generate plan</strong>. The scheduling engine
+                        assigns the selected jobs&apos; operations to compatible machines and places
+                        them on the earliest slots that respect their dependencies. When it looks
+                        right, name it and save it.
                     </p>
                 </div>
             );
@@ -270,20 +300,63 @@ function GenerationState({ generation }: { generation: Generation }) {
 }
 
 export default function PlannerPage() {
+    return (
+        <Suspense>
+            <PlannerPageInner />
+        </Suspense>
+    );
+}
+
+function PlannerPageInner() {
     const { user } = useAuth();
+    const router = useRouter();
     const jobsQuery = useJobSummaries();
     const machinesQuery = useMachines();
     const schedulesQuery = useScheduleSummaries();
     const requestSchedule = useRequestSchedule();
+    const updateSchedule = useUpdateSchedule();
+    const deleteSchedule = useDeleteSchedule();
+
+    // An unsaved draft opened from the Schedules page ("Open in planner").
+    // Without it the page starts a new schedule from scratch.
+    const openedScheduleId = useSearchParams().get("schedule");
+
     const [generationRequest, setGenerationRequest] = useState<{ id: string; deadline: number } | null>(null);
     const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
     const [strategy, setStrategy] = useState<ScheduleStrategy>("resched");
     const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
-    const openJobs = useMemo(
-        () => (jobsQuery.data ?? []).filter((job) => job.backlogStatus === "open"),
+    const [jobQuery, setJobQuery] = useState("");
+    const [jobSort, setJobSort] = useState<JobSort>("newest");
+    const [jobStatusFilter, setJobStatusFilter] = useState<JobStatusFilter>("all");
+    const [name, setName] = useState("");
+    const [confirmDiscard, setConfirmDiscard] = useState(false);
+    // The day the next plan starts on, asked for each time Generate is pressed.
+    // Remembered so the dialog reopens on the day last used.
+    const [startDate, setStartDate] = useState<CalendarDate>(() => today(getLocalTimeZone()));
+    const [pickingStartDate, setPickingStartDate] = useState(false);
+
+    // Open jobs and the ones a confirmed schedule already plans: a planned job
+    // can still go into another draft, so the manager can compare an
+    // alternative before discarding the confirmed plan. Archived and done jobs
+    // are never offered.
+    const plannableJobs = useMemo(
+        () => (jobsQuery.data ?? []).filter((job) => job.backlogStatus === "open" || job.backlogStatus === "planned"),
         [jobsQuery.data],
     );
-    const openJobIds = useMemo(() => new Set(openJobs.map((job) => job.id)), [openJobs]);
+    const plannableJobIds = useMemo(() => new Set(plannableJobs.map((job) => job.id)), [plannableJobs]);
+    const visibleJobs = useMemo(() => {
+        const needle = jobQuery.trim().toLowerCase();
+        const matching = plannableJobs.filter(
+            (job) =>
+                (jobStatusFilter === "all" || job.backlogStatus === jobStatusFilter) &&
+                (needle === "" || job.name.toLowerCase().includes(needle)),
+        );
+        return [...matching].sort((left, right) => {
+            if (jobSort === "name") return left.name.localeCompare(right.name);
+            const byAge = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+            return jobSort === "oldest" ? byAge : -byAge;
+        });
+    }, [plannableJobs, jobQuery, jobSort, jobStatusFilter]);
     const validationQuery = useScheduleValidation(selectedJobIds);
     const validationFeedback = useMemo(
         () => [
@@ -301,27 +374,32 @@ export default function PlannerPage() {
         }
         return issues;
     }, [validationFeedback]);
+
     const generationQuery = useScheduleGeneration(generationRequest);
     const reportedGenerationFailure = useRef<string | null>(null);
-    const latestSchedule = schedulesQuery.data?.[0] ?? null;
     const completedScheduleId =
         generationQuery.data?.status === "completed" ? generationQuery.data.schedule_id ?? null : null;
-    const selectedScheduleId = generationRequest === null ? latestSchedule?.id ?? null : completedScheduleId;
-    const timelineQuery = useScheduleTimeline(selectedScheduleId);
+    // The schedule on screen: the one this session generated, or else the
+    // draft that was opened by link.
+    const currentScheduleId = generationRequest === null ? openedScheduleId : completedScheduleId;
+    const currentSummary = schedulesQuery.data?.find((schedule) => schedule.id === currentScheduleId) ?? null;
+    const timelineQuery = useScheduleTimeline(currentScheduleId);
 
     const generation: Generation = useMemo(() => {
         if (generationRequest === null) {
-            if (latestSchedule && timelineQuery.data) {
-                return {
-                    status: "ready",
-                    scheduleId: latestSchedule.id,
-                    timeline: timelineQuery.data,
-                    createdAt: latestSchedule.created_at,
-                };
+            if (requestSchedule.isError) return { status: "error", message: errorMessage(requestSchedule.error) };
+            if (openedScheduleId === null) return { status: "idle" };
+            if (schedulesQuery.isSuccess && currentSummary === null) {
+                return { status: "missing", scheduleId: openedScheduleId };
             }
-            return requestSchedule.isError
-                ? { status: "error", message: errorMessage(requestSchedule.error) }
-                : { status: "idle" };
+            if (timelineQuery.error) return { status: "error", message: errorMessage(timelineQuery.error) };
+            if (!timelineQuery.data) return { status: "drawing", scheduleId: openedScheduleId };
+            return {
+                status: "ready",
+                scheduleId: openedScheduleId,
+                timeline: timelineQuery.data,
+                createdAt: currentSummary?.created_at ?? null,
+            };
         }
         if (generationQuery.error) {
             return generationQuery.error instanceof GenerationTimeout
@@ -331,46 +409,46 @@ export default function PlannerPage() {
         if (!generationQuery.data || generationQuery.data.status === "pending") {
             return { status: "queued", generationId: generationRequest.id };
         }
-        if (generationQuery.data.status === "running") {
-            return { status: "running", generationId: generationRequest.id };
-        }
-        if (generationQuery.data.status === "rejected") {
-            return { status: "rejected", issues: generationQuery.data.issues };
-        }
-        if (generationQuery.data.status === "unavailable") {
-            return { status: "unavailable", message: generationQuery.data.detail };
-        }
-        if (generationQuery.data.status === "failed") {
-            return {
-                status: "failed",
-                message: generationQuery.data.detail,
-            };
+        switch (generationQuery.data.status) {
+            case "running":
+                return { status: "running", generationId: generationRequest.id };
+            case "rejected":
+                return { status: "rejected", issues: generationQuery.data.issues };
+            case "unavailable":
+                return { status: "unavailable", message: generationQuery.data.detail };
+            case "failed":
+                return { status: "failed", message: generationQuery.data.detail };
         }
         if (timelineQuery.error) return { status: "error", message: errorMessage(timelineQuery.error) };
         if (!timelineQuery.data) return { status: "drawing", scheduleId: completedScheduleId! };
         return { status: "ready", scheduleId: completedScheduleId!, timeline: timelineQuery.data, createdAt: null };
     }, [
         completedScheduleId,
+        currentSummary,
         generationQuery.data,
         generationQuery.error,
         generationRequest,
-        latestSchedule,
+        openedScheduleId,
         requestSchedule.error,
         requestSchedule.isError,
+        schedulesQuery.isSuccess,
         timelineQuery.data,
         timelineQuery.error,
     ]);
 
-    const generate = () => {
-        if (!canGenerate) return;
-        setHighlightedJobId(null);
-        requestSchedule.mutate({ startsAt: new Date().toISOString(), jobIds: selectedJobIds, strategy }, {
-            onSuccess: (accepted) => {
-                setGenerationRequest({ id: accepted.id, deadline: Date.now() + 180_000 });
-            },
-            onError: reportMutationError,
-        });
-    };
+    // Every run this session generates is a draft. An opened one is whatever
+    // the list says; until the list arrives, nothing can be saved.
+    const generatedThisSession = generationRequest !== null && completedScheduleId !== null;
+    const currentIsDraft = generatedThisSession || currentSummary?.status === "draft";
+
+    // An opened draft that was already named on the Schedules page brings its
+    // name with it. Seeded once per schedule, during render rather than in an
+    // effect, so the field never flashes empty first.
+    const [nameSeededFor, setNameSeededFor] = useState<string | null>(null);
+    if (currentSummary && nameSeededFor !== currentSummary.id) {
+        setNameSeededFor(currentSummary.id);
+        if (currentSummary.name && name.trim() === "") setName(currentSummary.name);
+    }
 
     const plan = useMemo(
         () => (generation.status === "ready" ? timelineToPlan(generation.timeline) : null),
@@ -391,17 +469,89 @@ export default function PlannerPage() {
         [backlog, plan],
     );
 
-    const busy = requestSchedule.isPending || IN_FLIGHT.has(generation.status);
+    const writing = updateSchedule.isPending || deleteSchedule.isPending;
+    const generating = requestSchedule.isPending || IN_FLIGHT.has(generation.status);
+    const busy = generating || writing;
     const canGenerate =
-        selectedJobIds.length > 0 && validationQuery.data?.schedulable[strategy] !== false;
+        !busy && selectedJobIds.length > 0 && validationQuery.data?.schedulable[strategy] !== false;
+    const canSave = generation.status === "ready" && currentIsDraft && name.trim() !== "" && !writing;
 
-    // A job can leave the backlog while this page is open. Settle the selection
-    // during render so the next Generate press cannot send an id the page can
-    // already see is no longer open.
-    const currentSelection = selectedJobIds.filter((id) => openJobIds.has(id));
+    // A job can be archived or finish running while this page is open. Settle
+    // the selection during render so the next Generate press cannot send an id
+    // the page can already see is no longer plannable.
+    const currentSelection = selectedJobIds.filter((id) => plannableJobIds.has(id));
     if (currentSelection.length !== selectedJobIds.length) {
         setSelectedJobIds(currentSelection);
     }
+
+    function generate(date: CalendarDate) {
+        setPickingStartDate(false);
+        setStartDate(date);
+        if (!canGenerate) return;
+        // A plan generated here and never saved is replaced, not kept: leaving
+        // it behind would fill Schedules with untitled drafts nobody chose.
+        const replacedDraftId = generatedThisSession && currentIsDraft ? completedScheduleId : null;
+        setHighlightedJobId(null);
+        requestSchedule.mutate({ startsAt: reportingDateStartsAt(date), jobIds: selectedJobIds, strategy }, {
+            onSuccess: (accepted) => {
+                setGenerationRequest({ id: accepted.id, deadline: Date.now() + GENERATION_DEADLINE_MS });
+                if (replacedDraftId) deleteSchedule.mutate({ id: replacedDraftId }, { onError: reportMutationError });
+            },
+            onError: reportMutationError,
+        });
+    }
+
+    async function save(confirm: boolean) {
+        if (!canSave || currentScheduleId === null) return;
+        const trimmed = name.trim();
+        try {
+            await updateSchedule.mutateAsync({
+                id: currentScheduleId,
+                name: trimmed,
+                ...(confirm ? { status: "confirmed" as const } : {}),
+            });
+            toast.success(
+                confirm ? `“${trimmed}” saved.` : `“${trimmed}” saved as a draft.`,
+                {
+                    description: confirm
+                        ? "Run it from the Schedules or Simulation page whenever you are ready."
+                        : "Confirm it from the Schedules page when you want to run it.",
+                },
+            );
+            router.push(`/manager/schedules?schedule=${encodeURIComponent(currentScheduleId)}`);
+        } catch (error) {
+            reportMutationError(error);
+        }
+    }
+
+    async function discard() {
+        if (currentScheduleId === null || !currentIsDraft || writing) return;
+        try {
+            await deleteSchedule.mutateAsync({ id: currentScheduleId });
+            setConfirmDiscard(false);
+            setGenerationRequest(null);
+            setHighlightedJobId(null);
+            setName("");
+            requestSchedule.reset();
+            toast.success("Plan discarded.");
+            if (openedScheduleId !== null) router.replace("/manager/planner");
+        } catch (error) {
+            setConfirmDiscard(false);
+            reportMutationError(error);
+        }
+    }
+
+    /** Ctrl+S / ⌘S saves and confirms, exactly as the Save button would. */
+    useSaveShortcut(() => {
+        if (confirmDiscard || writing) return;
+        if (canSave) {
+            void save(true);
+            return;
+        }
+        if (generation.status === "ready" && currentIsDraft && name.trim() === "") {
+            toast.warning("Name the schedule before saving it.");
+        }
+    });
 
     // The poll endpoint is a successful HTTP read even when the queued command
     // failed. Surface its API-authored failure once as feedback, while the
@@ -425,23 +575,6 @@ export default function PlannerPage() {
         reportBackendFailure(outcome.detail);
     }, [generationQuery.data]);
 
-    // Every completed run is persisted by the backend before it reports success,
-    // so once a plan drawn in this session resolves, tell the manager where to
-    // find it again. Keyed to the schedule id so a re-render never repeats it.
-    const savedToastFor = useRef<string | null>(null);
-    useEffect(() => {
-        if (generation.status !== "ready" || generation.createdAt !== null) return;
-        if (savedToastFor.current === generation.scheduleId) return;
-        savedToastFor.current = generation.scheduleId;
-        toast.success(
-            `Schedule ${shortId(generation.scheduleId)} was generated and automatically saved to Schedules.`,
-            {
-                description:
-                    "Open the Schedules page to view its details or run it in the simulation.",
-            },
-        );
-    }, [generation]);
-
     function toggleHighlight(jobId: string) {
         setHighlightedJobId((previous) => (previous === jobId ? null : jobId));
     }
@@ -449,7 +582,7 @@ export default function PlannerPage() {
     if (jobsQuery.isPending || machinesQuery.isPending) {
         return (
             <Placeholder title="Loading the floor…">
-                Reading <code>GET /api/v1/jobs</code> and <code>GET /api/v1/machines</code>.
+                Reading the job backlog and machines from the API.
             </Placeholder>
         );
     }
@@ -460,7 +593,7 @@ export default function PlannerPage() {
         return (
             <Placeholder title="This needs a manager account">
                 <p>
-                    You are signed in as <strong>{user?.name}</strong> ({user?.role}). Generating
+                    You are signed in as <strong>{user?.name}</strong> ({user?.role}). Creating
                     schedules is restricted to managers.
                 </p>
                 <p className="mt-2">Sign out and sign in with a manager account to continue.</p>
@@ -468,7 +601,7 @@ export default function PlannerPage() {
         );
     }
 
-    if (floorError) {
+    if (floorError && (!jobsQuery.data || !machinesQuery.data)) {
         return (
             <Placeholder
                 title="Could not read the floor."
@@ -492,63 +625,154 @@ export default function PlannerPage() {
     const schedule = plan?.schedule ?? null;
     const machineName = (id: string) =>
         plan?.machines.find((machine) => machine.id === id)?.name ?? id;
+    const selectedIds = new Set(selectedJobIds);
+    const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every((job) => selectedIds.has(job.id));
+    const openJobCount = plannableJobs.filter((job) => job.backlogStatus === "open").length;
+    const plannedJobCount = plannableJobs.length - openJobCount;
+
+    const saveState: SavePanelState =
+        generation.status !== "ready" || currentScheduleId === null
+            ? { kind: "empty" }
+            : currentIsDraft
+                ? { kind: "draft", scheduleId: currentScheduleId }
+                : currentSummary && currentSummary.status !== "draft"
+                    ? { kind: "saved", scheduleId: currentScheduleId, name: currentSummary.name, status: currentSummary.status }
+                    : { kind: "empty" };
 
     return (
         <ManagerShell actions={<>
-                <ToggleGroup
-                    aria-label="Scheduling engine"
-                    selectionMode="single"
-                    disallowEmptySelection
-                    isDisabled={busy}
-                    selectedKeys={new Set([strategy])}
-                    onSelectionChange={(keys) => {
-                        const [first] = Array.from(keys);
-                        if (first === "resched" || first === "exact") setStrategy(first);
-                    }}
-                >
-                    {STRATEGIES.map((option) => (
-                        <ToggleGroupItem
-                            key={option.value}
-                            id={option.value}
-                            aria-label={`${option.label} — ${option.hint}`}
-                        >
-                            {option.label}
-                        </ToggleGroupItem>
-                    ))}
-                </ToggleGroup>
+            <Link href="/manager/schedules" className={buttonStyles({ intent: "plain", size: "sm" })}>
+                <ArrowLeftIcon /> Schedules
+            </Link>
+            <ToggleGroup
+                aria-label="Scheduling engine"
+                selectionMode="single"
+                disallowEmptySelection
+                isDisabled={busy}
+                selectedKeys={new Set([strategy])}
+                onSelectionChange={(keys) => {
+                    const [first] = Array.from(keys);
+                    if (first === "resched" || first === "exact") setStrategy(first);
+                }}
+            >
+                {STRATEGIES.map((option) => (
+                    <ToggleGroupItem
+                        key={option.value}
+                        id={option.value}
+                        aria-label={`${option.label}: ${option.hint}`}
+                    >
+                        {option.label}
+                    </ToggleGroupItem>
+                ))}
+            </ToggleGroup>
 
-                {/* `isPending` rather than `isDisabled`: React Aria already stops
-            {/* `isPending` rather than `isDisabled`: React Aria already stops
-                    onPress firing while pending, and keeps the control focusable
-                    and announced as busy instead of silently going dead. */}
-            <Button onPress={generate} isPending={busy} isDisabled={!canGenerate}>
-                {busy ? "Generating…" : schedule ? "Regenerate schedule" : "Generate schedule"}
+            {/* `isPending` rather than `isDisabled` while running: React Aria
+                already stops onPress firing while pending, and keeps the
+                control focusable and announced as busy instead of silently
+                going dead. */}
+            <Button
+                intent={schedule ? "outline" : "primary"}
+                onPress={() => setPickingStartDate(true)}
+                isPending={generating}
+                isDisabled={!generating && !canGenerate}
+            >
+                {generating ? "Generating…" : schedule ? "Regenerate plan" : "Generate plan"}
             </Button>
         </>}>
 
             <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,2.2fr)_minmax(260px,0.9fr)]">
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
                 <Card>
-                    <CardHeader className="flex-row items-center gap-2.5">
-                        <CardTitle>Released to schedule</CardTitle>
-                        <Badge intent="secondary">
-                            {selectedJobIds.length} / {openJobs.length}
-                        </Badge>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <span className="whitespace-nowrap">
+                                Jobs to plan
+                                <HeaderCount label={`${selectedJobIds.length} of ${plannableJobs.length} jobs selected`}>
+                                    {selectedJobIds.length}/{plannableJobs.length}
+                                </HeaderCount>
+                            </span>
+                            <InfoTooltip label="About job selection">
+                                Select the jobs to include in this plan. Open jobs and jobs a confirmed
+                                schedule already plans can be selected; completed and archived jobs
+                                cannot.
+                            </InfoTooltip>
+                        </CardTitle>
+                        {visibleJobs.length > 0 && (
+                            <CardAction>
+                                <Button
+                                    intent="plain"
+                                    size="sm"
+                                    isDisabled={busy}
+                                    onPress={() => {
+                                        const visibleIds = new Set(visibleJobs.map((job) => job.id));
+                                        setSelectedJobIds(
+                                            allVisibleSelected
+                                                ? selectedJobIds.filter((id) => !visibleIds.has(id))
+                                                : [...new Set([...selectedJobIds, ...visibleIds])],
+                                        );
+                                    }}
+                                >
+                                    {allVisibleSelected ? "Clear" : "Select all"}
+                                </Button>
+                            </CardAction>
+                        )}
                     </CardHeader>
                     <CardContent>
-                        <Note intent="info">
-                            Select the open jobs to include in this run. Jobs already planned,
-                            completed or archived cannot be selected again.
-                        </Note>
-
+                        {plannableJobs.length > 0 && (
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <TextField
+                                    aria-label="Search jobs to plan"
+                                    className="min-w-40 flex-1"
+                                    value={jobQuery}
+                                    onChange={setJobQuery}
+                                >
+                                    <InputGroup>
+                                        <MagnifyingGlassIcon data-slot="icon" />
+                                        <Input placeholder="Search by job name…" autoComplete="off" />
+                                    </InputGroup>
+                                </TextField>
+                                <Select
+                                    aria-label="Sort jobs to plan"
+                                    className="w-32"
+                                    value={jobSort}
+                                    onChange={(value) => setJobSort(value as JobSort)}
+                                >
+                                    <SelectTrigger />
+                                    <SelectContent>
+                                        {JOB_SORTS.map((option) => (
+                                            <SelectItem key={option.id} id={option.id} textValue={option.label}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <ToggleGroup
+                                    aria-label="Show jobs"
+                                    size="sm"
+                                    selectionMode="single"
+                                    disallowEmptySelection
+                                    selectedKeys={new Set([jobStatusFilter])}
+                                    onSelectionChange={(keys) => {
+                                        const [first] = Array.from(keys);
+                                        const filter = JOB_STATUS_FILTERS.find((option) => option.id === first);
+                                        if (filter) setJobStatusFilter(filter.id);
+                                    }}
+                                >
+                                    {JOB_STATUS_FILTERS.map((option) => (
+                                        <ToggleGroupItem key={option.id} id={option.id}>
+                                            {option.label}
+                                        </ToggleGroupItem>
+                                    ))}
+                                </ToggleGroup>
+                            </div>
+                        )}
                         <CheckboxGroup
                             aria-label="Jobs to schedule"
                             value={selectedJobIds}
                             isDisabled={busy}
                             onChange={(values) => setSelectedJobIds([...values])}
-                            className="mt-3"
                         >
-                            {openJobs.map((job) => {
+                            {visibleJobs.map((job) => {
                                 const issue = validationIssuesByJobId.get(job.id);
                                 return (
                                     <CheckboxField
@@ -561,6 +785,9 @@ export default function PlannerPage() {
                                                 <span className="flex items-center gap-2">
                                                     <JobDot colors={colors} jobId={job.id} />
                                                     <span className="font-semibold text-sm">{job.name}</span>
+                                                    {job.backlogStatus === "planned" && (
+                                                        <Badge intent="secondary">Planned</Badge>
+                                                    )}
                                                 </span>
                                                 {issue && (
                                                     <span className="text-danger text-xs">
@@ -591,9 +818,13 @@ export default function PlannerPage() {
                             </Note>
                         )}
 
-                        {openJobs.length === 0 && (
+                        {plannableJobs.length > 0 && visibleJobs.length === 0 && (
+                            <p className="mt-3 text-muted-fg text-sm">No jobs match your search or filter.</p>
+                        )}
+
+                        {plannableJobs.length === 0 && (
                             <p className="mt-3 text-muted-fg text-sm">
-                                No open jobs are available to schedule. {jobs.length === 0 && "Add a job first. "}
+                                No jobs are available to plan. {jobs.length === 0 && "Add a job first. "}
                                 <Link href="/manager/jobs" className="text-primary">
                                     Open the backlog →
                                 </Link>
@@ -602,7 +833,7 @@ export default function PlannerPage() {
 
                         <Separator className="my-3" />
                         <div className="text-muted-fg text-sm">
-                            {openJobs.length} open {openJobs.length === 1 ? "job" : "jobs"} ·{" "}
+                            {openJobCount} open · {plannedJobCount} planned ·{" "}
                             {activeMachines.length} of {machines.length} machines active
                         </div>
                         {activeMachines.length === 0 && machines.length > 0 && (
@@ -616,15 +847,19 @@ export default function PlannerPage() {
 
                 {/* ===== PLAN ===== */}
                 <Card className="min-w-0">
-                    <CardHeader className="gap-3">
-                        <CardTitle>Generated plan</CardTitle>
+                    <CardHeader className="gap-1">
+                        <CardTitle className="flex flex-wrap items-center gap-2.5">
+                            {generation.status === "ready" && currentSummary?.name ? currentSummary.name : "Plan"}
+                            {generation.status === "ready" && currentIsDraft && (
+                                <Badge intent="warning">Unsaved draft</Badge>
+                            )}
+                        </CardTitle>
                         {generation.status === "ready" && schedule && (
-                            <div className="flex items-center gap-4">
-                                <span className="shrink-0 text-muted-fg text-xs">
-                                    makespan {formatDuration(schedule.makespanMins)} · {schedule.ops.length} operations ·{" "}
-                                    {generation.createdAt === null ? "generated just now" : formatCreated(generation.createdAt)}
-                                </span>
-                            </div>
+                            <span className="text-muted-fg text-xs">
+                                {currentSummary ? `${strategyLabel(currentSummary.strategy)} · ` : ""}
+                                makespan {formatDuration(schedule.makespanMins)} · {schedule.ops.length} operations ·{" "}
+                                {generation.createdAt === null ? "generated just now" : `generated ${formatCreatedAt(generation.createdAt)}`}
+                            </span>
                         )}
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -645,117 +880,146 @@ export default function PlannerPage() {
                     </CardContent>
                 </Card>
 
-                {/* ===== SUMMARY ===== */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Plan summary</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {plan && schedule ? (
-                            <>
-                                <div className="grid grid-cols-2 gap-2.5">
-                                    <div className="rounded-lg border bg-muted p-3">
-                                        <div className="font-bold text-xl tabular-nums">
-                                            {formatDuration(schedule.makespanMins)}
-                                        </div>
-                                        <div className="text-muted-fg text-xs">Makespan</div>
-                                    </div>
-                                    <div className="rounded-lg border bg-muted p-3">
-                                        <div className="font-bold text-xl tabular-nums">
-                                            {schedule.order.length}
-                                        </div>
-                                        <div className="text-muted-fg text-xs">Jobs</div>
-                                    </div>
-                                </div>
+                {/* ===== SAVE + SUMMARY ===== */}
+                <div className="flex min-w-0 flex-col gap-5">
+                    <SavePlanPanel
+                        state={saveState}
+                        name={name}
+                        saving={updateSchedule.isPending}
+                        discarding={deleteSchedule.isPending}
+                        onNameChange={setName}
+                        onSave={() => void save(true)}
+                        onSaveDraft={() => void save(false)}
+                        onDiscard={() => setConfirmDiscard(true)}
+                    />
 
-                                <h3 className="mt-5 font-semibold text-sm">Machine load</h3>
-                                <ul className="mt-2 space-y-2">
-                                    {schedule.machineLoad
-                                        .filter((load) => load.busyMins > 0)
-                                        .map((load) => (
-                                            <li key={load.machineId} className="flex items-center gap-2.5">
-                                                <span className="w-24 shrink-0 truncate text-sm">
-                                                    {machineName(load.machineId)}
-                                                </span>
-                                                <ProgressBar
-                                                    aria-label={`${machineName(load.machineId)} utilisation`}
-                                                    value={load.utilisationPct}
-                                                    className="flex-1"
-                                                >
-                                                    <ProgressBarTrack className="min-w-0" />
-                                                </ProgressBar>
-                                                <span className="w-9 shrink-0 text-right text-muted-fg text-xs tabular-nums">
-                                                    {load.utilisationPct}%
-                                                </span>
-                                            </li>
-                                        ))}
-                                </ul>
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Plan summary</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {plan && schedule ? (
+                                <>
+                                    <div className="grid grid-cols-2 gap-2.5">
+                                        <div className="rounded-lg border bg-muted p-3">
+                                            <div className="font-bold text-xl tabular-nums">
+                                                {formatDuration(schedule.makespanMins)}
+                                            </div>
+                                            <div className="text-muted-fg text-xs">Makespan</div>
+                                        </div>
+                                        <div className="rounded-lg border bg-muted p-3">
+                                            <div className="font-bold text-xl tabular-nums">
+                                                {schedule.order.length}
+                                            </div>
+                                            <div className="text-muted-fg text-xs">Jobs</div>
+                                        </div>
+                                    </div>
 
-                                {/* Every job's placement in text, so the plan is readable
-                                    without relying on the colour channel. */}
-                                <h3 className="mt-5 font-semibold text-sm">Job placement</h3>
-                                <p className="mt-1 text-muted-fg text-xs">
-                                    When each job opens and closes, in the lane order the engine
-                                    itself reports. Click a row to trace it on the grid.
-                                </p>
-                                <Table
-                                    aria-label="Job placement"
-                                    selectionMode="single"
-                                    selectionBehavior="replace"
-                                    selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
-                                    onSelectionChange={(keys) => {
-                                        if (keys === "all") return;
-                                        const [first] = Array.from(keys);
-                                        setHighlightedJobId(typeof first === "string" ? first : null);
-                                    }}
-                                    className="mt-2"
-                                >
-                                    <TableHeader>
-                                        <TableColumn className="w-0">#</TableColumn>
-                                        <TableColumn isRowHeader>Job</TableColumn>
-                                        <TableColumn>Starts</TableColumn>
-                                        <TableColumn>Finishes</TableColumn>
-                                    </TableHeader>
-                                    <TableBody items={schedule.order.map((id, index) => ({ id, index }))}>
-                                        {({ id, index }) => (
-                                            <TableRow id={id}>
-                                                <TableCell className="tabular-nums">{index + 1}</TableCell>
-                                                <TableCell>
-                                                    <span className="flex items-center gap-2">
-                                                        <JobDot colors={colors} jobId={id} />
-                                                        <span>
-                                                            {plan.jobs.find((job) => job.id === id)?.name ?? id}
-                                                        </span>
+                                    <h3 className="mt-5 font-semibold text-sm">Machine load</h3>
+                                    <ul className="mt-2 space-y-2">
+                                        {schedule.machineLoad
+                                            .filter((load) => load.busyMins > 0)
+                                            .map((load) => (
+                                                <li key={load.machineId} className="flex items-center gap-2.5">
+                                                    <span className="w-24 shrink-0 truncate text-sm">
+                                                        {machineName(load.machineId)}
                                                     </span>
-                                                </TableCell>
-                                                <TableCell className="tabular-nums">
-                                                    {formatOffset(schedule.jobStart[id] ?? 0)}
-                                                </TableCell>
-                                                <TableCell className="tabular-nums">
-                                                    {formatOffset(schedule.jobFinish[id] ?? 0)}
-                                                </TableCell>
-                                            </TableRow>
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                                    <ProgressBar
+                                                        aria-label={`${machineName(load.machineId)} utilisation`}
+                                                        value={load.utilisationPct}
+                                                        className="flex-1"
+                                                    >
+                                                        <ProgressBarTrack className="min-w-0" />
+                                                    </ProgressBar>
+                                                    <span className="w-9 shrink-0 text-right text-muted-fg text-xs tabular-nums">
+                                                        {load.utilisationPct}%
+                                                    </span>
+                                                </li>
+                                            ))}
+                                    </ul>
 
-                                <Separator className="my-3" />
-                                <Link
-                                    href="/manager/simulation"
-                                    className={buttonStyles({ intent: "success", className: "w-full" })}
-                                >
-                                    Run this plan in the simulation →
-                                </Link>
-                            </>
-                        ) : (
-                            <p className="text-muted-fg text-sm">
-                                Generate a schedule to see its makespan, machine load and job
-                                placement.
-                            </p>
-                        )}
-                    </CardContent>
-                </Card>
+                                    {/* Every job's placement in text, so the plan is readable
+                                        without relying on the colour channel. */}
+                                    <h3 className="mt-5 font-semibold text-sm">Job placement</h3>
+                                    <p className="mt-1 text-muted-fg text-xs">
+                                        When each job opens and closes, in the lane order the engine
+                                        itself reports. Click a row to trace it on the grid.
+                                    </p>
+                                    {/* The column is narrow at xl, so the table scrolls
+                                        sideways rather than clipping its last column. */}
+                                    <div className="mt-2 overflow-x-auto">
+                                        <Table
+                                            aria-label="Job placement"
+                                            selectionMode="single"
+                                            selectionBehavior="replace"
+                                            selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
+                                            onSelectionChange={(keys) => {
+                                                if (keys === "all") return;
+                                                const [first] = Array.from(keys);
+                                                setHighlightedJobId(typeof first === "string" ? first : null);
+                                            }}
+                                        >
+                                            <TableHeader>
+                                                <TableColumn className="w-0">#</TableColumn>
+                                                <TableColumn isRowHeader>Job</TableColumn>
+                                                <TableColumn>Starts</TableColumn>
+                                                <TableColumn>Finishes</TableColumn>
+                                            </TableHeader>
+                                            <TableBody items={schedule.order.map((id, index) => ({ id, index }))}>
+                                                {({ id, index }) => (
+                                                    <TableRow id={id}>
+                                                        <TableCell className="tabular-nums">{index + 1}</TableCell>
+                                                        <TableCell>
+                                                            <span className="flex items-center gap-2">
+                                                                <JobDot colors={colors} jobId={id} />
+                                                                <span>
+                                                                    {plan.jobs.find((job) => job.id === id)?.name ?? id}
+                                                                </span>
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell className="tabular-nums">
+                                                            {formatOffset(schedule.jobStart[id] ?? 0)}
+                                                        </TableCell>
+                                                        <TableCell className="tabular-nums">
+                                                            {formatOffset(schedule.jobFinish[id] ?? 0)}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </>
+                            ) : (
+                                <p className="text-muted-fg text-sm">
+                                    Generate a plan to see its makespan, machine load and job
+                                    placement.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
             </main>
+
+            {pickingStartDate && (
+                <PlanStartDateDialog
+                    initialDate={startDate}
+                    regenerating={schedule !== null}
+                    onGenerate={generate}
+                    onDismiss={() => setPickingStartDate(false)}
+                />
+            )}
+
+            {confirmDiscard && (
+                <ConfirmDialog
+                    title="Discard this plan?"
+                    description="The generated draft is deleted. The jobs stay open in the backlog, so you can generate again."
+                    confirmLabel="Discard plan"
+                    cancelLabel="Keep it"
+                    danger
+                    onCancel={() => setConfirmDiscard(false)}
+                    onConfirm={() => void discard()}
+                />
+            )}
         </ManagerShell>
     );
 }

@@ -92,5 +92,8 @@ hour later still gets right.
   accumulated time is the extension point.
 - `reset` re-initialises the existing simulation row and appends an event, consistent with the
   one-simulation-per-schedule rule in `docs/database-schema.md`.
+- `seeked` (scrubbing) carries the simulated `position` it jumps to, clamped to the makespan. It sets
+  accumulated time outright without changing whether playback is running, so a scrub during playback
+  continues from the new point and every viewer re-reads the same position.
 - Wall-clock features stay separate. The operator break countdown runs on real time and has nothing to
   do with this derivation, as the schema document already records.

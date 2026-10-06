@@ -25,6 +25,9 @@ SCHEDULE_DISCARDED: ScheduleStatus = "discarded"
 class Schedule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A generated set of operation-to-machine assignments.
 
+    `name` is the only field a manager edits directly; everything else is written by generation or
+    by a lifecycle transition.
+
     total_energy/total_labour_cost, like makespan, are written once at generation time and summed
     from schedule_entries -- cached results, never an independently maintained fact.
     """
@@ -35,7 +38,13 @@ class Schedule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     status: Mapped[ScheduleStatus] = mapped_column(Text, nullable=False)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """What the manager called it. Null until they save it; generation never names a schedule."""
     strategy: Mapped[str] = mapped_column(Text, nullable=False)
+    # This is the manager-selected planning day, not when the worker happened to
+    # persist the result. It lets clients distinguish a plan for Monday from
+    # one generated later for Tuesday.
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     runtime_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_operation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     makespan: Mapped[int | None] = mapped_column(Integer, nullable=True)

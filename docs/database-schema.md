@@ -8,7 +8,7 @@ one model file under `floorsync_common/database/models/`.
 All tables get `id` (UUID v4, `UUIDPrimaryKeyMixin`) and `created_at` / `updated_at`
 (`TimestampMixin`) unless noted. Omitted below for brevity.
 
-![Physical schema diagram: all 13 tables, columns, types and keys, generated from this document](diagrams/database-schema.png)
+![Physical schema diagram: all 16 tables with their columns, types, keys and relationships, generated from the SQLAlchemy models; created_at and updated_at are omitted](diagrams/database-schema.png)
 
 ## categories
 
@@ -230,6 +230,7 @@ benchmark instance records. NULL means "not recorded by the source", not "draws 
 |---|---|---|
 | status | Text | not null, CHECK status IN ('draft', 'confirmed', 'discarded') |
 | strategy | Text | not null |
+| starts_at | DateTime(timezone=True) | not null, indexed — requested schedule start time |
 | runtime_ms | Integer | nullable — elapsed engine time only, excluding database/API work |
 | input_operation_count | Integer | nullable — number of operations in this run's input |
 | makespan | Integer | nullable — set once generation completes |
@@ -374,9 +375,10 @@ data has to exist anyway.
 | column | type | constraints |
 |---|---|---|
 | simulation_id | Uuid | FK -> simulations.id, not null, ondelete CASCADE, indexed |
-| event_type | Text | not null, CHECK event_type IN ('started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed') |
+| event_type | Text | not null, CHECK event_type IN ('started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed', 'seeked') |
 | occurred_at | DateTime(timezone=True) | not null, server_default now() |
 | speed | Numeric(5,2) | nullable — set only on 'started', 'resumed', 'speed_changed' |
+| position | Double | nullable, >= 0 — set on, and only on, 'seeked': the simulated time the play head jumped to, clamped to the makespan |
 
 `ondelete CASCADE` from Simulation is correct here in the same way it's correct for Schedule
 Dependency: the event log has no meaning independent of the simulation it describes, and Simulation

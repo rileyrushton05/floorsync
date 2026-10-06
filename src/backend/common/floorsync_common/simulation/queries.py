@@ -118,11 +118,12 @@ async def load_simulation_events(
             SimulationEvent.event_type,
             SimulationEvent.occurred_at,
             SimulationEvent.speed,
+            SimulationEvent.position,
         )
         .where(SimulationEvent.simulation_id == simulation_id)
         .order_by(SimulationEvent.occurred_at, SimulationEvent.id)
     )
-    rows: Sequence[tuple[str, datetime, Decimal | None]] = (
+    rows: Sequence[tuple[str, datetime, Decimal | None, float | None]] = (
         (await db.execute(statement)).tuples().all()
     )
     return events_from_rows(rows)

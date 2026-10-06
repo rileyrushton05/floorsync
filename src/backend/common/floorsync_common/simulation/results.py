@@ -95,6 +95,11 @@ class SimulationForScheduleNotFound(ExpectedOutcome):
 
 
 @dataclass(frozen=True, slots=True)
+class NoActiveSimulation(ExpectedOutcome):
+    """No simulation has been created yet, so there is none for operators to follow."""
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationPositionResolved:
     """Where a simulation sits, derived from its event log."""
 
@@ -104,6 +109,9 @@ class SimulationPositionResolved:
 
 
 type GetSimulationResult = SimulationPositionResolved | SimulationNotFound | ScheduleNotGenerated
+type GetActiveSimulationResult = (
+    SimulationPositionResolved | NoActiveSimulation | SimulationNotFound | ScheduleNotGenerated
+)
 type GetScheduleSimulationResult = (
     SimulationPositionResolved
     | ScheduleNotFound
@@ -142,10 +150,19 @@ class ControlSpeedRequired(ExpectedOutcome):
     event_type: SimulationEventType
 
 
+@dataclass(frozen=True, slots=True)
+class ControlPositionRequired(ExpectedOutcome):
+    """The control action moves the play head but no position was supplied."""
+
+    simulation_id: UUID
+    event_type: SimulationEventType
+
+
 type RecordControlResult = (
     ControlRecorded
     | SimulationNotFound
     | ScheduleNotGenerated
     | ControlNotApplicable
     | ControlSpeedRequired
+    | ControlPositionRequired
 )

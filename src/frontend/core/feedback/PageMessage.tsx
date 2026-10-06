@@ -11,7 +11,7 @@ export function PageMessage({
     tone?: "info" | "danger";
 }) {
     return (
-        <Note intent={tone} className="max-w-lg">
+        <Note intent={tone === "danger" ? "danger" : "default"} className="max-w-lg">
             <strong>{title}</strong>
             <div className="mt-1 text-sm">{children}</div>
         </Note>

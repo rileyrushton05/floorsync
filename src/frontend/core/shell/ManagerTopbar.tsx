@@ -4,17 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Bars3Icon } from "@heroicons/react/24/outline";
 import { usePathname } from "next/navigation";
 import { sectionLabel } from "./ManagerNavigation";
+import { ReportingDatePicker } from "./ReportingDatePicker";
 
 /**
- * The header above every manager page's content: the current section's name
- * and that page's own actions. Navigation lives in the sidebar; below `lg`,
- * where the sidebar is tucked away, the menu button here opens it.
+ * The header above every manager page's content: the current section's name,
+ * the reporting-date picker on pages that use the date, and that page's own
+ * actions. Navigation lives in the sidebar; below `lg`, where the sidebar is
+ * tucked away, the menu button here opens it.
  */
 export function ManagerTopbar({
     onOpenMenu,
+    showDatePicker,
     children,
 }: {
     onOpenMenu: () => void;
+    showDatePicker: boolean;
     children?: React.ReactNode;
 }) {
     const pathname = usePathname();
@@ -25,6 +29,7 @@ export function ManagerTopbar({
                 <Bars3Icon />
             </Button>
             <h1 className="m-0 font-bold text-lg tracking-tight">{sectionLabel(pathname)}</h1>
+            {showDatePicker && <ReportingDatePicker />}
             <div className="ml-auto flex items-center gap-2.5">{children}</div>
         </header>
     );

@@ -40,7 +40,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
                         <h2 className="font-semibold text-lg">The API is unreachable</h2>
                         <p className="mt-2 text-muted-fg text-sm">{unreachable}</p>
                         <p className="mt-2 text-muted-fg text-sm">
-                            Your session has not been signed out — this is a connection problem, not
+                            Your session has not been signed out; this is a connection problem, not
                             a credentials one. Start the API and reload.
                         </p>
                     </>

@@ -43,7 +43,7 @@ export function primaryRoute(operation: OperationDef) {
 export function formatDuration(mins: number): string {
     // A cleared duration field reads back as NaN. An em dash says "not set",
     // where "NaNh NaNm" only says the page is broken.
-    if (!Number.isFinite(mins)) return "—";
+    if (!Number.isFinite(mins)) return "–";
     const hours = Math.floor(mins / 60);
     const minutes = Math.round(mins % 60);
     if (hours === 0) return `${minutes}m`;
