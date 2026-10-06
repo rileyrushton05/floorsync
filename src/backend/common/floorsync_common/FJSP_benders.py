@@ -36,6 +36,18 @@ INSTANCE_NAME = "fattahi1"
 MAX_ITERATIONS = 500
 
 
+class OutOfTime(Exception):
+    """A subproblem hit the deadline before proving its makespan.
+
+    Its value is then only an upper bound, so neither a cut nor strengthen_cut()
+    may use it; `incumbent` still carries the feasible schedule, if any.
+    """
+
+    def __init__(self, incumbent: tuple[int, dict[int, int]] | None) -> None:
+        super().__init__("subproblem ran out of time")
+        self.incumbent = incumbent
+
+
 def load_fajsp(
     name: str,
 ) -> tuple[list[int], list[int], range, dict[int, list[int]], list[OpRecord]]:
@@ -137,6 +149,7 @@ def solve_subproblem(
     machine_of: dict[int, int],
     p: dict[tuple[int, int], int],
     enforced: set[int] | None = None,
+    deadline: float = float("inf"),
 ) -> tuple[int, dict[int, int]]:
     """Job shop with the assignment fixed. Returns (makespan, start times).
 
@@ -151,6 +164,8 @@ def solve_subproblem(
 
     model = gp.Model("benders_sub")
     model.Params.OutputFlag = 0
+    if deadline != float("inf"):
+        model.Params.TimeLimit = max(0.0, deadline - time.time())
 
     start = {i: model.addVar(vtype=gp.GRB.INTEGER, ub=horizon) for i in operations}
     cmax = model.addVar(vtype=gp.GRB.INTEGER, ub=horizon)
@@ -183,6 +198,10 @@ def solve_subproblem(
                 )
 
     model.optimize()
+    if model.Status == gp.GRB.TIME_LIMIT:
+        raise OutOfTime(
+            (round(cmax.X), {i: round(start[i].X) for i in operations}) if model.SolCount else None
+        )
     if model.SolCount == 0:
         raise RuntimeError("subproblem found no schedule")
     return round(cmax.X), {i: round(start[i].X) for i in operations}
@@ -194,6 +213,7 @@ def strengthen_cut(
     machine_of: dict[int, int],
     p: dict[tuple[int, int], int],
     makespan: int,
+    deadline: float = float("inf"),
 ) -> set[int]:
     """Smallest set of machines that on their own still force `makespan`.
 
@@ -207,7 +227,9 @@ def strengthen_cut(
     needed = set(machine_of.values())
     for k in sorted(needed):
         candidate = needed - {k}
-        relaxed, _ = solve_subproblem(operations, operation_data, machine_of, p, enforced=candidate)
+        relaxed, _ = solve_subproblem(
+            operations, operation_data, machine_of, p, enforced=candidate, deadline=deadline
+        )
         if relaxed >= makespan:
             needed = candidate
     return needed
@@ -222,13 +244,17 @@ def benders(
     max_iterations: int = MAX_ITERATIONS,
     time_limit: float | None = None,
     verbose: bool = True,
+    history: list[tuple[float, float, float]] | None = None,
 ) -> tuple[int, dict[int, int], dict[int, int], int]:
     """Run the cut loop. Returns (makespan, machine_of, start_times, iterations).
 
     Stops early on `max_iterations` or `time_limit` seconds, in which case the
-    best schedule found is returned and the remaining gap is printed.
+    best schedule found is returned and the remaining gap is printed. Pass a
+    `history` list to have (seconds elapsed, lower bound, upper bound) appended
+    after every iteration; its last entry holds the final, still-valid bounds.
     """
-    deadline = time.time() + time_limit if time_limit else float("inf")
+    started = time.time()
+    deadline = started + time_limit if time_limit else float("inf")
     p = {
         (i, k): required_processing_time(operation_data, i, k)
         for i in operations
@@ -241,8 +267,17 @@ def benders(
     best: tuple[dict[int, int], dict[int, int]] | None = None
     iteration = 0
 
+    def record() -> None:
+        if history is not None:
+            history.append((time.time() - started, lower_bound, upper_bound))
+
     for iteration in range(1, max_iterations + 1):
+        if deadline != float("inf"):
+            master.Params.TimeLimit = max(0.0, deadline - time.time())
         master.optimize()
+        if master.Status == gp.GRB.TIME_LIMIT:
+            print(f"out of time, gap still [{lower_bound:.1f}, {upper_bound:.0f}]")
+            break
         if master.Status == gp.GRB.INFEASIBLE:
             # every assignment left is one a cut ruled no better than the
             # incumbent, so the incumbent is optimal
@@ -255,9 +290,19 @@ def benders(
         machine_of = {
             i: next(k for k in eligible_machines[i] if x[i, k].X > 0.5) for i in operations
         }
-        makespan, start_times = solve_subproblem(operations, operation_data, machine_of, p)
+        try:
+            makespan, start_times = solve_subproblem(
+                operations, operation_data, machine_of, p, deadline=deadline
+            )
+        except OutOfTime as timeout:
+            if timeout.incumbent is not None and timeout.incumbent[0] < upper_bound:
+                upper_bound, best = timeout.incumbent[0], (machine_of, timeout.incumbent[1])
+            record()
+            print(f"out of time, gap still [{lower_bound:.1f}, {upper_bound:.0f}]")
+            break
         if makespan < upper_bound:
             upper_bound, best = makespan, (machine_of, start_times)
+        record()
 
         if verbose:
             print(
@@ -271,7 +316,13 @@ def benders(
             print(f"out of time, gap still [{lower_bound:.1f}, {upper_bound:.0f}]")
             break
 
-        critical = strengthen_cut(operations, operation_data, machine_of, p, makespan)
+        try:
+            critical = strengthen_cut(
+                operations, operation_data, machine_of, p, makespan, deadline=deadline
+            )
+        except OutOfTime:
+            print(f"out of time, gap still [{lower_bound:.1f}, {upper_bound:.0f}]")
+            break
         cut_ops = [i for i in operations if machine_of[i] in critical]
 
         master.addConstr(
@@ -288,7 +339,9 @@ def benders(
             f"gap still [{lower_bound:.1f}, {upper_bound:.0f}]"
         )
 
-    assert best is not None
+    if best is None:
+        raise RuntimeError("Benders found no schedule within the time limit")
+    record()  # the optimal-by-infeasible-master exit moves the lower bound up to the incumbent
     return round(upper_bound), best[0], best[1], iteration
 
 

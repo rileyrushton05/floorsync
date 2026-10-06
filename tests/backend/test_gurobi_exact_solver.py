@@ -12,7 +12,7 @@ picks. D (dur 3, only M1) fans in from both B (ends 3) and C (ends 5), so it can
 and ends at 8. No machine contention forces it later than that, so 8 is optimal.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
 from uuid import UUID, uuid4
@@ -67,6 +67,23 @@ def test_solve_fajsp_finds_the_provable_optimum_for_a_fan_in_instance() -> None:
     assert proven_optimal
     assert gap == 0.0
     assert plan.metrics.makespan_minutes == 8
+
+    # Every operation is assigned exactly once, only to a machine it has a route on (#137, #63),
+    # and its end time is its start time plus that route's duration (#64).
+    durations = {
+        (route.operation_id, route.machine_id): route.duration_minutes for route in problem.routes
+    }
+    assert sorted(a.operation_id for a in plan.assignments) == sorted(
+        o.id for o in problem.operations
+    )
+    for assignment in plan.assignments:
+        assert (assignment.operation_id, assignment.machine_id) in durations
+        assert (
+            assignment.duration_minutes == durations[assignment.operation_id, assignment.machine_id]
+        )
+        assert assignment.ends_at == assignment.starts_at + timedelta(
+            minutes=assignment.duration_minutes
+        )
 
     ends_at = {assignment.operation_id: assignment.ends_at for assignment in plan.assignments}
     starts_at_by_op = {
