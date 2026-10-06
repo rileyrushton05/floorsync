@@ -6,7 +6,7 @@ The team has decided to ship a single scheduling algorithm. In some scenarios, t
 
 ## Likelihood
 
-Low
+Medium (up from Low)
 
 ## Impact
 
@@ -18,6 +18,7 @@ High
 - Document the scenarios where the algorithm is expected to perform well
 - Provide clear justification for algorithm selection in the project documentation
 - Tune algorithm parameters extensively for common manufacturing scenarios
+- **(Checkpoint 2)** Remaining: no naive or first-available-machine baseline exists in the codebase yet (#114, #115, #159 not started). The final report's success criteria explicitly require demonstrating measurable improvement over a naive or manual baseline, so this is now the most exposed item on the register: the risk is no longer "the algorithm might lose to a baseline," it is "there is no baseline to compare against at all." This risk and `risk-04` describe the same gap from two angles and should be read together.
 
 ## Contingency Plan
 

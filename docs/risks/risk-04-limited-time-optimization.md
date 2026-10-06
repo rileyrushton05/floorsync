@@ -18,6 +18,8 @@ Medium
 - Allocate specific, non-negotiable time in the project plan for algorithm research and implementation
 - Choose a single, promising algorithm to focus on, rather than attempting multiple complex ones
 - Start with the simplest working algorithm and iterate
+- **(Checkpoint 2)** Done: two scheduling strategies exist (the ReSched learned policy and an exact Gurobi MILP solver, ADR 0014), superseding the original "single simple heuristic" assumption
+- **(Checkpoint 2)** Remaining: multi-objective scoring across completion time, energy usage and operator salary is not implemented; the exact solver's objective is makespan alone, with the rest explicitly deferred as follow-up work in ADR 0014 (#69, #139 still open). This risk and `risk-09` describe the same underlying gap from two angles and should be merged at the next revision.
 
 ## Contingency Plan
 

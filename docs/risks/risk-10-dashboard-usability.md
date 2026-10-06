@@ -18,6 +18,8 @@ Medium
 - Follow established UI/UX best practices (e.g., clear labels, consistent color coding for machine states, informative tooltips)
 - Provide a "training" walkthrough or onboarding guide for new users
 - Involve potential users in design feedback sessions
+- **(Checkpoint 2)** Done: the operator dashboard and sidebar navigation shipped (#294), and simulation playback and page polish shipped (#295), both with consistent status labelling
+- **(Checkpoint 2)** Remaining: no usability testing has actually been run with real users yet; `evidence/user-testing/` holds only a placeholder README, and #162/#187 (the usability evaluation tasks) have not started
 
 ## Contingency Plan
 

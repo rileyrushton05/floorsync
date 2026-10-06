@@ -18,6 +18,8 @@ Medium
 - Optimize database queries and payload size for dashboard data endpoints
 - Implement a "last updated" timestamp on the dashboard to indicate data freshness
 - Use client-side caching to reduce server load
+- **(Checkpoint 2)** Done: authenticated WebSocket live-update transport (tickets, `/ws`, subscriber, relay) merged (#292), replacing polling
+- **(Checkpoint 2)** Remaining: #161, the two-instance fault-injection and recovery verification (Redis or API-instance restart, reconnect, stale-state handling), is still open, so resilience under a real failure is unproven
 
 ## Contingency Plan
 
