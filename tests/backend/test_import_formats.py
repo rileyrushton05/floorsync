@@ -13,7 +13,12 @@ from typing import Any
 
 import pytest
 
-from floorsync_common.imports.formats import read_import_file
+from floorsync_common.imports import formats
+from floorsync_common.imports.formats import (
+    MAX_IMPORT_JOBS,
+    MAX_IMPORT_MACHINES,
+    read_import_file,
+)
 from floorsync_common.imports.plan import ImportPlan
 from floorsync_common.imports.results import FileUnreadable, PlanRead
 
@@ -156,6 +161,66 @@ def test_every_shape_problem_in_a_floorsync_file_is_reported_at_once_with_its_pa
     }
 
 
+def test_an_explicit_null_is_a_mistake_even_where_the_field_may_be_left_out() -> None:
+    # Pydantic would read `null` as "not given" for an optional field; this format does not.
+    document = floorsync(
+        {
+            "name": "Panel",
+            "priority": None,
+            "operations": [
+                {
+                    "name": "Cut",
+                    "after": None,
+                    "routes": [{"machine": "Saw", "duration": 10, "energy": None}],
+                }
+            ],
+        },
+        machines=[{"name": "Saw", "category": None, "salary": None}],
+    )
+
+    assert problems_of(document) == {
+        ("invalid_value", "jobs[0].priority"),
+        ("wrong_type", "jobs[0].operations[0].after"),
+        ("wrong_type", "jobs[0].operations[0].routes[0].energy"),
+        ("wrong_type", "machines[0].category"),
+        ("wrong_type", "machines[0].salary"),
+    }
+    assert problems_of(floorsync(job(), machines=None)) == {("wrong_type", "machines")}
+
+
+def test_true_and_false_are_never_numbers() -> None:
+    document = {
+        "format": "floorsync",
+        "version": True,
+        "jobs": [
+            {
+                "name": "Panel",
+                "operations": [
+                    {
+                        "name": "Cut",
+                        "routes": [{"machine": "Saw", "duration": True, "energy": False}],
+                    }
+                ],
+            }
+        ],
+    }
+
+    assert problems_of(document) == {
+        ("wrong_type", "version"),
+        ("wrong_type", "jobs[0].operations[0].routes[0].duration"),
+        ("wrong_type", "jobs[0].operations[0].routes[0].energy"),
+    }
+
+
+def test_an_unknown_field_names_the_fields_allowed_there() -> None:
+    result = read_import_file(json.dumps(floorsync(job(colour="red"))).encode())
+
+    assert isinstance(result, FileUnreadable)
+    (issue,) = result.issues
+    assert (issue.code, issue.location) == ("unknown_field", "jobs[0].colour")
+    assert issue.message == "'colour' is not a field here. Allowed: name, operations, priority."
+
+
 def test_a_floorsync_file_needs_a_version_and_at_least_one_job() -> None:
     assert problems_of({"format": "floorsync", "jobs": []}) == {
         ("missing_field", "version"),
@@ -226,6 +291,81 @@ def test_a_classic_benchmark_chains_each_job_in_order_and_skips_a_job_with_no_st
         "tiny/M0",
     ]
     assert [machine.name for machine in plan.machines] == ["tiny/M0", "tiny/M1"]
+
+
+def tiny_classic(*, jobs: int = 1, machines: int = 1) -> dict[str, Any]:
+    return {
+        "instance": "tiny",
+        "family": "test",
+        "jobs": jobs,
+        "machines": machines,
+        "data": [{"job": 0, "operation": 0, "machine": 0, "duration": 1}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("document", "location"),
+    [
+        (tiny_classic(machines=MAX_IMPORT_MACHINES + 1), "machines"),
+        (tiny_classic(jobs=MAX_IMPORT_JOBS + 1), "jobs"),
+    ],
+    ids=["machines", "jobs"],
+)
+def test_a_classic_benchmark_declaring_too_much_is_refused_before_it_is_expanded(
+    document: dict[str, Any], location: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A few bytes can declare millions of machines or jobs; nothing count-sized may be built.
+    def expanded(_: object) -> None:
+        raise AssertionError("the declared counts were expanded before being bounded")
+
+    monkeypatch.setattr(formats, "_plan_from_jobshop", expanded)
+
+    assert problems_of(document) == {("too_large", location)}
+
+
+def test_the_size_limits_hold_for_floorsync_and_flexible_files_too() -> None:
+    many_machines = floorsync(
+        job(), machines=[{"name": f"M{index}"} for index in range(MAX_IMPORT_MACHINES + 1)]
+    )
+    many_jobs = floorsync(*(job(f"J{index}") for index in range(MAX_IMPORT_JOBS + 1)))
+    flexible = {
+        "instance": "wide",
+        "operations": [
+            *(
+                {"operation": 0, "machine": machine, "duration": 1}
+                for machine in range(MAX_IMPORT_MACHINES + 1)
+            ),
+            {"operation": 1, "machine": 0, "duration": 1},
+        ],
+        "precedences": [{"before": 0, "after": 1, "job": 0}],
+    }
+
+    assert problems_of(many_machines) == {("too_large", "machines")}
+    assert problems_of(many_jobs) == {("too_large", "jobs")}
+    assert problems_of(flexible) == {("too_large", "operations")}
+
+
+def test_a_number_beyond_what_a_decimal_can_hold_is_unreadable_not_an_error() -> None:
+    raw = (
+        json.dumps(floorsync(job()))
+        .encode()
+        .replace(b'"duration": 10', b'"duration": 10, "energy": 1e999999999999999999999')
+    )
+
+    result = read_import_file(raw)
+
+    assert isinstance(result, FileUnreadable)
+    assert [issue.code for issue in result.issues] == ["not_json"]
+
+
+@pytest.mark.parametrize("value", [b"1e5000000", b"-1e5000000", b"1e19"])
+def test_a_whole_number_too_large_for_any_field_is_refused_without_expanding_it(
+    value: bytes,
+) -> None:
+    # `int(Decimal("1e5000000"))` builds a five-million-digit integer: minutes of CPU per upload.
+    raw = json.dumps(floorsync(job())).encode().replace(b'"duration": 10', b'"duration": ' + value)
+
+    assert problems_of(raw) == {("invalid_value", "jobs[0].operations[0].routes[0].duration")}
 
 
 def test_a_flexible_benchmark_states_each_operations_predecessors() -> None:

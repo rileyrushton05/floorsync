@@ -31,6 +31,7 @@ type ImportIssueCode = Literal[
     "unknown_format",
     "unsupported_version",
     "invalid_benchmark",
+    "too_large",
     # A FloorSync file's shape.
     "missing_field",
     "unknown_field",

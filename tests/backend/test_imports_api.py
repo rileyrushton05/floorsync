@@ -227,6 +227,26 @@ def test_an_unreadable_file_never_reaches_the_service(
     assert calls.plans == []
 
 
+@pytest.mark.parametrize(
+    "number", [b"1e999999999999999999999", b"1e5000000"], ids=["beyond-decimal", "huge-exponent"]
+)
+def test_an_extreme_number_is_a_structured_problem_and_never_reaches_the_service(
+    monkeypatch: pytest.MonkeyPatch, session: FakeSession, number: bytes
+) -> None:
+    calls = stub(monkeypatch, applied(()))
+    client = import_client(session)
+    raw = VALID_FILE.replace(b'"duration": 10', b'"duration": ' + number)
+
+    refused = upload(client, raw)
+    previewed = upload(client, raw, dry_run=True)
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["type"] == "urn:floorsync:problem:import-invalid"
+    assert previewed.status_code == 200, previewed.text
+    assert previewed.json()["importable"] is False
+    assert calls.plans == []
+
+
 def test_only_a_manager_may_import(monkeypatch: pytest.MonkeyPatch, session: FakeSession) -> None:
     calls = stub(monkeypatch, applied(()))
 

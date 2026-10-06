@@ -3,8 +3,8 @@
 Three formats are read, told apart by their content rather than a filename or content type:
 
 - **FloorSync JSON** (`"format": "floorsync"`), the format a company's own data is written in. Its
-  shape is checked field by field and every problem is reported with its path, so a person fixing a
-  hand-written file sees everything wrong in one go.
+  shape is declared in `floorsync_file` and every problem is reported with its path, so a person
+  fixing a hand-written file sees everything wrong in one go.
 - **ScheduleOpt classic job shop** and **flexible job shop**, the benchmark files the seed loader
   already reads. Those parsers are reused unchanged; they stop at the first problem, which is fine
   for files that come from an upstream benchmark set rather than from a person.
@@ -17,10 +17,15 @@ Nothing here touches the database.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
-from decimal import Decimal
-from typing import NoReturn, cast
+from collections.abc import Mapping
+from decimal import Decimal, DecimalException
+from typing import NoReturn
 
+from floorsync_common.imports.floorsync_file import (
+    FLOORSYNC_FORMAT,
+    FLOORSYNC_VERSION,
+    read_floorsync_file,
+)
 from floorsync_common.imports.plan import (
     ImportIssue,
     ImportIssueCode,
@@ -28,7 +33,6 @@ from floorsync_common.imports.plan import (
     PlannedJob,
     PlannedMachine,
     PlannedOperation,
-    PlannedPriority,
     PlannedRoute,
 )
 from floorsync_common.imports.results import FileUnreadable, PlanRead, ReadFileResult
@@ -39,9 +43,13 @@ from floorsync_common.seed.flexible import (
 )
 from floorsync_common.seed.instances import BenchmarkInstance, InstanceError, parse_instance
 
-FLOORSYNC_FORMAT = "floorsync"
-FLOORSYNC_VERSION = 1
-PRIORITIES: tuple[PlannedPriority, ...] = ("high", "med", "low")
+# The request size limit bounds what a file lists, but not what a classic benchmark declares: a few
+# bytes can say `"machines": 3000000`. These bound every format, far above any real floor (the
+# largest committed benchmark has 792 jobs, 48 machines and 9,748 routes).
+MAX_IMPORT_MACHINES = 1_000
+MAX_IMPORT_JOBS = 10_000
+MAX_IMPORT_ROWS = 100_000
+"""Machines, jobs, operations and routes together."""
 
 
 class _DuplicateKey(Exception):
@@ -85,6 +93,9 @@ def read_import_file(raw: bytes) -> ReadFileResult:
         )
     except _NonFiniteNumber:
         return _unreadable("not_json", "The file uses NaN or Infinity, which are not JSON numbers.")
+    except DecimalException:
+        # `parse_float=Decimal` on a number like 1e999999999999999999999.
+        return _unreadable("not_json", "The file contains a number too large to read.")
     except ValueError as error:
         # Python's own limits, such as an integer literal thousands of digits long.
         return _unreadable("not_json", f"The file is not valid JSON: {error}.")
@@ -97,9 +108,11 @@ def read_import_file(raw: bytes) -> ReadFileResult:
         )
 
     if document.get("format") == FLOORSYNC_FORMAT:
-        return _FloorSyncReader().read(document)
+        return _within_limits(read_floorsync_file(document), machines="machines", jobs="jobs")
     if is_flexible_payload(document):
-        return _read_benchmark(document, flexible=True)
+        return _within_limits(
+            _read_benchmark(document, flexible=True), machines="operations", jobs="precedences"
+        )
     if "data" in document:
         return _read_benchmark(document, flexible=False)
     return _unreadable(
@@ -130,11 +143,71 @@ def _object_without_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str,
 # -- Benchmarks ------------------------------------------------------------------------------------
 
 
+def _too_large(
+    *, machines: int, jobs: int, rows: int, machines_at: str, jobs_at: str
+) -> tuple[ImportIssue, ...]:
+    issues: list[ImportIssue] = []
+    if machines > MAX_IMPORT_MACHINES:
+        issues.append(
+            ImportIssue(
+                "too_large",
+                f"The file describes {machines:,} machines; one import can add at most "
+                f"{MAX_IMPORT_MACHINES:,}.",
+                machines_at,
+            )
+        )
+    if jobs > MAX_IMPORT_JOBS:
+        issues.append(
+            ImportIssue(
+                "too_large",
+                f"The file describes {jobs:,} jobs; one import can add at most "
+                f"{MAX_IMPORT_JOBS:,}.",
+                jobs_at,
+            )
+        )
+    if not issues and rows > MAX_IMPORT_ROWS:
+        issues.append(
+            ImportIssue(
+                "too_large",
+                f"The file describes {rows:,} machines, jobs, operations and routes; one import "
+                f"can add at most {MAX_IMPORT_ROWS:,}.",
+            )
+        )
+    return tuple(issues)
+
+
+def _within_limits(read: ReadFileResult, *, machines: str, jobs: str) -> ReadFileResult:
+    """Refuse a plan that is too large. Only for formats whose plan is no bigger than the file."""
+
+    if not isinstance(read, PlanRead):
+        return read
+    plan = read.plan
+    issues = _too_large(
+        machines=len(plan.machines),
+        jobs=len(plan.jobs),
+        rows=len(plan.machines) + len(plan.jobs) + plan.operation_count + plan.route_count,
+        machines_at=machines,
+        jobs_at=jobs,
+    )
+    return FileUnreadable(issues=issues) if issues else read
+
+
 def _read_benchmark(document: Mapping[str, object], *, flexible: bool) -> ReadFileResult:
     try:
         if flexible:
             return PlanRead(plan=_plan_from_flexible(parse_flexible_instance(document)))
-        return PlanRead(plan=_plan_from_jobshop(parse_instance(document)))
+        instance = parse_instance(document)
+        # Bounded before expanding: the declared counts, unlike `data`, cost nothing to write.
+        issues = _too_large(
+            machines=instance.machine_count,
+            jobs=instance.job_count,
+            rows=instance.machine_count + instance.job_count + 2 * len(instance.operations),
+            machines_at="machines",
+            jobs_at="jobs",
+        )
+        if issues:
+            return FileUnreadable(issues=issues)
+        return PlanRead(plan=_plan_from_jobshop(instance))
     except InstanceError as error:
         kind = "flexible job-shop" if flexible else "job-shop"
         return _unreadable(
@@ -263,228 +336,3 @@ def _plan_from_flexible(instance: FlexibleInstance) -> ImportPlan:
         ),
         jobs=jobs,
     )
-
-
-# -- FloorSync JSON --------------------------------------------------------------------------------
-
-
-class _FloorSyncReader:
-    """Read a FloorSync document field by field, collecting every structural problem.
-
-    A field with the wrong shape is reported and treated as absent, so reading carries on and the
-    next problem is found too. The plan is only returned when there were none at all: a plan built
-    around a hole would make the later checks report problems that are really the same one.
-    """
-
-    def __init__(self) -> None:
-        self.issues: list[ImportIssue] = []
-
-    def read(self, document: Mapping[str, object]) -> ReadFileResult:
-        fields = self._fields(
-            document, "", required=("format", "version", "jobs"), optional=("machines",)
-        )
-        version = self._whole_number(fields, "version", "")
-        if version is not None and version != FLOORSYNC_VERSION:
-            # Nothing else in a file of another version can be trusted to mean the same thing.
-            return _unreadable(
-                "unsupported_version",
-                f"The file is FloorSync format version {version}; this FloorSync reads version "
-                f"{FLOORSYNC_VERSION}.",
-            )
-
-        machines = tuple(
-            machine
-            for index, item in enumerate(self._list(fields, "machines", ""))
-            if (machine := self._machine(item, f"machines[{index}]")) is not None
-        )
-        raw_jobs = self._list(fields, "jobs", "", at_least_one="A file must list at least one job.")
-        jobs = tuple(
-            job
-            for index, item in enumerate(raw_jobs)
-            if (job := self._job(item, f"jobs[{index}]")) is not None
-        )
-
-        if self.issues:
-            return FileUnreadable(issues=tuple(self.issues))
-        return PlanRead(plan=ImportPlan(format="floorsync", machines=machines, jobs=jobs))
-
-    def _machine(self, item: object, location: str) -> PlannedMachine | None:
-        fields = self._fields(item, location, required=("name",), optional=("category", "salary"))
-        name = self._text(fields, "name", location)
-        category = self._text(fields, "category", location)
-        salary = self._decimal(fields, "salary", location)
-        if name is None:
-            return None
-        return PlannedMachine(name=name, category=category, salary=salary, location=location)
-
-    def _job(self, item: object, location: str) -> PlannedJob | None:
-        fields = self._fields(
-            item, location, required=("name", "operations"), optional=("priority",)
-        )
-        name = self._text(fields, "name", location)
-        priority = self._priority(fields, location)
-        raw_operations = self._list(
-            fields, "operations", location, at_least_one="A job must have at least one operation."
-        )
-        operations = tuple(
-            operation
-            for index, raw in enumerate(raw_operations)
-            if (operation := self._operation(raw, f"{location}.operations[{index}]")) is not None
-        )
-        if name is None:
-            return None
-        return PlannedJob(name=name, priority=priority, operations=operations, location=location)
-
-    def _operation(self, item: object, location: str) -> PlannedOperation | None:
-        fields = self._fields(item, location, required=("name", "routes"), optional=("after",))
-        name = self._text(fields, "name", location)
-        after = self._operation_names(fields, "after", location)
-        raw_routes = self._list(
-            fields,
-            "routes",
-            location,
-            at_least_one="An operation needs at least one machine it can run on.",
-        )
-        routes = tuple(
-            route
-            for index, raw in enumerate(raw_routes)
-            if (route := self._route(raw, f"{location}.routes[{index}]")) is not None
-        )
-        if name is None:
-            return None
-        return PlannedOperation(name=name, routes=routes, after=after, location=location)
-
-    def _route(self, item: object, location: str) -> PlannedRoute | None:
-        fields = self._fields(
-            item, location, required=("machine", "duration"), optional=("energy",)
-        )
-        machine = self._text(fields, "machine", location)
-        duration = self._whole_number(fields, "duration", location)
-        energy = self._decimal(fields, "energy", location)
-        if machine is None or duration is None:
-            return None
-        return PlannedRoute(machine=machine, duration=duration, energy=energy, location=location)
-
-    # -- Field readers. Each reports its own problem and returns None for a missing or bad value.
-
-    def _fields(
-        self,
-        item: object,
-        location: str,
-        *,
-        required: Sequence[str],
-        optional: Sequence[str],
-    ) -> Mapping[str, object]:
-        if not isinstance(item, dict):
-            self._problem("wrong_type", "Expected an object.", location or None)
-            return {}
-        fields = cast(dict[str, object], item)
-        for key in required:
-            if key not in fields:
-                self._problem("missing_field", f"{key!r} is required.", _child(location, key))
-        allowed = set(required) | set(optional)
-        for key in fields:
-            if key not in allowed:
-                self._problem(
-                    "unknown_field",
-                    f"{key!r} is not a field here. Allowed: {', '.join(sorted(allowed))}.",
-                    _child(location, key),
-                )
-        return fields
-
-    def _text(self, fields: Mapping[str, object], key: str, location: str) -> str | None:
-        if key not in fields:
-            return None
-        value = fields[key]
-        path = _child(location, key)
-        if not isinstance(value, str):
-            self._problem("wrong_type", "Expected text.", path)
-            return None
-        stripped = value.strip()
-        if not stripped:
-            self._problem("invalid_value", "Must not be blank; leave an optional field out.", path)
-            return None
-        if "\x00" in stripped:
-            self._problem("invalid_value", "Must not contain a NUL character.", path)
-            return None
-        return stripped
-
-    def _whole_number(self, fields: Mapping[str, object], key: str, location: str) -> int | None:
-        if key not in fields:
-            return None
-        value = fields[key]
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-        if isinstance(value, Decimal) and value == value.to_integral_value():
-            return int(value)
-        self._problem("wrong_type", "Expected a whole number.", _child(location, key))
-        return None
-
-    def _decimal(self, fields: Mapping[str, object], key: str, location: str) -> Decimal | None:
-        if key not in fields:
-            return None
-        value = fields[key]
-        if isinstance(value, int) and not isinstance(value, bool):
-            return Decimal(value)
-        if isinstance(value, Decimal):
-            return value
-        self._problem("wrong_type", "Expected a number.", _child(location, key))
-        return None
-
-    def _priority(self, fields: Mapping[str, object], location: str) -> PlannedPriority:
-        if "priority" not in fields:
-            return "med"
-        value = fields["priority"]
-        for priority in PRIORITIES:
-            if value == priority:
-                return priority
-        self._problem(
-            "invalid_value",
-            f"Priority must be one of {', '.join(PRIORITIES)}.",
-            _child(location, "priority"),
-        )
-        return "med"
-
-    def _list(
-        self,
-        fields: Mapping[str, object],
-        key: str,
-        location: str,
-        *,
-        at_least_one: str | None = None,
-    ) -> list[object]:
-        if key not in fields:
-            return []
-        value = fields[key]
-        if not isinstance(value, list):
-            self._problem("wrong_type", "Expected a list.", _child(location, key))
-            return []
-        if not value and at_least_one is not None:
-            self._problem("invalid_value", at_least_one, _child(location, key))
-        return cast(list[object], value)
-
-    def _operation_names(
-        self, fields: Mapping[str, object], key: str, location: str
-    ) -> tuple[str, ...] | None:
-        """The names in an `after` list. `None` when the field is absent: "not stated"."""
-
-        if key not in fields:
-            return None
-        names: list[str] = []
-        for index, value in enumerate(self._list(fields, key, location)):
-            if isinstance(value, str) and value.strip():
-                names.append(value.strip())
-            else:
-                self._problem(
-                    "wrong_type",
-                    "Expected the name of an operation in this job.",
-                    f"{_child(location, key)}[{index}]",
-                )
-        return tuple(names)
-
-    def _problem(self, code: ImportIssueCode, message: str, location: str | None) -> None:
-        self.issues.append(ImportIssue(code, message, location))
-
-
-def _child(location: str, key: str) -> str:
-    return f"{location}.{key}" if location else key
