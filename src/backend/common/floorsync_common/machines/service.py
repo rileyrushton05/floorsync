@@ -165,10 +165,8 @@ class MachineService:
             machine.active = active
 
         await db.flush()
-        # `updated_at` is computed by the database through `onupdate`, so flushing an UPDATE
-        # expires it. Reloading here keeps that inside async context: serialising the row later
-        # would touch an expired attribute and raise MissingGreenlet, since a lazy reload cannot
-        # await. An INSERT is unaffected, because it returns server defaults inline.
+        # `salary` is NUMERIC(10, 2): PostgreSQL rounds what it stores (12.555 becomes 12.56).
+        # Reloading returns the stored value rather than echoing the unrounded request.
         await db.refresh(machine)
         return MachineUpdated(machine=machine)
 
@@ -254,8 +252,7 @@ class MachineService:
             capability.energy = energy
 
         await db.flush()
-        # Same reason as update_machine: an UPDATE expires the database-computed `updated_at`, and
-        # a caller that serialises it outside async context would hit MissingGreenlet.
+        # Same reason as update_machine: `energy` is NUMERIC(10, 2), so return what was stored.
         await db.refresh(capability)
         return CapabilitySet(capability=capability, created=created)
 

@@ -375,9 +375,10 @@ data has to exist anyway.
 | column | type | constraints |
 |---|---|---|
 | simulation_id | Uuid | FK -> simulations.id, not null, ondelete CASCADE, indexed |
-| event_type | Text | not null, CHECK event_type IN ('started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed') |
+| event_type | Text | not null, CHECK event_type IN ('started', 'paused', 'resumed', 'speed_changed', 'reset', 'completed', 'seeked') |
 | occurred_at | DateTime(timezone=True) | not null, server_default now() |
 | speed | Numeric(5,2) | nullable — set only on 'started', 'resumed', 'speed_changed' |
+| position | Double | nullable, >= 0 — set on, and only on, 'seeked': the simulated time the play head jumped to, clamped to the makespan |
 
 `ondelete CASCADE` from Simulation is correct here in the same way it's correct for Schedule
 Dependency: the event log has no meaning independent of the simulation it describes, and Simulation

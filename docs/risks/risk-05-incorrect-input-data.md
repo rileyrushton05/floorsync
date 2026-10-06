@@ -6,7 +6,7 @@ Machine capability data (e.g., processing times, setup times, machine availabili
 
 ## Likelihood
 
-Medium
+Low
 
 ## Impact
 
@@ -18,6 +18,7 @@ High
 - Implement clear input forms with tooltips and descriptions for each field
 - Create a "data import" feature from a standard format (e.g., CSV) to allow for bulk uploads and reduce manual entry errors
 - Add data preview before final submission
+- **(Checkpoint 2)** Done: pre-scheduling validation merged (#262); file-import path refuses any file with a problem and writes nothing, with every problem naming its location (#300); manager CRUD APIs enforce constraints such as duplicate names and compatibility. The "data import" mitigation originally scoped here is what #300 delivers.
 
 ## Contingency Plan
 
@@ -28,4 +29,4 @@ High
 
 ## Status
 
-Open
+Monitoring

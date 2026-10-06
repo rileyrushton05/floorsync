@@ -78,7 +78,7 @@ export function PredecessorPicker({
             </span>
             <p className="mt-0.5 text-muted-fg text-xs">
                 {selected.length === 0
-                    ? "Nothing — this step can start immediately."
+                    ? "Nothing: this step can start immediately."
                     : "Every step selected here must finish first."}
             </p>
             {searchable && !readOnly && (
@@ -115,7 +115,7 @@ export function PredecessorPicker({
                         // screen reader.
                         aria-label={
                             option.disabled
-                                ? `${option.name || "Untitled step"} — unavailable, it already runs after this step`
+                                ? `${option.name || "Untitled step"} (unavailable, it already runs after this step)`
                                 : option.name || "Untitled step"
                         }
                         isDisabled={option.disabled}

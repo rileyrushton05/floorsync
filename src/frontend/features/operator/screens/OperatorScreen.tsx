@@ -38,7 +38,7 @@ const LIVE_INTENT = { live: "success", connecting: "warning", offline: "danger" 
 const LIVE_TEXT: Record<LiveStatus, string> = {
     live: "Live",
     connecting: "Connecting…",
-    offline: "Offline — refreshing every few seconds",
+    offline: "Offline, refreshing every few seconds",
 };
 
 const SIMULATION_NOTE = {
@@ -126,7 +126,7 @@ export default function OperatorScreen() {
                     }}
                 >
                     {simulation && simulation.status !== "running" && (
-                        <Note intent={simulation.status === "paused" ? "warning" : simulation.status === "complete" ? "success" : "info"}>
+                        <Note intent={simulation.status === "paused" ? "warning" : simulation.status === "complete" ? "success" : "default"}>
                             {SIMULATION_NOTE[simulation.status]}
                         </Note>
                     )}
@@ -161,7 +161,7 @@ export default function OperatorScreen() {
             </main>
 
             <footer className="border-t bg-navbar px-5 py-3 text-muted-fg text-sm">
-                Completion is recorded on this screen only for now — your coordinator is not notified.
+                Completion is recorded on this screen only for now; your coordinator is not notified.
             </footer>
         </div>
     );

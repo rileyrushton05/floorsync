@@ -1,5 +1,6 @@
 import { formatDuration } from "@/domains/scheduling/format";
 import { levelGroups, type PrecedenceNode } from "../model/dependencies";
+import { useCanvasZoom } from "./useCanvasZoom";
 
 /** One operation as the diagram needs it: identity, a label, and what it costs. */
 export interface GraphOperation extends PrecedenceNode {
@@ -10,10 +11,10 @@ export interface GraphOperation extends PrecedenceNode {
 }
 
 const NODE_WIDTH = 176;
-const NODE_HEIGHT = 58;
+const NODE_HEIGHT = 50;
 /** Between columns: this is where the edges run, so it is the wider gap. */
 const GAP_X = 56;
-const GAP_Y = 14;
+const GAP_Y = 10;
 const PADDING = 10;
 /** Height reserved for one detour lane above or below the diagram. */
 const LANE_HEIGHT = 18;
@@ -44,22 +45,28 @@ const CORNER = 16;
  * before", never "starts at" — machine contention is the scheduler's business,
  * and letting a column imply a start time would make it mean two things at once.
  *
- * The canvas scrolls inside a fixed viewport. A benchmark job runs to fifty
- * steps; laid out at full size that is a canvas several thousand pixels across,
- * which would stretch the card and push the step editor out of reach.
+ * The canvas scrolls inside a viewport that fills the editor's spare height,
+ * down to the bottom of the screen (with a floor, and a ceiling of most of the
+ * screen). Its flex basis is zero, so the canvas never sizes it: a benchmark
+ * job runs to fifty steps, which laid out at full size is several thousand
+ * pixels across and would stretch the card and push the step editor away.
+ * Scrolling the wheel over it zooms (Alt + +/- too), the same as the Gantt
+ * chart, so a big job can be taken in whole and then read up close.
  */
-export function JobGraphDiagram({
-    operations,
-    selectedId,
-    onSelect,
-}: {
+export function JobGraphDiagram(props: JobGraphProps) {
+    if (props.operations.length === 0) return null;
+    return <JobGraphCanvas {...props} />;
+}
+
+interface JobGraphProps {
     operations: GraphOperation[];
     selectedId: string | null;
     /** `null` clears the selection — Escape, or a click on empty canvas. */
     onSelect: (operationId: string | null) => void;
-}) {
-    if (operations.length === 0) return null;
+}
 
+/** The diagram proper; split out so its zoom hook never runs for an empty job. */
+function JobGraphCanvas({ operations, selectedId, onSelect }: JobGraphProps) {
     const columns = levelGroups(operations) as GraphOperation[][];
     const columnOf = new Map<string, number>();
     columns.forEach((column, index) => column.forEach((operation) => columnOf.set(operation.id, index)));
@@ -100,6 +107,7 @@ export function JobGraphDiagram({
 
     const width = columns.length * NODE_WIDTH + (columns.length - 1) * GAP_X + PADDING * 2;
     const height = contentHeight + PADDING * 2 + topPad + bottomPad;
+    const { scale, viewportProps, canvasRef } = useCanvasZoom(width, height);
 
     // Place every node first; edges are drawn from the same map, so a line can
     // never disagree with the box it points at.
@@ -183,7 +191,8 @@ export function JobGraphDiagram({
             // box's minimum width. Without it every ancestor up to the page grid
             // grows to fit the whole graph, so nothing ever overflows here and
             // the graph runs off the screen with no scrollbar at all.
-            className="scroll-rail flex w-full min-w-0 max-h-[28rem] min-h-40 [contain:inline-size] flex-col items-center-safe justify-center-safe overflow-auto rounded-xl border bg-muted p-4"
+            {...viewportProps}
+            className="scroll-rail flex w-full min-w-0 min-h-32 sm:min-h-40 2xl:min-h-52 max-h-[60dvh] flex-[1_1_0] [contain:inline-size] flex-col items-center-safe justify-center-safe overflow-auto overscroll-x-contain rounded-xl border bg-muted p-2 sm:p-4"
             // Clicking the canvas rather than a node clears the selection. The
             // nodes stop the event, so this only ever fires on empty space.
             onClick={() => onSelect(null)}
@@ -191,98 +200,110 @@ export function JobGraphDiagram({
                 if (event.key === "Escape") onSelect(null);
             }}
         >
-            <div className="relative shrink-0" style={{ width, height }}>
-                <svg
-                    width={width}
-                    height={height}
-                    viewBox={`0 0 ${width} ${height}`}
-                    aria-hidden
-                    className="absolute inset-0"
+            {/* The outer box takes the scaled size, so scrolling and centring
+                see the graph as it is drawn; the inner one keeps the natural
+                layout and is scaled from its corner. */}
+            <div
+                ref={canvasRef}
+                className="relative shrink-0"
+                style={{ width: width * scale, height: height * scale }}
+            >
+                <div
+                    className="absolute top-0 left-0 origin-top-left"
+                    style={{ width, height, transform: `scale(${scale})` }}
                 >
-                    <defs>
-                        <marker
-                            id="job-graph-arrow"
-                            viewBox="0 0 10 10"
-                            refX="8"
-                            refY="5"
-                            markerWidth="5"
-                            markerHeight="5"
-                            orient="auto-start-reverse"
-                        >
-                            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-muted-fg)" />
-                        </marker>
-                        <marker
-                            id="job-graph-arrow-active"
-                            viewBox="0 0 10 10"
-                            refX="8"
-                            refY="5"
-                            markerWidth="5"
-                            markerHeight="5"
-                            orient="auto-start-reverse"
-                        >
-                            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-primary)" />
-                        </marker>
-                    </defs>
+                    <svg
+                        width={width}
+                        height={height}
+                        viewBox={`0 0 ${width} ${height}`}
+                        aria-hidden
+                        className="absolute inset-0"
+                    >
+                        <defs>
+                            <marker
+                                id="job-graph-arrow"
+                                viewBox="0 0 10 10"
+                                refX="8"
+                                refY="5"
+                                markerWidth="5"
+                                markerHeight="5"
+                                orient="auto-start-reverse"
+                            >
+                                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-muted-fg)" />
+                            </marker>
+                            <marker
+                                id="job-graph-arrow-active"
+                                viewBox="0 0 10 10"
+                                refX="8"
+                                refY="5"
+                                markerWidth="5"
+                                markerHeight="5"
+                                orient="auto-start-reverse"
+                            >
+                                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-primary)" />
+                            </marker>
+                        </defs>
 
-                    {paths.map((path) => (
-                        <path
-                            key={path.key}
-                            d={path.d}
-                            fill="none"
-                            // Selecting a step lights the edges it is an end of, so
-                            // what it waits on and what waits on it is readable
-                            // without tracing lines by eye.
-                            stroke={path.active ? "var(--color-primary)" : "var(--color-muted-fg)"}
-                            strokeOpacity={path.active ? 0.9 : 0.5}
-                            strokeWidth={path.active ? 2 : 1.5}
-                            markerEnd={`url(#job-graph-arrow${path.active ? "-active" : ""})`}
-                        />
-                    ))}
-                </svg>
+                        {paths.map((path) => (
+                            <path
+                                key={path.key}
+                                d={path.d}
+                                fill="none"
+                                // Selecting a step lights the edges it is an end of, so
+                                // what it waits on and what waits on it is readable
+                                // without tracing lines by eye.
+                                stroke={path.active ? "var(--color-primary)" : "var(--color-muted-fg)"}
+                                strokeOpacity={path.active ? 0.9 : 0.5}
+                                strokeWidth={path.active ? 2 : 1.5}
+                                markerEnd={`url(#job-graph-arrow${path.active ? "-active" : ""})`}
+                            />
+                        ))}
+                    </svg>
 
-                <ul className="contents list-none">
-                    {operations.map((operation) => {
-                        const at = placed.get(operation.id);
-                        if (!at) return null;
-                        const isStart = operation.dependsOn.length === 0;
-                        const isSelected = operation.id === selectedId;
-                        return (
-                            <li key={operation.id}>
-                                <button
-                                    type="button"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        onSelect(operation.id);
-                                    }}
-                                    aria-pressed={isSelected}
-                                    aria-label={describeNode(operation, operations)}
-                                    style={{ left: at.x, top: at.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
-                                    className={`absolute flex flex-col justify-center overflow-hidden rounded-[10px] border bg-overlay ps-3.5 pe-3 text-left shadow-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${isSelected
-                                        ? "border-primary ring-2 ring-primary"
-                                        : isStart
-                                            ? "border-primary/50 hover:border-primary/80"
-                                            : "border-border hover:border-muted-fg/40"
-                                        }`}
-                                >
-                                    {/* A step with nothing before it is where the job
-                                        opens; the accent saves tracing every arrow
-                                        back to find them. */}
-                                    <span
-                                        aria-hidden
-                                        className={`absolute inset-y-2.5 start-0 w-[3px] rounded-full ${isStart ? "bg-primary" : "bg-border"
+                    <ul className="contents list-none">
+                        {operations.map((operation) => {
+                            const at = placed.get(operation.id);
+                            if (!at) return null;
+                            const isStart = operation.dependsOn.length === 0;
+                            const isSelected = operation.id === selectedId;
+                            return (
+                                <li key={operation.id}>
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            onSelect(operation.id);
+                                        }}
+                                        aria-pressed={isSelected}
+                                        aria-label={describeNode(operation, operations)}
+                                        style={{ left: at.x, top: at.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
+                                        className={`absolute flex flex-col justify-center overflow-hidden rounded-[10px] border bg-overlay ps-3.5 pe-3 text-left shadow-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${isSelected
+                                            ? "border-primary ring-2 ring-primary"
+                                            : isStart
+                                                ? "border-primary/50 hover:border-primary/80"
+                                                : "border-border hover:border-muted-fg/40"
                                             }`}
-                                    />
-                                    <span className="truncate font-semibold text-[12.5px] text-fg">
-                                        {operation.name || <span className="italic opacity-70">Untitled step</span>}
-                                    </span>
-                                    <span className="truncate text-[11px] text-muted-fg">
-                                        {subtitle(operation)}
-                                    </span>
-                                </button>
-                            </li>
-                        );
-                    })}
-                </ul>
+                                    >
+                                        {/* A step with nothing before it is where the job
+                                            opens; the accent saves tracing every arrow
+                                            back to find them. */}
+                                        <span
+                                            aria-hidden
+                                            className={`absolute inset-y-2.5 start-0 w-[3px] rounded-full ${isStart ? "bg-primary" : "bg-border"
+                                                }`}
+                                        />
+                                        <span className="truncate font-semibold text-[12.5px] text-fg">
+                                            {operation.name || <span className="italic opacity-70">Untitled step</span>}
+                                        </span>
+                                        <span className="truncate text-[11px] text-muted-fg">
+                                            {subtitle(operation)}
+                                        </span>
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </div>
             </div>
         </div>
     );

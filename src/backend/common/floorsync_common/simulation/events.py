@@ -33,6 +33,7 @@ class SimulationEventType(StrEnum):
     SPEED_CHANGED = "speed_changed"
     RESET = "reset"
     COMPLETED = "completed"
+    SEEKED = "seeked"
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,11 +45,13 @@ class SimulationEventRecord:
         occurred_at: When it occurred, in real time.
         speed: Speed set by this event. Present on ``started``, ``resumed`` and
             ``speed_changed``; ``None`` otherwise.
+        position: Simulated time a ``seeked`` event jumps to; ``None`` otherwise.
     """
 
     event_type: SimulationEventType
     occurred_at: datetime
     speed: Decimal | None
+    position: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +140,17 @@ def derive_simulated_time(
             case SimulationEventType.COMPLETED:
                 running = False
                 completed = True
+            case SimulationEventType.SEEKED:
+                # A scrub moves the play head without touching playback: a running
+                # simulation keeps running from the new position. A scrub to the end
+                # finishes playback, as the stored status does, so a later scrub back
+                # lands paused rather than resuming a clock nobody restarted.
+                elapsed = _required_position(event)
+                if makespan is not None and elapsed >= makespan:
+                    running = False
+                    completed = True
+                else:
+                    completed = False
             case _:  # pragma: no cover - exhaustive over the enum
                 assert_never(event.event_type)
 
@@ -174,16 +188,33 @@ def _required_speed(event: SimulationEventRecord) -> float:
     return speed
 
 
+def _required_position(event: SimulationEventRecord) -> float:
+    """Return the simulated time a ``seeked`` event jumps to.
+
+    Raises:
+        SimulationTimelineError: If the event carries no position, or a negative one.
+    """
+    if event.position is None:
+        raise SimulationTimelineError(
+            f"Event '{event.event_type}' must carry a position but none was stored."
+        )
+    if event.position < 0:
+        raise SimulationTimelineError(
+            f"Event '{event.event_type}' carries a negative position of {event.position}."
+        )
+    return float(event.position)
+
+
 def events_from_rows(
-    rows: Iterable[tuple[str, datetime, Decimal | None]],
+    rows: Iterable[tuple[str, datetime, Decimal | None, float | None]],
 ) -> list[SimulationEventRecord]:
-    """Build event records from ``event_type, occurred_at, speed`` rows.
+    """Build event records from ``event_type, occurred_at, speed, position`` rows.
 
     Raises:
         SimulationTimelineError: If a stored ``event_type`` is not a known value.
     """
     records: list[SimulationEventRecord] = []
-    for event_type, occurred_at, speed in rows:
+    for event_type, occurred_at, speed, position in rows:
         try:
             parsed = SimulationEventType(event_type)
         except ValueError as exc:
@@ -191,6 +222,8 @@ def events_from_rows(
                 f"Simulation event has unknown type '{event_type}'."
             ) from exc
         records.append(
-            SimulationEventRecord(event_type=parsed, occurred_at=occurred_at, speed=speed)
+            SimulationEventRecord(
+                event_type=parsed, occurred_at=occurred_at, speed=speed, position=position
+            )
         )
     return records

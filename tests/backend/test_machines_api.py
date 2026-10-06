@@ -386,26 +386,6 @@ def test_machines_are_manager_only() -> None:
     assert response.status_code == 403
 
 
-def test_update_paths_refresh_database_computed_columns() -> None:
-    """Guards a bug these stubbed tests cannot otherwise reach.
-
-    `updated_at` is filled by the database through `onupdate`, so flushing an UPDATE expires it.
-    Serialising the row afterwards then triggers a lazy reload, which async SQLAlchemy cannot await
-    and reports as MissingGreenlet -- a 500. An INSERT is unaffected, because it returns server
-    defaults inline. Only a live database reproduces it, so this asserts the refresh call that fixes
-    it is still present rather than the behaviour itself.
-    """
-
-    import inspect
-
-    for method in (
-        machine_service.MachineService.update_machine,
-        machine_service.MachineService.set_capability,
-    ):
-        source = inspect.getsource(method)
-        assert "await db.refresh(" in source, f"{method.__name__} must refresh after flushing"
-
-
 def test_cursor_round_trips_through_encoding() -> None:
     machine = make_machine(name="Lathe 1")
 

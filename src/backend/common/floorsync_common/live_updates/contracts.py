@@ -21,7 +21,7 @@ SIMULATION_CHANGED = "simulation.changed"
 """The one topic today. The outbox and the Redis channel are both keyed by it."""
 
 type LiveUpdateCause = Literal[
-    "created", "started", "paused", "resumed", "speed_changed", "reset", "completed"
+    "created", "started", "paused", "resumed", "speed_changed", "reset", "completed", "seeked"
 ]
 """Why the anchor moved. The simulation event types plus `created`, which appends no event."""
 

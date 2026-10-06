@@ -74,7 +74,7 @@ class ValidationService:
 
         Loads through `SchedulingService.load_input` so the snapshot is exactly what a generation
         run would see, selection refusals included: those come back as issues too, since a manager
-        who ticked an unknown, archived or already planned job wants to hear it here rather than
+        who ticked an unknown, archived or already run job wants to hear it here rather than
         after queueing a run. `starts_at` is now, because nothing here depends on the start beyond
         it having a timezone.
         """

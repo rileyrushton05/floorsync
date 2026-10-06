@@ -6,7 +6,7 @@ The scheduling algorithm fails to generate an efficient schedule within an accep
 
 ## Likelihood
 
-High
+Low
 
 ## Impact
 
@@ -18,6 +18,8 @@ High
 - Conduct performance profiling on smaller datasets to identify bottlenecks
 - Set a strict "time limit" for the algorithm (e.g., 5 seconds) to return a "good enough" solution, rather than seeking the optimal solution
 - Use incremental scheduling to break large problems into smaller chunks
+- **(Checkpoint 2)** Done: exact Gurobi solver bounded to a 120 second wall-clock budget (ADR 0014); ReSched learned policy available as a second strategy; every generated schedule passes the feasibility checker in the test suite
+- **(Checkpoint 2)** Remaining: no committed one-command benchmark suite with recorded generation times per scenario yet (#142), so a regression would not be caught automatically
 
 ## Contingency Plan
 
@@ -28,4 +30,4 @@ High
 
 ## Status
 
-Open
+Monitoring

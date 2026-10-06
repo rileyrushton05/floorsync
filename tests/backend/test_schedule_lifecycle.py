@@ -23,11 +23,14 @@ from floorsync_common.database.models.simulation import Simulation
 from floorsync_common.database.models.user import User
 from floorsync_common.scheduling import lifecycle
 from floorsync_common.scheduling.lifecycle import (
+    JobPlannedElsewhere,
     ScheduleConfirmed,
     ScheduleDiscarded,
     ScheduleIsDraft,
+    ScheduleJobsAlreadyPlanned,
     ScheduleLifecycleService,
     ScheduleNotFound,
+    ScheduleRenamed,
     ScheduleSimulationStarted,
 )
 from floorsync_common.settings import Settings
@@ -54,8 +57,16 @@ def _simulation(schedule: Schedule, status: str = "not_started") -> Simulation:
     return Simulation(id=uuid4(), schedule_id=schedule.id, status=status)
 
 
+class _Rows:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.rows = rows
+
+    def all(self) -> list[tuple[Any, ...]]:
+        return self.rows
+
+
 class FakeSession:
-    """Answer the three named reads the transitions make; record deletes and flushes."""
+    """Answer the named reads the transitions make; record deletes and flushes."""
 
     def __init__(
         self,
@@ -63,10 +74,13 @@ class FakeSession:
         *,
         simulation: Simulation | None = None,
         simulation_has_events: bool = False,
+        planned_elsewhere: list[tuple[UUID, UUID, str | None]] | None = None,
     ) -> None:
         self.schedule = schedule
         self.simulation = simulation
         self.simulation_has_events = simulation_has_events
+        self.planned_elsewhere = planned_elsewhere or []
+        self.jobs_locked = False
         self.locked = False
         self.deleted: list[Any] = []
         self.flushes = 0
@@ -81,6 +95,15 @@ class FakeSession:
         if "FROM simulations" in rendered:
             return self.simulation
         raise AssertionError(f"Unexpected read: {rendered}")
+
+    async def execute(self, statement: Any) -> _Rows:
+        rendered = str(statement)
+        if "FROM jobs" in rendered and "FOR UPDATE" in rendered:
+            self.jobs_locked = True
+            return _Rows([])
+        if "schedules.status" in rendered:
+            return _Rows(self.planned_elsewhere)
+        raise AssertionError(f"Unexpected execute: {rendered}")
 
     async def delete(self, item: Any) -> None:
         self.deleted.append(item)
@@ -150,6 +173,35 @@ def test_confirming_twice_keeps_the_original_audit_trail() -> None:
     assert result == ScheduleConfirmed(schedule=schedule)
     assert schedule.confirmed_by_user_id == MANAGER_ID
     assert schedule.confirmed_at == CONFIRMED_AT
+    assert fake.flushes == 0
+
+
+def test_confirming_locks_the_jobs_it_plans() -> None:
+    schedule = _schedule("draft")
+    fake = FakeSession(schedule)
+
+    _confirm(fake, schedule.id)
+
+    assert fake.jobs_locked
+
+
+@pytest.mark.parametrize("status", ["draft", "discarded"])
+def test_confirming_is_refused_while_another_confirmed_schedule_plans_a_job(status: str) -> None:
+    schedule = _schedule(status, confirmed=status == "discarded")
+    original_confirmed_at = schedule.confirmed_at
+    job_id, other_id = uuid4(), uuid4()
+    fake = FakeSession(schedule, planned_elsewhere=[(job_id, other_id, "Week 41")])
+
+    result = _confirm(fake, schedule.id)
+
+    assert result == ScheduleJobsAlreadyPlanned(
+        schedule_id=schedule.id,
+        conflicts=(
+            JobPlannedElsewhere(job_id=job_id, schedule_id=other_id, schedule_name="Week 41"),
+        ),
+    )
+    assert schedule.status == status
+    assert schedule.confirmed_at == original_confirmed_at
     assert fake.flushes == 0
 
 
@@ -289,6 +341,36 @@ def test_confirm_route_passes_the_manager_and_returns_the_summary(
     assert "entries" not in body
 
 
+def test_confirming_a_job_planned_elsewhere_answers_409_naming_the_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schedule_id, other_id = uuid4(), uuid4()
+    first_job, second_job = uuid4(), uuid4()
+
+    async def fake(*_: object, **__: object) -> ScheduleJobsAlreadyPlanned:
+        return ScheduleJobsAlreadyPlanned(
+            schedule_id=schedule_id,
+            conflicts=(
+                JobPlannedElsewhere(first_job, other_id, "Week 41"),
+                JobPlannedElsewhere(second_job, other_id, "Week 41"),
+            ),
+        )
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "confirm", staticmethod(fake))
+
+    response = _patch(_client(), schedule_id, "confirmed")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["type"] == "urn:floorsync:problem:schedule-jobs-already-planned"
+    assert "“Week 41”" in body["detail"]
+    assert body["schedule_ids"] == [str(other_id)]
+    assert body["conflicts"] == [
+        {"job_id": str(first_job), "schedule_id": str(other_id)},
+        {"job_id": str(second_job), "schedule_id": str(other_id)},
+    ]
+
+
 def _stub_discard(monkeypatch: pytest.MonkeyPatch, outcome: object) -> None:
     async def fake(*_: object, **__: object) -> object:
         return outcome
@@ -354,3 +436,99 @@ def test_there_is_no_way_back_to_draft() -> None:
 
 def test_an_operator_cannot_change_a_schedules_status() -> None:
     assert _patch(_client(role="operator"), uuid4(), "confirmed").status_code == 403
+
+
+# -- rename -----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["draft", "confirmed", "discarded"])
+def test_a_schedule_can_be_renamed_in_any_status(status: str) -> None:
+    schedule = _schedule(status, confirmed=status != "draft")
+    fake = FakeSession(schedule)
+
+    result = _run(ScheduleLifecycleService.rename(cast(AsyncSession, fake), schedule.id, "Week 41"))
+
+    assert result == ScheduleRenamed(schedule=schedule)
+    assert schedule.name == "Week 41"
+    assert schedule.status == status
+    assert fake.locked and fake.flushes == 1
+
+
+def test_renaming_a_missing_schedule_reports_not_found() -> None:
+    schedule_id = uuid4()
+
+    result = _run(
+        ScheduleLifecycleService.rename(cast(AsyncSession, FakeSession(None)), schedule_id, "X")
+    )
+
+    assert result == ScheduleNotFound(schedule_id=schedule_id)
+
+
+def _stub_rename(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
+    async def fake(_: object, schedule_id: UUID, name: str) -> object:
+        calls.append(name)
+        schedule = _schedule("draft")
+        schedule.id = schedule_id
+        schedule.name = name
+        return ScheduleRenamed(schedule=schedule)
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "rename", staticmethod(fake))
+
+
+def test_rename_route_trims_and_returns_the_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    _stub_rename(monkeypatch, calls)
+
+    response = _client().patch(f"/api/v1/schedules/{uuid4()}", json={"name": "  Week 41  "})
+
+    assert response.status_code == 200
+    assert calls == ["Week 41"]
+    assert response.json()["name"] == "Week 41"
+    assert response.json()["status"] == "draft"
+
+
+def test_saving_confirms_then_renames(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    schedule = _schedule("confirmed", confirmed=True)
+
+    async def fake_confirm(_: object, __: UUID, **___: Any) -> ScheduleConfirmed:
+        order.append("confirm")
+        return ScheduleConfirmed(schedule=schedule)
+
+    async def fake_rename(_: object, __: UUID, name: str) -> ScheduleRenamed:
+        order.append("rename")
+        schedule.name = name
+        return ScheduleRenamed(schedule=schedule)
+
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "confirm", staticmethod(fake_confirm))
+    monkeypatch.setattr(lifecycle.ScheduleLifecycleService, "rename", staticmethod(fake_rename))
+
+    response = _client().patch(
+        f"/api/v1/schedules/{schedule.id}", json={"status": "confirmed", "name": "Week 41"}
+    )
+
+    assert response.status_code == 200
+    assert order == ["confirm", "rename"]
+    assert response.json()["name"] == "Week 41"
+    assert response.json()["status"] == "confirmed"
+
+
+def test_a_refused_transition_renames_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    _stub_rename(monkeypatch, calls)
+    _stub_discard(monkeypatch, ScheduleIsDraft(schedule_id=uuid4()))
+
+    response = _client().patch(
+        f"/api/v1/schedules/{uuid4()}", json={"status": "discarded", "name": "Week 41"}
+    )
+
+    assert response.status_code == 409
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"name": ""}, {"name": "   "}, {"name": None}, {"status": None}, {"name": "x" * 121}],
+)
+def test_an_update_must_carry_a_real_change(body: dict[str, Any]) -> None:
+    assert _client().patch(f"/api/v1/schedules/{uuid4()}", json=body).status_code == 422
