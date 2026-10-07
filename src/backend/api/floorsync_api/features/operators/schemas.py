@@ -19,14 +19,14 @@ class OperatorUpdateRequest(RequestSchema):
     """A partial update to an operator login. Every field is optional and none may be null.
 
     `password` replaces the current one outright; the manager does not need to know the old one.
-    `machine_id` must name a machine that already has an operator, and the two swap machines.
+    There is no `machine_id`: an operator stays on the machine it was created for, and sending one
+    is rejected like any other unknown field.
     """
 
     name: DisplayName | None = None
     username: Username | None = None
     password: Password | None = None
     active: bool | None = None
-    machine_id: UUID | None = None
 
     @model_validator(mode="after")
     def reject_null(self) -> "OperatorUpdateRequest":

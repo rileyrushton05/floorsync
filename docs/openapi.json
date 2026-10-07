@@ -1450,7 +1450,7 @@
       },
       "OperatorUpdateRequest": {
         "additionalProperties": false,
-        "description": "A partial update to an operator login. Every field is optional and none may be null.\n\n`password` replaces the current one outright; the manager does not need to know the old one.\n`machine_id` must name a machine that already has an operator, and the two swap machines.",
+        "description": "A partial update to an operator login. Every field is optional and none may be null.\n\n`password` replaces the current one outright; the manager does not need to know the old one.\nThere is no `machine_id`: an operator stays on the machine it was created for, and sending one is\nrejected like any other unknown field.",
         "properties": {
           "active": {
             "anyOf": [
@@ -1462,18 +1462,6 @@
               }
             ],
             "title": "Active"
-          },
-          "machine_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Machine Id"
           },
           "name": {
             "anyOf": [
@@ -3990,7 +3978,7 @@
     },
     "/api/v1/operators/{user_id}": {
       "patch": {
-        "description": "Rename, re-password, enable or disable an operator, or swap its machine with another's.\n\nDisabling takes effect on the operator's next request, not when its current token expires.",
+        "description": "Rename, re-password, enable or disable an operator. Its machine cannot be changed.\n\nDisabling takes effect on the operator's next request, not when its current token expires.",
         "operationId": "update_operator_api_v1_operators__user_id__patch",
         "parameters": [
           {
@@ -4029,7 +4017,14 @@
             "description": "Another login already uses that username"
           },
           "422": {
-            "description": "The machine does not exist or has no operator to swap with"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [

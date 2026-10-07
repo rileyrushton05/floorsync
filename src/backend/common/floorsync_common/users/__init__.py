@@ -4,8 +4,6 @@ from floorsync_common.users.operators import OperatorService, operator_username_
 from floorsync_common.users.results import (
     ActiveUserFound,
     ActiveUserNotFound,
-    AssignedMachineHasNoOperator,
-    AssignedMachineNotFound,
     AuthenticationSucceeded,
     InvalidCredentials,
     OperatorAccount,
@@ -18,8 +16,6 @@ from floorsync_common.users.service import UserService
 __all__ = [
     "ActiveUserFound",
     "ActiveUserNotFound",
-    "AssignedMachineHasNoOperator",
-    "AssignedMachineNotFound",
     "AuthenticationSucceeded",
     "InvalidCredentials",
     "OperatorAccount",

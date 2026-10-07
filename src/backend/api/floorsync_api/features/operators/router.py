@@ -11,8 +11,6 @@ from floorsync_api.problems import ProblemDetail, problem_response
 from floorsync_common.database.models.user import User
 from floorsync_common.partial import UNSET
 from floorsync_common.users import (
-    AssignedMachineHasNoOperator,
-    AssignedMachineNotFound,
     OperatorNotFound,
     OperatorService,
     OperatorUpdated,
@@ -45,10 +43,7 @@ async def list_operators(db: DbSession, _: Manager) -> list[OperatorResponse]:
     "/{user_id}",
     response_model=OperatorResponse,
     summary="Update an operator login",
-    responses={
-        409: {"description": "Another login already uses that username"},
-        422: {"description": "The machine does not exist or has no operator to swap with"},
-    },
+    responses={409: {"description": "Another login already uses that username"}},
 )
 async def update_operator(
     user_id: UUID,
@@ -57,7 +52,7 @@ async def update_operator(
     db: DbSession,
     _: Manager,
 ) -> OperatorResponse | JSONResponse:
-    """Rename, re-password, enable or disable an operator, or swap its machine with another's.
+    """Rename, re-password, enable or disable an operator. Its machine cannot be changed.
 
     Disabling takes effect on the operator's next request, not when its current token expires.
     """
@@ -72,7 +67,6 @@ async def update_operator(
             username=changes.get("username", UNSET),
             password=changes.get("password", UNSET),
             active=changes.get("active", UNSET),
-            machine_id=changes.get("machine_id", UNSET),
         )
 
         match result:
@@ -89,29 +83,6 @@ async def update_operator(
                         title="Username already in use",
                         status=status.HTTP_409_CONFLICT,
                         detail=f"Another login already uses the username {username!r}.",
-                        instance=request.url.path,
-                    )
-                )
-            case AssignedMachineNotFound(machine_id=machine_id):
-                return problem_response(
-                    ProblemDetail(
-                        type="urn:floorsync:problem:machine-not-found",
-                        title="Referenced machine does not exist",
-                        status=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                        detail=f"No machine exists with id {machine_id}.",
-                        instance=request.url.path,
-                    )
-                )
-            case AssignedMachineHasNoOperator(machine_id=machine_id):
-                return problem_response(
-                    ProblemDetail(
-                        type="urn:floorsync:problem:machine-has-no-operator",
-                        title="Machine has no operator to swap with",
-                        status=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                        detail=(
-                            "Operators can only swap machines with another operator, and that "
-                            "machine has none."
-                        ),
                         instance=request.url.path,
                     )
                 )

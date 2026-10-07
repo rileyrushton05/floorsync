@@ -58,26 +58,4 @@ class UsernameAlreadyExists(ExpectedOutcome):
     username: str
 
 
-@dataclass(frozen=True, slots=True)
-class AssignedMachineNotFound(ExpectedOutcome):
-    machine_id: UUID
-
-
-@dataclass(frozen=True, slots=True)
-class AssignedMachineHasNoOperator(ExpectedOutcome):
-    """Reassigning swaps two operators' machines, so the target must already have an operator.
-
-    Moving an operator onto a free machine would leave its old machine with no login, and nothing
-    else creates one for an existing machine.
-    """
-
-    machine_id: UUID
-
-
-type UpdateOperatorResult = (
-    OperatorUpdated
-    | OperatorNotFound
-    | UsernameAlreadyExists
-    | AssignedMachineNotFound
-    | AssignedMachineHasNoOperator
-)
+type UpdateOperatorResult = OperatorUpdated | OperatorNotFound | UsernameAlreadyExists
