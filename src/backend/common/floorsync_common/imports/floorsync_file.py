@@ -1,8 +1,7 @@
 """The FloorSync JSON import format, declared once as Pydantic models.
 
-The models say which fields each object has, which are required, and what each holds. Validation
-collects every problem in a file in one pass; `read_floorsync_file` translates them into the
-import's stable issue codes and file locations, so a person fixing a hand-written file sees
+Validation collects every problem in a file in one pass, and `read_floorsync_file` translates them
+into the import's issue codes and file locations, so a person fixing a hand-written file sees
 everything wrong at once.
 
 Pydantic's defaults differ from what this format means in a few places, so those fields carry
@@ -19,47 +18,48 @@ Nothing here touches the database.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from decimal import Decimal
-from types import UnionType
-from typing import Annotated, Any, Literal, Union, get_args, get_origin
+from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 from pydantic_core import ErrorDetails, PydanticCustomError
 
+from floorsync_common.database.models.job import JobPriority
 from floorsync_common.imports.plan import (
+    ImportFormat,
     ImportIssue,
+    ImportIssueCode,
     ImportPlan,
     PlannedJob,
     PlannedMachine,
     PlannedOperation,
-    PlannedPriority,
     PlannedRoute,
 )
 from floorsync_common.imports.results import FileUnreadable, PlanRead, ReadFileResult
 
-FLOORSYNC_FORMAT = "floorsync"
 FLOORSYNC_VERSION = 1
-PRIORITIES: tuple[PlannedPriority, ...] = ("high", "med", "low")
 
 MAX_WHOLE_NUMBER_DIGITS = 18
 """Bigger than any whole number a field takes, and small enough that `int()` stays cheap."""
 
 
-# -- Field rules -----------------------------------------------------------------------------------
-# Each raises an error whose type is the import's own issue code, so translating it is a lookup.
+# Each validator raises an error whose type is the import's own issue code, so translating it in
+# `_issue` is a lookup.
 
 
 def _text(value: object) -> str:
     if not isinstance(value, str):
-        raise PydanticCustomError("wrong_type", "Expected text.")
+        raise PydanticCustomError(ImportIssueCode.WRONG_TYPE, "Expected text.")
     stripped = value.strip()
     if not stripped:
         raise PydanticCustomError(
-            "invalid_value", "Must not be blank; leave an optional field out."
+            ImportIssueCode.INVALID_VALUE, "Must not be blank; leave an optional field out."
         )
     if "\x00" in stripped:
-        raise PydanticCustomError("invalid_value", "Must not contain a NUL character.")
+        raise PydanticCustomError(
+            ImportIssueCode.INVALID_VALUE, "Must not contain a NUL character."
+        )
     return stripped
 
 
@@ -68,54 +68,28 @@ def _whole_number(value: object) -> int:
         return value
     if isinstance(value, Decimal):
         if value.adjusted() >= MAX_WHOLE_NUMBER_DIGITS:
-            raise PydanticCustomError("invalid_value", "Too large to be used here.")
+            raise PydanticCustomError(ImportIssueCode.INVALID_VALUE, "Too large to be used here.")
         if value == value.to_integral_value():
             return int(value)
-    raise PydanticCustomError("wrong_type", "Expected a whole number.")
+    raise PydanticCustomError(ImportIssueCode.WRONG_TYPE, "Expected a whole number.")
 
 
 def _number(value: object) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, int | Decimal):
-        raise PydanticCustomError("wrong_type", "Expected a number.")
+        raise PydanticCustomError(ImportIssueCode.WRONG_TYPE, "Expected a number.")
     return Decimal(value)
 
 
-def _priority(value: object) -> PlannedPriority:
-    for priority in PRIORITIES:
-        if value == priority:
-            return priority
-    raise PydanticCustomError("invalid_value", f"Priority must be one of {', '.join(PRIORITIES)}.")
-
-
-def _operation_name(value: object) -> str:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    raise PydanticCustomError("wrong_type", "Expected the name of an operation in this job.")
-
-
-def _a_list_if_stated(value: object) -> object:
+def _not_null(value: object) -> object:
     if value is None:
-        raise PydanticCustomError("wrong_type", "Expected a list.")
+        raise PydanticCustomError(ImportIssueCode.WRONG_TYPE, "Expected a list.")
     return value
-
-
-def _at_least_one(message: str) -> AfterValidator:
-    def check(items: list[Any]) -> list[Any]:
-        if not items:
-            raise PydanticCustomError("invalid_value", message)
-        return items
-
-    return AfterValidator(check)
 
 
 type _Text = Annotated[str, BeforeValidator(_text)]
 type _OptionalText = Annotated[str | None, BeforeValidator(_text)]
 type _WholeNumber = Annotated[int, BeforeValidator(_whole_number)]
 type _OptionalNumber = Annotated[Decimal | None, BeforeValidator(_number)]
-type _OperationName = Annotated[str, BeforeValidator(_operation_name)]
-
-
-# -- The file --------------------------------------------------------------------------------------
 
 
 class _FileObject(BaseModel):
@@ -130,18 +104,14 @@ class _Route(_FileObject):
 
 class _Operation(_FileObject):
     name: _Text
-    routes: Annotated[
-        list[_Route], _at_least_one("An operation needs at least one machine it can run on.")
-    ]
-    after: Annotated[list[_OperationName] | None, BeforeValidator(_a_list_if_stated)] = None
+    routes: Annotated[list[_Route], Field(min_length=1)]
+    after: Annotated[list[_Text] | None, BeforeValidator(_not_null)] = None
 
 
 class _Job(_FileObject):
     name: _Text
-    priority: Annotated[PlannedPriority, BeforeValidator(_priority)] = "med"
-    operations: Annotated[
-        list[_Operation], _at_least_one("A job must have at least one operation.")
-    ]
+    priority: JobPriority = "med"
+    operations: Annotated[list[_Operation], Field(min_length=1)]
 
 
 class _Machine(_FileObject):
@@ -151,25 +121,26 @@ class _Machine(_FileObject):
 
 
 class _File(_FileObject):
-    format: Literal["floorsync"]
+    format: Literal[ImportFormat.FLOORSYNC]
     version: _WholeNumber
     machines: list[_Machine] = Field(default_factory=list)
-    jobs: Annotated[list[_Job], _at_least_one("A file must list at least one job.")]
+    jobs: Annotated[list[_Job], Field(min_length=1)]
 
 
 def read_floorsync_file(document: Mapping[str, object]) -> ReadFileResult:
     """Read a FloorSync document into a plan, or report every problem in its shape at once."""
 
+    # Nothing else in a file of another version can be trusted to mean the same thing, so it is
+    # refused on its own.
     try:
-        version = _whole_number(document["version"]) if "version" in document else None
+        version: int | None = _whole_number(document.get("version"))
     except PydanticCustomError:
-        version = None  # Reported with everything else below.
+        version = None  # Missing or not a whole number: reported with every other problem below.
     if version is not None and version != FLOORSYNC_VERSION:
-        # Nothing else in a file of another version can be trusted to mean the same thing.
         return FileUnreadable(
             issues=(
                 ImportIssue(
-                    "unsupported_version",
+                    ImportIssueCode.UNSUPPORTED_VERSION,
                     f"The file is FloorSync format version {version}; this FloorSync reads "
                     f"version {FLOORSYNC_VERSION}.",
                 ),
@@ -180,103 +151,71 @@ def read_floorsync_file(document: Mapping[str, object]) -> ReadFileResult:
         file = _File.model_validate(document)
     except ValidationError as error:
         return FileUnreadable(issues=tuple(_issue(detail) for detail in error.errors()))
-    return PlanRead(plan=_plan(file))
 
-
-def _plan(file: _File) -> ImportPlan:
-    return ImportPlan(
-        format="floorsync",
-        machines=tuple(
-            PlannedMachine(
-                name=machine.name,
-                category=machine.category,
-                salary=machine.salary,
-                location=f"machines[{index}]",
-            )
-            for index, machine in enumerate(file.machines)
-        ),
-        jobs=tuple(_planned_job(job, f"jobs[{index}]") for index, job in enumerate(file.jobs)),
+    machines = tuple(
+        PlannedMachine(
+            name=machine.name,
+            category=machine.category,
+            salary=machine.salary,
+            location=f"machines[{index}]",
+        )
+        for index, machine in enumerate(file.machines)
     )
-
-
-def _planned_job(job: _Job, location: str) -> PlannedJob:
-    operations: list[PlannedOperation] = []
-    for index, operation in enumerate(job.operations):
-        at = f"{location}.operations[{index}]"
-        operations.append(
-            PlannedOperation(
-                name=operation.name,
-                routes=tuple(
-                    PlannedRoute(
-                        machine=route.machine,
-                        duration=route.duration,
-                        energy=route.energy,
-                        location=f"{at}.routes[{position}]",
-                    )
-                    for position, route in enumerate(operation.routes)
-                ),
-                after=None if operation.after is None else tuple(operation.after),
-                location=at,
+    jobs: list[PlannedJob] = []
+    for job_index, job in enumerate(file.jobs):
+        job_location = f"jobs[{job_index}]"
+        operations: list[PlannedOperation] = []
+        for operation_index, operation in enumerate(job.operations):
+            location = f"{job_location}.operations[{operation_index}]"
+            routes = tuple(
+                PlannedRoute(
+                    machine=route.machine,
+                    duration=route.duration,
+                    energy=route.energy,
+                    location=f"{location}.routes[{route_index}]",
+                )
+                for route_index, route in enumerate(operation.routes)
+            )
+            after = None if operation.after is None else tuple(operation.after)
+            operations.append(
+                PlannedOperation(name=operation.name, routes=routes, after=after, location=location)
+            )
+        jobs.append(
+            PlannedJob(
+                name=job.name,
+                priority=job.priority,
+                operations=tuple(operations),
+                location=job_location,
             )
         )
-    return PlannedJob(
-        name=job.name, priority=job.priority, operations=tuple(operations), location=location
+    return PlanRead(
+        plan=ImportPlan(format=ImportFormat.FLOORSYNC, machines=machines, jobs=tuple(jobs))
     )
-
-
-# -- Validation errors to import issues ------------------------------------------------------------
 
 
 def _issue(detail: ErrorDetails) -> ImportIssue:
+    """One Pydantic validation error as an import issue at its place in the file."""
+
     path = detail["loc"]
-    location = _location(path) or None
-    match detail["type"]:
-        case "missing":
-            return ImportIssue("missing_field", f"{path[-1]!r} is required.", location)
-        case "extra_forbidden":
-            allowed = ", ".join(sorted(_object_at(path[:-1]).model_fields))
-            return ImportIssue(
-                "unknown_field",
-                f"{path[-1]!r} is not a field here. Allowed: {allowed}.",
-                location,
-            )
-        case "model_type" | "model_attributes_type" | "dict_type":
-            return ImportIssue("wrong_type", "Expected an object.", location)
-        case "list_type":
-            return ImportIssue("wrong_type", "Expected a list.", location)
-        case "wrong_type":
-            return ImportIssue("wrong_type", detail["msg"], location)
-        case _:
-            return ImportIssue("invalid_value", detail["msg"], location)
-
-
-def _location(path: Sequence[int | str]) -> str:
-    """`("jobs", 2, "operations", 0)` as the file location `jobs[2].operations[0]`."""
-
+    # `("jobs", 2, "operations", 0)` is written `jobs[2].operations[0]`.
     location = ""
     for segment in path:
         if isinstance(segment, int):
             location += f"[{segment}]"
         else:
             location += f".{segment}" if location else segment
-    return location
 
-
-def _object_at(path: Sequence[int | str]) -> type[BaseModel]:
-    """The model of the object at `path`, for naming the fields it allows."""
-
-    model: type[BaseModel] = _File
-    for segment in path:
-        if isinstance(segment, str):
-            model = _element_model(model.model_fields[segment].annotation)
-    return model
-
-
-def _element_model(annotation: object) -> type[BaseModel]:
-    """`list[_Job] | None` and the like, down to `_Job`."""
-
-    while get_origin(annotation) in (list, Union, UnionType):
-        annotation = next(arg for arg in get_args(annotation) if arg is not type(None))
-    if not (isinstance(annotation, type) and issubclass(annotation, BaseModel)):
-        raise TypeError(f"No file object is declared at {annotation!r}.")
-    return annotation
+    match detail["type"]:
+        case "missing":
+            code, message = ImportIssueCode.MISSING_FIELD, f"{path[-1]!r} is required."
+        case "extra_forbidden":
+            code, message = ImportIssueCode.UNKNOWN_FIELD, f"{path[-1]!r} is not a field here."
+        case "model_type" | "model_attributes_type" | "dict_type":
+            code, message = ImportIssueCode.WRONG_TYPE, "Expected an object."
+        case "list_type":
+            code, message = ImportIssueCode.WRONG_TYPE, "Expected a list."
+        case ImportIssueCode.WRONG_TYPE:
+            code, message = ImportIssueCode.WRONG_TYPE, detail["msg"]
+        case _:
+            code, message = ImportIssueCode.INVALID_VALUE, detail["msg"]
+    return ImportIssue(code, message, location or None)

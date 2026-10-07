@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from floorsync_api.dependencies.authentication import get_current_user
 from floorsync_api.dependencies.database import get_db_session
 from floorsync_common.database.models.user import User
-from floorsync_common.imports.plan import ImportIssue, ImportPlan
+from floorsync_common.imports.plan import ImportFormat, ImportIssue, ImportIssueCode, ImportPlan
 from floorsync_common.imports.results import (
     ImportApplied,
     ImportPlanResult,
@@ -45,7 +45,7 @@ VALID_FILE = json.dumps(
 ).encode()
 
 SUMMARY = ImportSummary(
-    format="floorsync",
+    format=ImportFormat.FLOORSYNC,
     machines_created=("Saw",),
     machines_reused=(),
     categories_created=(),
@@ -54,7 +54,7 @@ SUMMARY = ImportSummary(
     routes=1,
     dependencies=0,
 )
-WARNING = ImportIssue("similar_machine_name", "Saw looks like saw.", "machines[0]")
+WARNING = ImportIssue(ImportIssueCode.SIMILAR_MACHINE_NAME, "Saw looks like saw.", "machines[0]")
 
 
 class FakeTransaction:
@@ -176,8 +176,12 @@ def test_a_refused_import_is_a_422_problem_listing_every_issue_and_rolls_back(
     monkeypatch: pytest.MonkeyPatch, session: FakeSession
 ) -> None:
     issues = (
-        ImportIssue("unknown_machine", "No machine 'Sawz'.", "jobs[0].operations[0].routes[0]"),
-        ImportIssue("invalid_value", "Duration must be...", "jobs[1].operations[0].routes[0]"),
+        ImportIssue(
+            ImportIssueCode.UNKNOWN_MACHINE, "No machine 'Sawz'.", "jobs[0].operations[0].routes[0]"
+        ),
+        ImportIssue(
+            ImportIssueCode.INVALID_VALUE, "Duration must be...", "jobs[1].operations[0].routes[0]"
+        ),
     )
     stub(monkeypatch, ImportRejected(summary=SUMMARY, issues=issues, warnings=(WARNING,)))
 
@@ -196,7 +200,9 @@ def test_a_refused_import_is_a_422_problem_listing_every_issue_and_rolls_back(
 def test_a_refused_dry_run_still_answers_200_with_the_issues(
     monkeypatch: pytest.MonkeyPatch, session: FakeSession
 ) -> None:
-    issue = ImportIssue("inactive_machine", "Saw is inactive.", "jobs[0].operations[0].routes[0]")
+    issue = ImportIssue(
+        ImportIssueCode.INACTIVE_MACHINE, "Saw is inactive.", "jobs[0].operations[0].routes[0]"
+    )
     stub(monkeypatch, ImportRejected(summary=SUMMARY, issues=(issue,), warnings=()))
 
     response = upload(import_client(session), VALID_FILE, dry_run=True)

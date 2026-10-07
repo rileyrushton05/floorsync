@@ -562,14 +562,17 @@
         "type": "object"
       },
       "ImportFormat": {
+        "description": "What an upload is: our own JSON, or a ScheduleOpt classic or flexible job shop.",
         "enum": [
           "floorsync",
           "jobshop",
           "flexible-jobshop"
         ],
+        "title": "ImportFormat",
         "type": "string"
       },
       "ImportIssueCode": {
+        "description": "Every issue an import can report. Stable API values, listed in docs/importing.md.",
         "enum": [
           "empty_file",
           "not_utf8",
@@ -589,15 +592,15 @@
           "duplicate_route",
           "duplicate_operation_name",
           "unknown_predecessor",
-          "self_dependency",
+          "predecessor_not_earlier",
           "duplicate_dependency",
-          "dependency_cycle",
           "unknown_machine",
           "inactive_machine",
           "machine_differs",
           "similar_machine_name",
           "resched_unsupported"
         ],
+        "title": "ImportIssueCode",
         "type": "string"
       },
       "ImportIssueResponse": {

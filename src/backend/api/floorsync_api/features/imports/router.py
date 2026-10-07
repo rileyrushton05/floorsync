@@ -13,14 +13,10 @@ from fastapi.responses import JSONResponse
 
 from floorsync_api.dependencies.authentication import require_roles
 from floorsync_api.dependencies.database import DbSession
-from floorsync_api.features.imports.schemas import (
-    ImportIssueResponse,
-    ImportReportResponse,
-    ImportSummaryResponse,
-)
+from floorsync_api.features.imports.schemas import ImportIssueResponse, ImportReportResponse
 from floorsync_api.problems import ProblemDetail, problem_response
 from floorsync_common.database.models.user import User
-from floorsync_common.imports.plan import ImportIssue, ImportPlan
+from floorsync_common.imports.plan import ImportIssue
 from floorsync_common.imports.results import (
     FileUnreadable,
     ImportApplied,
@@ -85,81 +81,51 @@ async def import_file(
     match read:
         case FileUnreadable(issues=issues):
             if dry_run:
-                return _report(None, None, dry_run=True, issues=issues, warnings=(), job_ids=())
+                return _report(None, dry_run=True, issues=issues, warnings=())
             return _import_invalid(request, issues, warnings=())
         case PlanRead(plan=plan):
-            return await _import(plan, request, db, dry_run=dry_run)
+            async with db.begin() as transaction:
+                result = await ImportService.import_plan(db, plan)
+                match result:
+                    case ImportApplied(summary=summary, job_ids=job_ids, warnings=warnings):
+                        if dry_run:
+                            await transaction.rollback()
+                            return _report(summary, dry_run=True, issues=(), warnings=warnings)
+                        return _report(
+                            summary, dry_run=False, issues=(), warnings=warnings, job_ids=job_ids
+                        )
+                    case ImportRejected(summary=summary, issues=issues, warnings=warnings):
+                        # Nearly always nothing to undo, but a late refusal follows machine inserts.
+                        await transaction.rollback()
+                        if dry_run:
+                            return _report(summary, dry_run=True, issues=issues, warnings=warnings)
+                        return _import_invalid(request, issues, warnings=warnings)
+                    case _:
+                        assert_never(result)
         case _:
             assert_never(read)
 
 
-async def _import(
-    plan: ImportPlan, request: Request, db: DbSession, *, dry_run: bool
-) -> ImportReportResponse | JSONResponse:
-    async with db.begin() as transaction:
-        result = await ImportService.import_plan(db, plan)
-        match result:
-            case ImportApplied():
-                if dry_run:
-                    await transaction.rollback()
-            case ImportRejected():
-                # Nearly always nothing to undo, but a late refusal follows machine inserts.
-                await transaction.rollback()
-            case _:
-                assert_never(result)
-
-    match result:
-        case ImportApplied(summary=summary, job_ids=job_ids, warnings=warnings):
-            return _report(
-                plan,
-                summary,
-                dry_run=dry_run,
-                issues=(),
-                warnings=warnings,
-                job_ids=() if dry_run else job_ids,
-            )
-        case ImportRejected(summary=summary, issues=issues, warnings=warnings):
-            if dry_run:
-                return _report(
-                    plan, summary, dry_run=True, issues=issues, warnings=warnings, job_ids=()
-                )
-            return _import_invalid(request, issues, warnings=warnings)
-        case _:
-            assert_never(result)
-
-
 def _report(
-    plan: ImportPlan | None,
     summary: ImportSummary | None,
     *,
     dry_run: bool,
     issues: Sequence[ImportIssue],
     warnings: Sequence[ImportIssue],
-    job_ids: Sequence[UUID],
+    job_ids: Sequence[UUID] = (),
 ) -> ImportReportResponse:
-    return ImportReportResponse(
-        format=None if plan is None else plan.format,
-        dry_run=dry_run,
-        importable=not issues,
-        summary=None
-        if summary is None
-        else ImportSummaryResponse(
-            machines_created=list(summary.machines_created),
-            machines_reused=list(summary.machines_reused),
-            categories_created=list(summary.categories_created),
-            jobs=summary.jobs,
-            operations=summary.operations,
-            routes=summary.routes,
-            dependencies=summary.dependencies,
-        ),
-        job_ids=list(job_ids),
-        issues=[_issue(issue) for issue in issues],
-        warnings=[_issue(issue) for issue in warnings],
+    # The response schemas read attributes, so the result dataclasses go in as they are.
+    return ImportReportResponse.model_validate(
+        {
+            "format": None if summary is None else summary.format,
+            "dry_run": dry_run,
+            "importable": not issues,
+            "summary": summary,
+            "job_ids": job_ids,
+            "issues": issues,
+            "warnings": warnings,
+        }
     )
-
-
-def _issue(issue: ImportIssue) -> ImportIssueResponse:
-    return ImportIssueResponse(code=issue.code, message=issue.message, location=issue.location)
 
 
 def _import_invalid(
@@ -175,7 +141,13 @@ def _import_invalid(
             instance=request.url.path,
         ),
         extensions={
-            "issues": [_issue(issue).model_dump() for issue in issues],
-            "warnings": [_issue(issue).model_dump() for issue in warnings],
+            "issues": [
+                ImportIssueResponse.model_validate(issue).model_dump(mode="json")
+                for issue in issues
+            ],
+            "warnings": [
+                ImportIssueResponse.model_validate(issue).model_dump(mode="json")
+                for issue in warnings
+            ],
         },
     )

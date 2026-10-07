@@ -12,48 +12,52 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
+from enum import StrEnum
 
-type ImportFormat = Literal["floorsync", "jobshop", "flexible-jobshop"]
-"""The formats an upload can be in: our own JSON, or a ScheduleOpt classic or flexible job shop."""
+from floorsync_common.database.models.job import JobPriority
 
-type PlannedPriority = Literal["high", "med", "low"]
-"""`jobs.priority`'s allowed values, restated so this module needs no model import."""
 
-type ImportIssueCode = Literal[
+class ImportFormat(StrEnum):
+    """What an upload is: our own JSON, or a ScheduleOpt classic or flexible job shop."""
+
+    FLOORSYNC = "floorsync"
+    JOBSHOP = "jobshop"
+    FLEXIBLE_JOBSHOP = "flexible-jobshop"
+
+
+class ImportIssueCode(StrEnum):
+    """Every issue an import can report. Stable API values, listed in docs/importing.md."""
+
     # The file as a whole could not be read.
-    "empty_file",
-    "not_utf8",
-    "not_json",
-    "duplicate_key",
-    "too_deeply_nested",
-    "not_an_object",
-    "unknown_format",
-    "unsupported_version",
-    "invalid_benchmark",
-    "too_large",
+    EMPTY_FILE = "empty_file"
+    NOT_UTF8 = "not_utf8"
+    NOT_JSON = "not_json"
+    DUPLICATE_KEY = "duplicate_key"
+    TOO_DEEPLY_NESTED = "too_deeply_nested"
+    NOT_AN_OBJECT = "not_an_object"
+    UNKNOWN_FORMAT = "unknown_format"
+    UNSUPPORTED_VERSION = "unsupported_version"
+    INVALID_BENCHMARK = "invalid_benchmark"
+    TOO_LARGE = "too_large"
     # A FloorSync file's shape.
-    "missing_field",
-    "unknown_field",
-    "wrong_type",
-    "invalid_value",
+    MISSING_FIELD = "missing_field"
+    UNKNOWN_FIELD = "unknown_field"
+    WRONG_TYPE = "wrong_type"
+    INVALID_VALUE = "invalid_value"
     # What the file says, checked against itself.
-    "duplicate_machine",
-    "duplicate_route",
-    "duplicate_operation_name",
-    "unknown_predecessor",
-    "self_dependency",
-    "duplicate_dependency",
-    "dependency_cycle",
+    DUPLICATE_MACHINE = "duplicate_machine"
+    DUPLICATE_ROUTE = "duplicate_route"
+    DUPLICATE_OPERATION_NAME = "duplicate_operation_name"
+    UNKNOWN_PREDECESSOR = "unknown_predecessor"
+    PREDECESSOR_NOT_EARLIER = "predecessor_not_earlier"
+    DUPLICATE_DEPENDENCY = "duplicate_dependency"
     # What the file says, checked against the floor.
-    "unknown_machine",
-    "inactive_machine",
+    UNKNOWN_MACHINE = "unknown_machine"
+    INACTIVE_MACHINE = "inactive_machine"
     # Warnings: worth knowing, but nothing stops the import.
-    "machine_differs",
-    "similar_machine_name",
-    "resched_unsupported",
-]
-"""Every issue an import can report. Stable API values, listed in docs/importing.md."""
+    MACHINE_DIFFERS = "machine_differs"
+    SIMILAR_MACHINE_NAME = "similar_machine_name"
+    RESCHED_UNSUPPORTED = "resched_unsupported"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +112,7 @@ class PlannedOperation:
 @dataclass(frozen=True, slots=True)
 class PlannedJob:
     name: str
-    priority: PlannedPriority
+    priority: JobPriority
     operations: tuple[PlannedOperation, ...]
     location: str
 

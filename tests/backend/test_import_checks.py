@@ -1,4 +1,4 @@
-"""What an import plan says, checked against itself (#297): values, precedence and ordering.
+"""What an import plan says, checked against itself (#297): values and precedence.
 
 Pure: no database. Plans are built by reading small FloorSync documents, the way an upload is.
 """
@@ -10,15 +10,10 @@ from typing import Any
 
 import pytest
 
-from floorsync_common.imports.checks import (
-    check_plan,
-    operation_order,
-    plan_warnings,
-    precedence_edges,
-)
-from floorsync_common.imports.formats import read_import_file
+from floorsync_common.imports.checks import check_plan, plan_warnings, precedence_edges
 from floorsync_common.imports.plan import ImportPlan
 from floorsync_common.imports.results import PlanRead
+from floorsync_common.imports.service import ImportService
 from floorsync_common.operations.graph import branching_operations
 
 
@@ -26,7 +21,7 @@ def plan_of(*jobs: dict[str, Any], machines: list[dict[str, Any]] | None = None)
     document: dict[str, Any] = {"format": "floorsync", "version": 1, "jobs": list(jobs)}
     if machines is not None:
         document["machines"] = machines
-    result = read_import_file(json.dumps(document).encode())
+    result = ImportService.read_file(json.dumps(document).encode())
     assert isinstance(result, PlanRead), result
     return result.plan
 
@@ -73,7 +68,7 @@ def test_an_energy_figure_the_column_cannot_hold_exactly_is_refused(energy: str)
         '{"format": "floorsync", "version": 1, "jobs": [{"name": "P", "operations": [{"name": "A", '
         f'"routes": [{{"machine": "Saw", "duration": 1, "energy": {energy}}}]}}]}}]}}'
     ).encode()
-    result = read_import_file(raw)
+    result = ImportService.read_file(raw)
     assert isinstance(result, PlanRead)
 
     assert problems(result.plan) == {("invalid_value", "jobs[0].operations[0].routes[0].energy")}
@@ -127,60 +122,58 @@ def test_every_bad_reference_in_an_after_list_is_named() -> None:
             "name": "P",
             "operations": [
                 operation("A", "A"),
-                operation("B", "Nope", "A", "A"),
+                operation("B", "Nope", "A", "A", "C"),
+                operation("C"),
             ],
         }
     )
 
     assert problems(plan) == {
-        ("self_dependency", "jobs[0].operations[0].after[0]"),
+        ("predecessor_not_earlier", "jobs[0].operations[0].after[0]"),
         ("unknown_predecessor", "jobs[0].operations[1].after[0]"),
         ("duplicate_dependency", "jobs[0].operations[1].after[2]"),
+        ("predecessor_not_earlier", "jobs[0].operations[1].after[3]"),
     }
 
 
-def test_a_cycle_names_the_operations_caught_in_it_or_waiting_on_it() -> None:
+def test_a_cycle_cannot_be_written_because_an_operation_only_waits_on_earlier_ones() -> None:
     plan = plan_of(
         {
             "name": "P",
-            "operations": [
-                operation("A"),
-                operation("B", "A", "C"),
-                operation("C", "B"),
-                operation("D", "C"),
-            ],
+            "operations": [operation("A"), operation("B", "A", "C"), operation("C", "B")],
         }
     )
 
     (issue,) = check_plan(plan)
-    assert (issue.code, issue.location) == ("dependency_cycle", "jobs[0]")
-    assert "'B', 'C', 'D'" in issue.message and "'A'" not in issue.message
-    assert operation_order(plan.jobs[0]) is None
+    assert (issue.code, issue.location) == (
+        "predecessor_not_earlier",
+        "jobs[0].operations[1].after[1]",
+    )
+    assert "'C', which is listed after it" in issue.message
+    assert precedence_edges(plan.jobs[0]) == [(0, 1), (1, 2)]
 
 
 def test_a_job_that_states_nothing_runs_in_the_order_listed() -> None:
     plan = plan_of({"name": "P", "operations": chain("Cut", "Polish", "Pack")})
 
     assert precedence_edges(plan.jobs[0]) == [(0, 1), (1, 2)]
-    assert operation_order(plan.jobs[0]) == (0, 1, 2)
 
 
-def test_positions_follow_precedence_and_otherwise_keep_the_files_order() -> None:
-    # Listed out of order: "Pack" waits on everything, yet comes first in the file.
+def test_stated_precedence_points_from_earlier_operations_to_later_ones() -> None:
     plan = plan_of(
         {
             "name": "P",
             "operations": [
-                operation("Pack", "Glue"),
                 operation("Cut"),
-                operation("Glue", "Cut"),
                 operation("Label"),
+                operation("Glue", "Cut"),
+                operation("Pack", "Glue", "Label"),
             ],
         }
     )
 
-    assert precedence_edges(plan.jobs[0]) == [(2, 0), (1, 2)]
-    assert operation_order(plan.jobs[0]) == (1, 2, 0, 3)
+    assert check_plan(plan) == ()
+    assert precedence_edges(plan.jobs[0]) == [(0, 2), (2, 3), (1, 3)]
 
 
 def test_only_a_branching_job_is_flagged_as_beyond_resched() -> None:

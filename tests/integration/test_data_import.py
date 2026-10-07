@@ -35,7 +35,6 @@ from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.user import User
-from floorsync_common.imports.formats import read_import_file
 from floorsync_common.imports.plan import ImportPlan
 from floorsync_common.imports.results import ImportApplied, ImportPlanResult, PlanRead
 from floorsync_common.imports.service import ImportService
@@ -119,7 +118,7 @@ def add_machine(database_url: str, **values: Any) -> UUID:
 
 
 def plan_of(raw: bytes) -> ImportPlan:
-    result = read_import_file(raw)
+    result = ImportService.read_file(raw)
     assert isinstance(result, PlanRead)
     return result.plan
 
@@ -250,12 +249,7 @@ def test_imported_jobs_pass_the_checks_schedule_generation_runs(api: TestClient)
 
 
 def test_the_job_builder_can_edit_an_imported_job(api: TestClient) -> None:
-    def listed_out_of_order(document: dict[str, Any]) -> None:
-        # "Inspect" waits on everything yet comes first: positions must follow precedence anyway.
-        door = document["jobs"][2]["operations"]
-        door.insert(0, door.pop())
-
-    screen_id, _, door_id = upload(api, edited_example(listed_out_of_order)).json()["job_ids"]
+    screen_id, _, door_id = upload(api, EXAMPLE).json()["job_ids"]
 
     def resave(job_id: str, reorder: Callable[[list[Document]], list[Document]]) -> Response:
         definition = api.get(f"/api/v1/jobs/{job_id}/definition").json()
@@ -292,7 +286,7 @@ def test_the_job_builder_can_edit_an_imported_job(api: TestClient) -> None:
         "Polish edges",
         "Inspect",
     ]
-    # Stated precedence is numbered in an order it allows, so saving it as it stands is no cycle.
+    # Stated precedence only points forwards, so the builder's position chain never contradicts it.
     kept = resave(door_id, lambda ops: ops)
     assert kept.status_code == 200, kept.text
     assert [operation["name"] for operation in kept.json()["operations"]] == [

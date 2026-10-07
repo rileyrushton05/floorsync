@@ -13,14 +13,11 @@ from typing import Any
 
 import pytest
 
-from floorsync_common.imports import formats
-from floorsync_common.imports.formats import (
-    MAX_IMPORT_JOBS,
-    MAX_IMPORT_MACHINES,
-    read_import_file,
-)
+from floorsync_common.imports import benchmarks
+from floorsync_common.imports.checks import MAX_IMPORT_JOBS, MAX_IMPORT_MACHINES, check_plan
 from floorsync_common.imports.plan import ImportPlan
 from floorsync_common.imports.results import FileUnreadable, PlanRead
+from floorsync_common.imports.service import ImportService
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO / "docs" / "examples" / "import-example.json"
@@ -29,14 +26,14 @@ SEED_DATA = REPO / "src" / "database" / "seed-data"
 
 def plan_of(document: dict[str, Any] | bytes) -> ImportPlan:
     raw = document if isinstance(document, bytes) else json.dumps(document).encode()
-    result = read_import_file(raw)
+    result = ImportService.read_file(raw)
     assert isinstance(result, PlanRead), result
     return result.plan
 
 
 def problems_of(document: dict[str, Any] | bytes) -> set[tuple[str, str | None]]:
     raw = document if isinstance(document, bytes) else json.dumps(document).encode()
-    result = read_import_file(raw)
+    result = ImportService.read_file(raw)
     assert isinstance(result, FileUnreadable), result
     return {(issue.code, issue.location) for issue in result.issues}
 
@@ -114,12 +111,13 @@ def test_a_byte_order_mark_is_accepted() -> None:
         (b'"floorsync"', "not_an_object"),
         (b'{"jobs": [], "machines": []}', "unknown_format"),
         (b'{"format": "floorsync", "version": 2, "jobs": []}', "unsupported_version"),
+        (b'{"format": "floorsync", "version": 2.0, "jobs": []}', "unsupported_version"),
         (b'{"instance": "x", "data": [], "jobs": 1, "machines": 1}', "invalid_benchmark"),
         (b'{"instance": "x", "operations": [], "precedences": []}', "invalid_benchmark"),
     ],
 )
 def test_a_file_that_cannot_be_read_says_why(raw: bytes, code: str) -> None:
-    result = read_import_file(raw)
+    result = ImportService.read_file(raw)
 
     assert isinstance(result, FileUnreadable)
     assert [issue.code for issue in result.issues] == [code]
@@ -212,13 +210,13 @@ def test_true_and_false_are_never_numbers() -> None:
     }
 
 
-def test_an_unknown_field_names_the_fields_allowed_there() -> None:
-    result = read_import_file(json.dumps(floorsync(job(colour="red"))).encode())
+def test_an_unknown_field_is_named_where_it_is() -> None:
+    result = ImportService.read_file(json.dumps(floorsync(job(colour="red"))).encode())
 
     assert isinstance(result, FileUnreadable)
     (issue,) = result.issues
     assert (issue.code, issue.location) == ("unknown_field", "jobs[0].colour")
-    assert issue.message == "'colour' is not a field here. Allowed: name, operations, priority."
+    assert issue.message == "'colour' is not a field here."
 
 
 def test_a_floorsync_file_needs_a_version_and_at_least_one_job() -> None:
@@ -315,10 +313,11 @@ def test_a_classic_benchmark_declaring_too_much_is_refused_before_it_is_expanded
     document: dict[str, Any], location: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A few bytes can declare millions of machines or jobs; nothing count-sized may be built.
-    def expanded(_: object) -> None:
+    def expanded(*_: object, **__: object) -> None:
         raise AssertionError("the declared counts were expanded before being bounded")
 
-    monkeypatch.setattr(formats, "_plan_from_jobshop", expanded)
+    monkeypatch.setattr(benchmarks, "PlannedMachine", expanded)
+    monkeypatch.setattr(benchmarks, "PlannedJob", expanded)
 
     assert problems_of(document) == {("too_large", location)}
 
@@ -352,7 +351,7 @@ def test_a_number_beyond_what_a_decimal_can_hold_is_unreadable_not_an_error() ->
         .replace(b'"duration": 10', b'"duration": 10, "energy": 1e999999999999999999999')
     )
 
-    result = read_import_file(raw)
+    result = ImportService.read_file(raw)
 
     assert isinstance(result, FileUnreadable)
     assert [issue.code for issue in result.issues] == ["not_json"]
@@ -389,3 +388,18 @@ def test_a_flexible_benchmark_states_each_operations_predecessors() -> None:
     assert only.name == "fork/J7" and only.states_precedence
     assert [operation.after for operation in only.operations] == [(), (), ("Op0", "Op1")]
     assert [route.machine for route in only.operations[0].routes] == ["fork/M0", "fork/M1"]
+
+
+def test_a_flexible_benchmark_operation_waiting_on_a_later_one_is_refused() -> None:
+    plan = plan_of(
+        {
+            "instance": "backwards",
+            "operations": [
+                {"operation": 0, "machine": 0, "duration": 2},
+                {"operation": 1, "machine": 0, "duration": 4},
+            ],
+            "precedences": [{"before": 1, "after": 0, "job": 0}],
+        }
+    )
+
+    assert [issue.code for issue in check_plan(plan)] == ["predecessor_not_earlier"]
