@@ -7,6 +7,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import DeclarativeBase
 
+from floorsync_common.database.base import Base
 from floorsync_common.database.models import TimestampMixin, UUIDPrimaryKeyMixin
 from floorsync_common.database.session import session_factory, session_scope
 
@@ -44,3 +45,17 @@ def test_model_mixins_define_uuid_and_timezone_aware_timestamps() -> None:
     assert mapper.columns.created_at.type.python_type is datetime
     assert mapper.columns.created_at.type.timezone is True
     assert mapper.columns.updated_at.type.timezone is True
+
+
+def test_every_model_fetches_database_computed_timestamps_on_update() -> None:
+    # Without eager defaults an UPDATE expires `updated_at`, and reading it afterwards needs a lazy
+    # reload that async SQLAlchemy cannot do (MissingGreenlet, a 500). A model that defines its own
+    # `__mapper_args__` would silently drop the mixin's, which is what this catches.
+    mappers = [
+        mapper
+        for mapper in Base.registry.mappers
+        if "updated_at" in mapper.columns and mapper.columns.updated_at.onupdate is not None
+    ]
+
+    assert mappers
+    assert [m.class_.__name__ for m in mappers if m.eager_defaults is not True] == []

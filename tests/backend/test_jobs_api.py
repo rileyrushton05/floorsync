@@ -395,15 +395,3 @@ def test_jobs_are_manager_only() -> None:
     response = job_client(role="operator").get("/api/v1/jobs")
 
     assert response.status_code == 403
-
-
-def test_update_job_refreshes_database_computed_columns() -> None:
-    """`updated_at` is filled by `onupdate`, so an UPDATE expires it.
-
-    Serialising the row afterwards would trigger a lazy reload that async SQLAlchemy cannot await,
-    surfacing as a 500. Only a live database reproduces it, so this asserts the fix is still there.
-    """
-
-    import inspect
-
-    assert "await db.refresh(" in inspect.getsource(job_service.JobService.update_job)

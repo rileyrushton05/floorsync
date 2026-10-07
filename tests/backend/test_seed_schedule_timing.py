@@ -9,8 +9,10 @@ docs/database-conventions.md; see the pull request.
 """
 
 import asyncio
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,8 +37,12 @@ def _capture(monkeypatch: pytest.MonkeyPatch, session: RecordingSession) -> None
     async def insert_all(_: AsyncSession, model: type[Any], rows: list[dict[str, Any]]) -> None:
         session.rows.setdefault(model.__tablename__, []).extend(rows)
 
+    async def create_logins(_: AsyncSession, machines: Sequence[tuple[UUID, str]]) -> int:
+        return len(machines)
+
     monkeypatch.setattr(loader, "clear_scheduling_data", clear)
     monkeypatch.setattr(loader, "_insert_all", insert_all)
+    monkeypatch.setattr(loader, "_create_operator_logins", create_logins)
 
 
 def _classic_instance_payload() -> dict[str, Any]:

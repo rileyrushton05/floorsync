@@ -39,8 +39,10 @@ from floorsync_common.seed.solutions import (
     validate_against,
     validate_flexible_against,
 )
+from floorsync_common.settings import settings
 from floorsync_common.simulation import PrecedenceEdge, PrecedenceReason, TimelineNode
 from floorsync_common.simulation.graph import resolve_start_times as resolve_relative_start_times
+from floorsync_common.users import OperatorService, UserService
 
 # Children before parents. Users are handled separately: an operator's login is bound to a machine
 # by a check constraint, so it has to go before the machine it points at.
@@ -70,6 +72,7 @@ class SeedSummary:
     dependencies: int
     compatibilities: int
     removed_operator_logins: int
+    created_operator_logins: int = 0
     solver: str | None = None
     makespan: int | None = None
     schedule_entries: int = 0
@@ -97,14 +100,14 @@ async def seed_instance(
     machine_width = _index_width(instance.machine_count)
     job_width = _index_width(instance.job_count)
 
+    machine_names = [
+        (machine_id, f"{instance.name}/M{index:0{machine_width}d}")
+        for index, machine_id in enumerate(machine_ids)
+    ]
     await _insert_all(
-        session,
-        Machine,
-        [
-            {"id": machine_id, "name": f"{instance.name}/M{index:0{machine_width}d}"}
-            for index, machine_id in enumerate(machine_ids)
-        ],
+        session, Machine, [{"id": machine_id, "name": name} for machine_id, name in machine_names]
     )
+    created_logins = await _create_operator_logins(session, machine_names)
     await _insert_all(
         session,
         Job,
@@ -175,6 +178,7 @@ async def seed_instance(
         dependencies=len(dependency_rows),
         compatibilities=len(compatibility_rows),
         removed_operator_logins=removed_logins,
+        created_operator_logins=created_logins,
         solver=solution.solver if solution else None,
         makespan=solution.makespan if solution else None,
         schedule_entries=entry_count,
@@ -333,6 +337,21 @@ async def clear_scheduling_data(session: AsyncSession) -> int:
     return len(operator_ids)
 
 
+async def _create_operator_logins(
+    session: AsyncSession, machines: Sequence[tuple[UUID, str]]
+) -> int:
+    """Give every seeded machine its operator login, as creating one through the API would.
+
+    All of them share the default password, so it is hashed once rather than per machine.
+    """
+
+    return await OperatorService.create_for_machines(
+        session,
+        machines,
+        password_hash=UserService.hash_password(settings.operator_default_password),
+    )
+
+
 async def _insert_all(session: AsyncSession, model: type[Any], rows: list[dict[str, Any]]) -> None:
     if rows:
         await session.execute(insert(model), rows)
@@ -368,14 +387,14 @@ async def seed_flexible_instance(
     job_width = _label_width(instance.job_labels)
     operation_width = _label_width([operation.id for operation in instance.operations])
 
+    machine_names = [
+        (machine_id, f"{instance.name}/M{label:0{machine_width}d}")
+        for label, machine_id in machine_ids.items()
+    ]
     await _insert_all(
-        session,
-        Machine,
-        [
-            {"id": machine_id, "name": f"{instance.name}/M{label:0{machine_width}d}"}
-            for label, machine_id in machine_ids.items()
-        ],
+        session, Machine, [{"id": machine_id, "name": name} for machine_id, name in machine_names]
     )
+    created_logins = await _create_operator_logins(session, machine_names)
     await _insert_all(
         session,
         Job,
@@ -447,6 +466,7 @@ async def seed_flexible_instance(
         dependencies=len(instance.dependencies),
         compatibilities=len(compatibility_rows),
         removed_operator_logins=removed_logins,
+        created_operator_logins=created_logins,
         solver=solution.solver if solution else None,
         makespan=solution.makespan if solution else None,
         schedule_entries=entry_count,
