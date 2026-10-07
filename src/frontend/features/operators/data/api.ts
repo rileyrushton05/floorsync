@@ -13,15 +13,14 @@ export interface OperatorAccount {
 }
 
 /**
- * A partial update. `password` replaces the current one outright; `machine_id`
- * must be another operator's machine, and the two operators swap.
+ * A partial update. `password` replaces the current one outright. The machine
+ * is not editable: an operator stays on the machine it was created for.
  */
 export interface OperatorChanges {
     name?: string;
     username?: string;
     password?: string;
     active?: boolean;
-    machine_id?: string;
 }
 
 export function fetchOperators(token: string, signal?: AbortSignal): Promise<OperatorAccount[]> {

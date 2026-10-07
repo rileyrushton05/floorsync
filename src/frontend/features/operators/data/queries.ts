@@ -26,8 +26,6 @@ export function useUpdateOperator() {
     return useMutation({
         mutationFn: ({ id, changes }: { id: string; changes: OperatorChanges }) =>
             updateOperator(id, changes, requireToken(token)),
-        // A machine swap changes two rows, so the whole list is re-read
-        // rather than patched in place.
         onSuccess: () => queryClient.invalidateQueries({ queryKey: operatorKeys.all }),
     });
 }

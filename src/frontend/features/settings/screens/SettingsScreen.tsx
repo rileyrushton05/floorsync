@@ -6,6 +6,7 @@ import { useAuth } from "@/core/auth/AuthProvider";
 import { UserMenu } from "@/core/auth/UserMenu";
 import { Wordmark } from "@/core/shell/Logo";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { OperatorAccountsSection } from "@/features/operators/screens/OperatorAccountsSection";
 import { ThemePicker } from "@/features/settings/ui/ThemePicker";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
@@ -17,6 +18,7 @@ import { ArrowLeftIcon } from "@heroicons/react/24/outline";
  *
  * Preferences here belong to this browser, not the account: the theme is kept
  * in a cookie, so a shared shop-floor terminal keeps whatever was picked on it.
+ * Managers also manage the operator logins here.
  */
 export default function SettingsScreen() {
     const { user } = useAuth();
@@ -24,6 +26,7 @@ export default function SettingsScreen() {
     const content = (
         <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-5 sm:py-8">
             <AppearanceSection />
+            {user?.role === "manager" && <OperatorAccountsSection />}
         </main>
     );
 

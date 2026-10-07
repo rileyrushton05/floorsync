@@ -39,8 +39,9 @@ export function DeleteMachineDialog({ machineName, closing, onConfirm, onDismiss
                     <DialogHeader>
                         <DialogTitle>Remove {label}?</DialogTitle>
                         <DialogDescription>
-                            This permanently removes the machine and its capability records from the
-                            floor. A machine that operations are still assigned to cannot be removed.
+                            This permanently removes the machine, its capability records and its
+                            operator login. A machine that operations are still assigned to cannot be
+                            removed.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>

@@ -56,7 +56,7 @@ export function OperatorAccountsSection() {
                     </InfoTooltip>
                 </h2>
                 <p className="mt-1 text-muted-fg text-sm">
-                    Each machine has one operator login. Change who runs which machine, rename a login,
+                    Each machine has one operator login, which stays with that machine. Rename a login,
                     set a new password, or stop an account from signing in.
                 </p>
             </div>
@@ -101,7 +101,6 @@ export function OperatorAccountsSection() {
                 <OperatorEditDialog
                     key={editing.id}
                     operator={editing}
-                    operators={operators}
                     saving={updateOperator.isPending}
                     onSave={(changes) => void save(changes)}
                     onDismiss={() => setEditingId(null)}

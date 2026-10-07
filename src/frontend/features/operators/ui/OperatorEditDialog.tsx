@@ -12,33 +12,26 @@ import {
 } from "@/components/ui/dialog";
 import { Description, Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { TextField } from "@/components/ui/text-field";
 import { Modal as AriaModal, ModalOverlay } from "react-aria-components";
 import { useState } from "react";
 import type { OperatorAccount, OperatorChanges } from "../model/operator";
 
 /**
- * Edit one operator login: display name, username, password, whether it can
- * sign in, and which machine it runs.
- *
- * Only machines that already have an operator are offered, because choosing
- * one swaps the two operators. Moving onto a free machine would leave the old
- * one without a login, and nothing creates a login for an existing machine.
+ * Edit one operator login: display name, username, password and whether it
+ * can sign in. The machine is shown but fixed: an operator stays on the
+ * machine it was created for.
  *
  * Saving sends only what changed. An empty password field means "keep the
  * current one", since the current password is never shown.
  */
 export function OperatorEditDialog({
     operator,
-    operators,
     saving,
     onSave,
     onDismiss,
 }: {
     operator: OperatorAccount;
-    /** Every operator, so the machine list can say who each swap is with. */
-    operators: OperatorAccount[];
     saving: boolean;
     onSave: (changes: OperatorChanges) => void;
     onDismiss: () => void;
@@ -47,16 +40,13 @@ export function OperatorEditDialog({
     const [username, setUsername] = useState(operator.username);
     const [password, setPassword] = useState("");
     const [active, setActive] = useState(operator.active);
-    const [machineId, setMachineId] = useState(operator.machine_id);
 
     const changes: OperatorChanges = {};
     if (name.trim() !== operator.name) changes.name = name.trim();
     if (username.trim().toLowerCase() !== operator.username) changes.username = username.trim().toLowerCase();
     if (password !== "") changes.password = password;
     if (active !== operator.active) changes.active = active;
-    if (machineId !== operator.machine_id) changes.machine_id = machineId;
 
-    const swapWith = operators.find((other) => other.machine_id === machineId && other.id !== operator.id);
     const problem = name.trim() === "" ? "Enter a display name." : username.trim() === "" ? "Enter a username." : null;
     const canSave = !saving && problem === null && Object.keys(changes).length > 0;
 
@@ -95,25 +85,6 @@ export function OperatorEditDialog({
                                 <Label>New password</Label>
                                 <Input placeholder="Leave blank to keep the current password" />
                             </TextField>
-                            <Select value={machineId} onChange={(value) => setMachineId(String(value))}>
-                                <Label>Machine</Label>
-                                <SelectTrigger />
-                                <SelectContent>
-                                    {operators.map((other) => (
-                                        <SelectItem key={other.machine_id} id={other.machine_id} textValue={other.machine_name}>
-                                            {other.machine_name}
-                                            {other.id !== operator.id && (
-                                                <span className="ms-2 text-muted-fg text-xs">{other.username}</span>
-                                            )}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                                <Description>
-                                    {swapWith
-                                        ? `Swaps machines: ${swapWith.username} moves to ${operator.machine_name}.`
-                                        : "Picking another machine swaps it with that machine's operator."}
-                                </Description>
-                            </Select>
                             <CheckboxField isSelected={active} onChange={setActive}>
                                 <Checkbox>Can sign in</Checkbox>
                                 <Description>

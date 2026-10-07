@@ -195,7 +195,10 @@ function MachinesPageInner() {
                     : { id: draft.id, values: { ...machineInputFromDraft(draft), active: undefined } },
             );
             openMachine(saved);
-            toast.success(wasExisting ? `“${saved.name}” updated.` : `“${saved.name}” added to the floor.`);
+            if (wasExisting) toast.success(`“${saved.name}” updated.`);
+            else toast.success(`“${saved.name}” added to the floor.`, {
+                description: "Its operator login was created with the default password. Manage it in Settings.",
+            });
         } catch (error) {
             reportMutationError(error);
         }
