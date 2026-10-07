@@ -72,45 +72,61 @@ function ThemeCard({ theme }: { theme: ThemeOption }) {
     );
 }
 
-/** Bar heights for the miniature's chart, as percentages. */
-const BARS = [
-    { height: "45%", className: "bg-primary" },
-    { height: "75%", className: "bg-success" },
-    { height: "55%", className: "bg-warning" },
-    { height: "90%", className: "bg-danger" },
+/** Gantt rows for the miniature: offset and width as percentages of the lane. */
+const LANES = [
+    [{ left: 0, width: 38, color: "bg-chart-1" }, { left: 44, width: 30, color: "bg-chart-2" }],
+    [{ left: 12, width: 26, color: "bg-chart-3" }, { left: 52, width: 40, color: "bg-chart-1" }],
+    [{ left: 4, width: 46, color: "bg-chart-4" }, { left: 58, width: 22, color: "bg-chart-5" }],
 ];
 
-/** A tiny sidebar, header, chart and button, drawn in `themeId`'s palette. */
+/**
+ * A miniature manager screen — sidebar, header with an action, a schedule
+ * panel and status badges — drawn in `themeId`'s palette.
+ */
 function Preview({ themeId, className = "" }: { themeId: string; className?: string }) {
     return (
         <div
             aria-hidden
             data-theme={themeId}
-            className={`flex h-24 overflow-hidden rounded-md border bg-bg font-sans text-fg ${className}`}
+            className={`flex h-28 overflow-hidden rounded-md border bg-bg font-sans text-fg ${className}`}
         >
-            <div className="flex w-1/4 flex-col gap-1.5 border-e border-sidebar-border bg-sidebar p-2">
-                <span className="h-1.5 w-3/4 rounded-full bg-fg/70" />
-                <span className="mt-1 h-2.5 rounded-sm bg-sidebar-primary" />
-                <span className="h-1.5 w-4/5 rounded-full bg-muted-fg/40" />
-                <span className="h-1.5 w-3/5 rounded-full bg-muted-fg/40" />
+            <div className="flex w-1/4 flex-col gap-1 border-e border-sidebar-border bg-sidebar p-1.5 text-sidebar-fg">
+                <span className="mb-1 flex items-center gap-1">
+                    <span className="size-2 rounded-full bg-primary" />
+                    <span className="font-bold text-[0.4rem]">FloorSync</span>
+                </span>
+                <span className="rounded-sm bg-sidebar-primary px-1 py-0.5 font-semibold text-[0.35rem] text-sidebar-primary-fg">
+                    Overview
+                </span>
+                <span className="px-1 text-[0.35rem] opacity-70">Jobs</span>
+                <span className="px-1 text-[0.35rem] opacity-70">Machines</span>
+                <span className="px-1 text-[0.35rem] opacity-70">Planner</span>
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex h-4 items-center border-b bg-navbar px-2">
-                    <span className="h-1.5 w-1/3 rounded-full bg-fg/60" />
+                <div className="flex h-5 shrink-0 items-center justify-between border-b bg-navbar px-1.5 text-navbar-fg">
+                    <span className="font-bold text-[0.45rem]">Overview</span>
+                    <span className="rounded-sm bg-primary px-1 py-0.5 font-medium text-[0.35rem] text-primary-fg">
+                        Generate
+                    </span>
                 </div>
-                <div className="flex flex-1 gap-2 p-2">
-                    <div className="flex flex-1 items-end gap-1 rounded-sm border bg-overlay p-1.5">
-                        {BARS.map((bar) => (
-                            <span
-                                key={bar.className}
-                                className={`flex-1 rounded-t-sm ${bar.className}`}
-                                style={{ height: bar.height }}
-                            />
-                        ))}
+                <div className="flex flex-1 flex-col gap-1 p-1.5">
+                    <div className="flex gap-1">
+                        <span className="rounded-sm bg-success-subtle px-1 text-[0.35rem] text-success-subtle-fg">On time</span>
+                        <span className="rounded-sm bg-warning-subtle px-1 text-[0.35rem] text-warning-subtle-fg">2 late</span>
+                        <span className="rounded-sm bg-danger-subtle px-1 text-[0.35rem] text-danger-subtle-fg">1 down</span>
                     </div>
-                    <div className="flex w-1/4 flex-col justify-end gap-1">
-                        <span className="h-1.5 rounded-full bg-muted-fg/40" />
-                        <span className="h-3 rounded-sm bg-primary" />
+                    <div className="flex flex-1 flex-col justify-around rounded-sm border bg-overlay px-1">
+                        {LANES.map((lane, row) => (
+                            <div key={row} className="relative h-1.5 rounded-full bg-muted">
+                                {lane.map((block) => (
+                                    <span
+                                        key={block.left}
+                                        className={`absolute inset-y-0 rounded-[1px] ${block.color}`}
+                                        style={{ left: `${block.left}%`, width: `${block.width}%` }}
+                                    />
+                                ))}
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
