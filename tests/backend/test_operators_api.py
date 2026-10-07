@@ -14,8 +14,6 @@ from floorsync_common.database.models.user import User
 from floorsync_common.database.models.user_credential import UserCredential
 from floorsync_common.settings import Settings
 from floorsync_common.users import (
-    AssignedMachineHasNoOperator,
-    AssignedMachineNotFound,
     OperatorAccount,
     OperatorNotFound,
     OperatorService,
@@ -132,7 +130,7 @@ def test_update_operator_passes_only_the_fields_sent(monkeypatch: pytest.MonkeyP
     assert received["username"] == "line-a"
     assert received["password"] == " keep spaces "
     assert repr(received["name"]) == "UNSET"
-    assert repr(received["machine_id"]) == "UNSET"
+    assert "machine_id" not in received
 
 
 def test_update_operator_rejects_an_explicit_null() -> None:
@@ -152,16 +150,6 @@ def test_update_operator_rejects_an_empty_password() -> None:
     [
         (OperatorNotFound(user_id=uuid4()), 404, None),
         (UsernameAlreadyExists(username="manager"), 409, "urn:floorsync:problem:username-conflict"),
-        (
-            AssignedMachineNotFound(machine_id=uuid4()),
-            422,
-            "urn:floorsync:problem:machine-not-found",
-        ),
-        (
-            AssignedMachineHasNoOperator(machine_id=uuid4()),
-            422,
-            "urn:floorsync:problem:machine-has-no-operator",
-        ),
     ],
 )
 def test_update_operator_maps_each_rejection(
@@ -169,13 +157,21 @@ def test_update_operator_maps_each_rejection(
 ) -> None:
     stub(monkeypatch, "update_operator", outcome)
 
-    response = operator_client().patch(
-        f"/api/v1/operators/{uuid4()}", json={"machine_id": str(uuid4())}
-    )
+    response = operator_client().patch(f"/api/v1/operators/{uuid4()}", json={"username": "manager"})
 
     assert response.status_code == status
     if problem is not None:
         assert response.json()["type"] == problem
+
+
+def test_an_operators_machine_cannot_be_changed() -> None:
+    """The machine is fixed for the life of the login, so the field is rejected outright."""
+
+    response = operator_client().patch(
+        f"/api/v1/operators/{uuid4()}", json={"machine_id": str(uuid4())}
+    )
+
+    assert response.status_code == 422
 
 
 def test_operators_are_manager_only() -> None:

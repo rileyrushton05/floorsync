@@ -29,7 +29,7 @@ credential and requires that credential to still be active, so disabling an acco
 the next request rather than when the token expires.
 
 There are two roles. A **manager** has no machine and can see the whole floor. An **operator** is
-bound to exactly one machine at a time and is refused anything outside it.
+permanently bound to exactly one machine and is refused anything outside it.
 
 ## Before you start
 
@@ -100,10 +100,10 @@ After that, a manager manages operator logins under **Settings → Operator acco
 
 - change the display name and username,
 - set a new password (no need to know the old one),
-- disable or re-enable the login, and
-- move the operator to another machine. That machine must already have an operator, and **the two
-  operators swap machines**. Moving onto a free machine is refused, because the old machine would be
-  left with no login and nothing creates one for an existing machine.
+- disable or re-enable the login.
+
+**An operator's machine cannot be changed**, and two operators cannot swap machines. A login stays on
+the machine it was created for until that machine is removed.
 
 The login follows its machine:
 

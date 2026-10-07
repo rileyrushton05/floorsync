@@ -3,8 +3,8 @@
 Every machine gets an operator login when it is created, with the configured default password and a
 username derived from the machine's name. Renaming the machine re-derives the username; removing the
 machine removes the login, because an operator without a machine is not a valid account. Managers
-adjust the rest -- display name, username, password, whether it may sign in, and which of two
-operators runs which machine -- through `update_operator`.
+adjust the rest -- display name, username, password and whether it may sign in -- through
+`update_operator`. Which machine an operator runs is fixed for the life of the login.
 
 Nothing here commits or rolls back: the caller owns the transaction, per
 docs/backend-conventions.md.
@@ -16,7 +16,7 @@ import re
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import case, delete, or_, select, update
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.machine import Machine
@@ -24,8 +24,6 @@ from floorsync_common.database.models.user import User
 from floorsync_common.database.models.user_credential import UserCredential
 from floorsync_common.partial import UNSET, Unset, is_set
 from floorsync_common.users.results import (
-    AssignedMachineHasNoOperator,
-    AssignedMachineNotFound,
     OperatorAccount,
     OperatorNotFound,
     OperatorUpdated,
@@ -167,12 +165,11 @@ class OperatorService:
         username: str | Unset = UNSET,
         password: str | Unset = UNSET,
         active: bool | Unset = UNSET,
-        machine_id: UUID | Unset = UNSET,
     ) -> UpdateOperatorResult:
         """Apply a partial update to an operator login, leaving omitted fields untouched.
 
         Every field is validated before anything is written, so a rejected request changes nothing.
-        A new machine swaps with the operator already running it.
+        The machine is not one of the fields: an operator stays on the machine it was created for.
         """
 
         row = (
@@ -198,25 +195,6 @@ class OperatorService:
             ):
                 return UsernameAlreadyExists(username=normalized_username)
 
-        swap_with: User | None = None
-        if is_set(machine_id) and machine_id != user.machine_id:
-            if await db.get(Machine, machine_id) is None:
-                return AssignedMachineNotFound(machine_id=machine_id)
-            swap_with = await db.scalar(select(User).where(User.machine_id == machine_id))
-            if swap_with is None:
-                return AssignedMachineHasNoOperator(machine_id=machine_id)
-
-        if swap_with is not None and is_set(machine_id):
-            # One statement for both rows: the unique constraint is deferrable so it can pass
-            # through the moment both hold the same machine, and the role check forbids parking
-            # either one on NULL instead.
-            await db.execute(
-                update(User)
-                .where(User.id.in_((user.id, swap_with.id)))
-                .values(machine_id=case((User.id == user.id, machine_id), else_=user.machine_id))
-                .execution_options(synchronize_session=False)
-            )
-
         if is_set(name):
             user.name = name.strip()
         if normalized_username is not None:
@@ -227,9 +205,6 @@ class OperatorService:
             credential.active = active
 
         await db.flush()
-        # The swap wrote `machine_id` behind the ORM's back, so reload the row to return the
-        # machine the operator actually holds now.
-        await db.refresh(user)
         machine_name = await db.scalar(select(Machine.name).where(Machine.id == user.machine_id))
         return OperatorUpdated(
             account=OperatorAccount(
