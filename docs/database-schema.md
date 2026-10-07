@@ -99,14 +99,16 @@ reasoning, since it matters for anyone extending this later:
 |---|---|---|
 | name | Text | not null |
 | role | Text | not null, CHECK role IN ('operator', 'manager') |
-| machine_id | Uuid | FK -> machines.id, nullable, **unique**, ondelete SET NULL, indexed |
+| machine_id | Uuid | FK -> machines.id, nullable, **unique (deferrable, initially immediate)**, ondelete SET NULL |
 
 ```sql
 CHECK ((role = 'operator') = (machine_id IS NOT NULL))
 ```
 
-A User is a login. For `role = 'operator'` it's permanently tied to exactly one machine (the unique
-constraint enforces the 1:1 — "each machine has its own login"); `manager` accounts (which now cover
+A User is a login. For `role = 'operator'` it's tied to exactly one machine at a time (the unique
+constraint enforces the 1:1 — "each machine has its own login"). The constraint is deferrable so one
+`UPDATE` can swap two operators' machines, which the role check above would otherwise make
+impossible. Creating a machine creates its operator, and removing one removes it. `manager` accounts (which now cover
 what used to be the separate coordinator role, per the Statement of Work change) have no machine and
 log in independently.
 

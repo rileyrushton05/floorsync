@@ -29,7 +29,7 @@ credential and requires that credential to still be active, so disabling an acco
 the next request rather than when the token expires.
 
 There are two roles. A **manager** has no machine and can see the whole floor. An **operator** is
-permanently bound to exactly one machine and is refused anything outside it.
+bound to exactly one machine at a time and is refused anything outside it.
 
 ## Before you start
 
@@ -83,69 +83,37 @@ value is never written to the database.
 A manager is enough to sign in and use `/manager/simulation`, which is the one route that reads from
 the API today.
 
-## Create an operator account
+## Operator accounts
 
-An operator is bound to a machine, so **a machine must exist first**. Machines come from seed data,
-which means the order is: seed, then create the operator. See
-[Seeding and operator accounts](#seeding-and-operator-accounts) for why doing it the other way round
-loses the account.
+Operator logins are never created by hand: **every machine gets one automatically** when it is
+created, whether a manager adds it on the Machines page (`POST /api/v1/machines`) or `make db-seed`
+loads it. Each machine has exactly one operator login.
 
-List the machines currently loaded:
+| Field | Starts as |
+| --- | --- |
+| Username | The machine name as a lowercase slug: `abz5/M0` becomes `abz5-m0`, `CNC Lathe 2` becomes `cnc-lathe-2`. If that is taken, `-2`, `-3`… is appended. |
+| Display name | The machine name. |
+| Password | `OPERATOR_DEFAULT_PASSWORD`, which defaults to `floorsync-dev`. The UI never shows it. |
 
-```bash
-docker compose run --rm api python -c "
-import asyncio
-from sqlalchemy import select
-from floorsync_common.database.models.machine import Machine
-from floorsync_common.database.session import session_scope
+After that, a manager manages operator logins under **Settings → Operator accounts**
+(`GET /api/v1/operators`, `PATCH /api/v1/operators/{id}`). They can:
 
-async def main():
-    async with session_scope() as session:
-        names = (await session.execute(select(Machine.name).order_by(Machine.name))).scalars().all()
-        print('\n'.join(names) or 'no machines -- seed a scenario first')
+- change the display name and username,
+- set a new password (no need to know the old one),
+- disable or re-enable the login, and
+- move the operator to another machine. That machine must already have an operator, and **the two
+  operators swap machines**. Moving onto a free machine is refused, because the old machine would be
+  left with no login and nothing creates one for an existing machine.
 
-asyncio.run(main())
-"
-```
+The login follows its machine:
 
-A seeded scenario names its machines after the instance, so `abz5` gives `abz5/M0` through
-`abz5/M9`. Pick one and use it as `MACHINE`:
+- **Renaming a machine** re-derives the operator's username from the new name, overwriting a
+  username a manager set by hand. The display name follows too, but only while it still matches
+  the old machine name.
+- **Removing a machine** removes its operator login in the same transaction.
 
-```bash
-docker compose run --rm api python -c "
-import asyncio
-from sqlalchemy import select
-from floorsync_common.database.models.machine import Machine
-from floorsync_common.database.models.user import User
-from floorsync_common.database.models.user_credential import UserCredential
-from floorsync_common.database.session import session_scope
-from floorsync_common.users import UserService
-
-NAME = 'Sam Operator'
-USERNAME = 'operator'
-PASSWORD = 'floorsync-dev'
-MACHINE = 'abz5/M0'
-
-async def main():
-    async with session_scope() as session:
-        machine = (
-            await session.execute(select(Machine).where(Machine.name == MACHINE))
-        ).scalar_one()
-        user = User(name=NAME, role='operator', machine_id=machine.id)
-        session.add(user)
-        await session.flush()
-        session.add(
-            UserCredential(
-                user_id=user.id,
-                username=USERNAME,
-                password_hash=UserService.hash_password(PASSWORD),
-            )
-        )
-        print('created', USERNAME, 'on', machine.name)
-
-asyncio.run(main())
-"
-```
+Machines that existed before this behaviour was added have no operator login and do not get one
+retroactively. Reseed, or recreate the machine, to get one.
 
 ## Verify an account
 
@@ -207,7 +175,8 @@ asyncio.run(main())
 
 ### Reset a password, or disable an account
 
-Both are edits to the credential row. Set `active = False` to disable an account, which takes effect
+For operators, use **Settings → Operator accounts** instead. For a manager, both are edits to the
+credential row. Set `active = False` to disable an account, which takes effect
 on that account's next request rather than when its current token expires:
 
 ```bash
@@ -257,22 +226,20 @@ for.
 
 `make db-seed` replaces the whole scenario: it deletes the jobs, machines, schedules and simulations
 that were loaded before. Operator logins go with them, because an operator is defined by a machine
-that no longer exists. The seed reports this as `removed N operator login(s)`.
+that no longer exists. The seed reports this as `removed N operator login(s)`. It then creates a
+fresh operator login for every machine it loads, with the default password, and reports that as
+`created N operator login(s)`.
 
 **Manager logins survive seeding.** They are not scenario data and are not tied to a machine.
 
-So the working order is:
-
-1. `make db-seed instance=<name>`
-2. Create operator accounts against the machines that scenario loaded.
-
-Reseeding means recreating the operators. Managers only ever need creating once per database.
+Any username, password or machine changes made to operators are lost on a reseed.
 
 ## What is deliberately missing
 
 Naming these avoids someone hunting for a feature that was never built:
 
-- **No registration route and no sign-up page.** Accounts are created here, by hand.
+- **No registration route and no sign-up page.** Manager accounts are created here, by hand;
+  operator accounts only ever come with a machine.
 - **No password rules.** Nothing enforces length or complexity, so a development password can be
   anything. This is a prototype gate, not a hardened one.
 - **No refresh tokens.** A token lasts 30 minutes

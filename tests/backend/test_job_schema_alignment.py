@@ -9,9 +9,10 @@ and a seeded database by hand; see the pull request.
 
 import asyncio
 import importlib.util
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from sqlalchemy import CheckConstraint, UniqueConstraint, inspect
@@ -146,8 +147,12 @@ def _capture(monkeypatch: pytest.MonkeyPatch, session: RecordingSession) -> None
     async def insert_all(_: AsyncSession, model: type[Any], rows: list[dict[str, Any]]) -> None:
         session.rows.setdefault(model.__tablename__, []).extend(rows)
 
+    async def create_logins(_: AsyncSession, machines: Sequence[tuple[UUID, str]]) -> int:
+        return len(machines)
+
     monkeypatch.setattr(loader, "clear_scheduling_data", clear)
     monkeypatch.setattr(loader, "_insert_all", insert_all)
+    monkeypatch.setattr(loader, "_create_operator_logins", create_logins)
 
 
 def _positions_by_job(rows: list[dict[str, Any]]) -> dict[Any, list[int]]:
