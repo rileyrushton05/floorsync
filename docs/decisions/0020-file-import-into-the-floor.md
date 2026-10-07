@@ -43,8 +43,10 @@ UX of its own (#299).
 5. **A job that states no precedence runs its operations in the order listed**, written as
    `builder_sequence` edges: exactly the chain the builder derives from positions, so the builder
    can edit and even reorder the job afterwards. Stated precedence (`after`) is written as
-   `external`, which the builder leaves alone, and positions are numbered in a topological order
-   that keeps the file's order where precedence allows, so a builder save can never form a cycle.
+   `external`, which the builder leaves alone. `after` may only name an operation listed earlier,
+   so a cycle cannot be written and each position is simply the operation's place in the list:
+   the builder chains a job by position on every save, and that chain can never contradict the
+   stated precedence.
 6. **All or nothing.** A file is read, checked against itself, then checked against the floor, and
    every problem is collected before anything is written, each naming its place in the file. The
    route commits only an applied, real import; it rolls back a dry run and every refusal.
@@ -88,6 +90,9 @@ UX of its own (#299).
   carry a branching job; the import reuses its rules (active machines, no cycles) instead.
 - **409 for a machine-name race**: correct but unhelpful; waiting and reusing gives the outcome the
   person wanted.
+- **Accepting `after` in any order**: positions would then have to be numbered by a topological
+  sort, and cycles detected and reported. Requiring precedence to point forwards removes both, and
+  every committed flexible benchmark already numbers an operation after those it waits on.
 
 ## Consequences
 

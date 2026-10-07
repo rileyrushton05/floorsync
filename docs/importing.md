@@ -93,7 +93,7 @@ imported by the integration tests, so it always works.
 | `jobs[].operations` | yes | At least one operation |
 | `operations[].name` | yes | Unique within the job when the job uses `after` |
 | `operations[].routes` | yes | At least one machine the operation can run on |
-| `operations[].after` | no | Names of operations in the same job this one waits for |
+| `operations[].after` | no | Names of earlier operations in the same job that this one waits for |
 | `routes[].machine` | yes | A machine declared in the file or already on the floor |
 | `routes[].duration` | yes | Whole minutes, at least 1 |
 | `routes[].energy` | no | 0 to 99,999,999.99, at most two decimals |
@@ -109,7 +109,8 @@ ignored.
   waits for nothing, and an operation can wait for several. A job like that is a general precedence
   graph: the exact solver can schedule it, ReSched cannot, and the import warns about it.
 
-`after` names operations in the same job only. A cycle is refused, naming the operations in it.
+`after` names operations listed earlier in the same job, so list a job's operations in an order
+they can run in. Each operation's position in the job is its place in the list.
 
 ### Machines
 
@@ -146,8 +147,8 @@ contains, so a file of a few bytes can declare millions. Those counts are checke
 | `duplicate_machine` | The file declares a machine twice |
 | `duplicate_route` | An operation lists the same machine twice |
 | `duplicate_operation_name` | Two operations share a name in a job that uses `after` |
-| `unknown_predecessor`, `self_dependency`, `duplicate_dependency` | A bad name in an `after` list |
-| `dependency_cycle` | Operations wait on each other, so none could start |
+| `unknown_predecessor`, `duplicate_dependency` | A bad name in an `after` list |
+| `predecessor_not_earlier` | An `after` names the operation itself or one listed after it |
 | `unknown_machine` | A route names a machine neither the file nor the floor has |
 | `inactive_machine` | A route names a machine that is inactive on the floor |
 
