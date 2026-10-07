@@ -48,12 +48,6 @@ export const EMPTY_JOB_DRAFT: JobDraft = {
     foreignEdges: [],
 };
 export const JOB_PRIORITIES: { id: Priority }[] = [{ id: "High" }, { id: "Med" }, { id: "Low" }];
-export const DURATION_FILTERS = [
-    { id: "All", label: "Any duration" },
-    { id: "Short", label: "Short (< 1 hr)" },
-    { id: "Medium", label: "Medium (1–4 hrs)" },
-    { id: "Long", label: "Long (> 4 hrs)" },
-] as const;
 
 /**
  * Whether the list shows open jobs, retired ones, or both.
@@ -83,7 +77,7 @@ export const STATUS_FILTERS = [
 export const SORT_OPTIONS = [
     { id: "Priority", label: "Priority" },
     { id: "Name", label: "Name (A–Z)" },
-    { id: "Duration", label: "Total work" },
+    { id: "Duration", label: "Duration" },
     { id: "Operations", label: "Number of ops" },
 ] as const;
 
@@ -307,9 +301,9 @@ export function saveGate(input: {
 export interface JobFilters {
     query: string;
     status: (typeof STATUS_FILTERS)[number]["id"];
-    priority: Priority | "All";
+    // Not offered as a control; only set by a link from another screen
+    // (?machine=<id>) to narrow the backlog to the jobs routed through it.
     machineId: string;
-    duration: (typeof DURATION_FILTERS)[number]["id"];
     sort: (typeof SORT_OPTIONS)[number]["id"];
 }
 
@@ -324,12 +318,7 @@ export function filterJobs(jobs: JobDef[], filters: JobFilters): JobDef[] {
         if (filters.status === "Active" && status !== "open") return false;
         if (filters.status === "Planned" && status !== "planned" && status !== "done") return false;
         if (filters.status === "Archived" && status !== "archived") return false;
-        if (filters.priority !== "All" && job.priority !== filters.priority) return false;
-        if (filters.machineId !== "All" && !job.operations.some((operation) => operation.routes.some((route) => route.machineId === filters.machineId))) return false;
-        const work = totalWorkMins(job);
-        return (filters.duration !== "Short" || work < 60) &&
-            (filters.duration !== "Medium" || (work >= 60 && work < 240)) &&
-            (filters.duration !== "Long" || work >= 240);
+        return filters.machineId === "All" || job.operations.some((operation) => operation.routes.some((route) => route.machineId === filters.machineId));
     });
     return [...matching].sort((left, right) => {
         if (filters.sort === "Priority") {
