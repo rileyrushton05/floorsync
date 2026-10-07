@@ -70,18 +70,18 @@ export const STATUS_FILTERS = [
  * There is deliberately no "backlog order" option. The API returns jobs sorted
  * by `(name, id)`, which is an artefact of how the page is fetched rather than
  * an order a manager chose — offering it as a sort implied the backlog had a
- * running order that someone could act on, and it does not. Priority is the
- * one that answers "what should be looked at first", so it leads and is the
- * default.
+ * running order that someone could act on, and it does not. Creation time
+ * belongs to the job itself, so newest first leads and is the default.
  */
 export const SORT_OPTIONS = [
+    { id: "Created", label: "Newest first" },
     { id: "Priority", label: "Priority" },
     { id: "Name", label: "Name (A–Z)" },
     { id: "Duration", label: "Duration" },
     { id: "Operations", label: "Number of ops" },
 ] as const;
 
-export const DEFAULT_SORT: (typeof SORT_OPTIONS)[number]["id"] = "Priority";
+export const DEFAULT_SORT: (typeof SORT_OPTIONS)[number]["id"] = "Created";
 
 const PRIORITY_RANK: Record<Priority, number> = { High: 0, Med: 1, Low: 2 };
 
@@ -321,6 +321,9 @@ export function filterJobs(jobs: JobDef[], filters: JobFilters): JobDef[] {
         return filters.machineId === "All" || job.operations.some((operation) => operation.routes.some((route) => route.machineId === filters.machineId));
     });
     return [...matching].sort((left, right) => {
+        if (filters.sort === "Created") {
+            return (right.createdAt ?? "").localeCompare(left.createdAt ?? "") || left.name.localeCompare(right.name);
+        }
         if (filters.sort === "Priority") {
             const byPriority = PRIORITY_RANK[left.priority] - PRIORITY_RANK[right.priority];
             // Within one priority, name keeps the list stable and scannable
