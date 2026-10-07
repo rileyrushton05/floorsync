@@ -1450,7 +1450,7 @@
       },
       "OperatorUpdateRequest": {
         "additionalProperties": false,
-        "description": "A partial update to an operator login. Every field is optional and none may be null.\n\n`password` replaces the current one outright; the manager does not need to know the old one.\nThere is no `machine_id`: an operator stays on the machine it was created for, and sending one is\nrejected like any other unknown field.",
+        "description": "A partial update to an operator login. Every field is optional and none may be null.\n\n`password` replaces the current one outright; the manager does not need to know the old one.\nThere is no `machine_id`: an operator stays on the machine it was created for, and sending one\nis rejected like any other unknown field.",
         "properties": {
           "active": {
             "anyOf": [
