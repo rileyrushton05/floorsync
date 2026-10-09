@@ -390,16 +390,23 @@ def test_a_flexible_benchmark_states_each_operations_predecessors() -> None:
     assert [route.machine for route in only.operations[0].routes] == ["fork/M0", "fork/M1"]
 
 
-def test_a_flexible_benchmark_operation_waiting_on_a_later_one_is_refused() -> None:
+def test_a_flexible_benchmark_is_listed_in_an_order_it_can_run_in_whatever_its_numbering() -> None:
+    # Benchmark ids are labels, not an order: operation 2 waiting on operation 1 is valid, and the
+    # seed parser accepts it. Positions must still follow precedence, so the job is reordered.
     plan = plan_of(
         {
             "instance": "backwards",
             "operations": [
                 {"operation": 0, "machine": 0, "duration": 2},
                 {"operation": 1, "machine": 0, "duration": 4},
+                {"operation": 2, "machine": 0, "duration": 1},
             ],
-            "precedences": [{"before": 1, "after": 0, "job": 0}],
+            "precedences": [
+                {"before": 2, "after": 0, "job": 0},
+                {"before": 0, "after": 1, "job": 0},
+            ],
         }
     )
 
-    assert [issue.code for issue in check_plan(plan)] == ["predecessor_not_earlier"]
+    assert check_plan(plan) == ()
+    assert [operation.name for operation in plan.jobs[0].operations] == ["Op2", "Op0", "Op1"]

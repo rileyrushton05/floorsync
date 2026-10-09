@@ -125,7 +125,8 @@ ScheduleOpt classic job-shop and flexible job-shop instances (the files in
 `src/database/seed-data/`) import as they are. Machines are named as the seed loader names them
 (`abz5/M3`), so importing an instance the database was seeded with reuses its machines; jobs are
 named after the instance (`abz5/J7`). A classic job is a straight chain; a flexible job keeps its
-precedence edges, branching included.
+precedence edges, branching included, and its operations are listed in an order they can run in
+whatever their ids.
 
 Unlike `make db-seed`, an import never deletes anything.
 

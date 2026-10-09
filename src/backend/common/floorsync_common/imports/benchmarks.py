@@ -11,7 +11,8 @@ Nothing here touches the database.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import heapq
+from collections.abc import Mapping, Sequence
 
 from floorsync_common.imports.checks import check_size
 from floorsync_common.imports.plan import (
@@ -25,7 +26,7 @@ from floorsync_common.imports.plan import (
     PlannedRoute,
 )
 from floorsync_common.imports.results import FileUnreadable, PlanRead, ReadFileResult
-from floorsync_common.seed.flexible import parse_flexible_instance
+from floorsync_common.seed.flexible import FlexibleOperation, parse_flexible_instance
 from floorsync_common.seed.instances import InstanceError, parse_instance
 
 
@@ -108,8 +109,9 @@ def read_flexible_jobshop(document: Mapping[str, object]) -> ReadFileResult:
     """A flexible instance: several candidate machines per operation, explicit precedence edges.
 
     Every operation's predecessors are stated, even when there are none, because this format's
-    edges are the precedence: a job can branch, so list order means nothing. Operations are listed
-    by id, and every committed instance numbers an operation after those it waits on.
+    edges are the precedence: a job can branch, so list order means nothing. Operation ids are
+    labels, not an order (operation 2 may wait on operation 1, or 1 on 2), so each job is listed in
+    an order it can run in: an operation always comes after everything it waits on.
     """
 
     try:
@@ -131,9 +133,9 @@ def read_flexible_jobshop(document: Mapping[str, object]) -> ReadFileResult:
         operation.id: f"Op{operation.id:0{operation_width}d}" for operation in instance.operations
     }
 
-    predecessors: dict[int, list[str]] = {}
+    predecessors: dict[int, list[int]] = {}
     for before, after in instance.dependencies:
-        predecessors.setdefault(after, []).append(operation_names[before])
+        predecessors.setdefault(after, []).append(before)
 
     jobs: list[PlannedJob] = []
     for job, operations in instance.operations_by_job.items():
@@ -151,10 +153,12 @@ def read_flexible_jobshop(document: Mapping[str, object]) -> ReadFileResult:
                     )
                     for candidate in operation.candidates
                 ),
-                after=tuple(predecessors.get(operation.id, ())),
+                after=tuple(
+                    operation_names[before] for before in predecessors.get(operation.id, ())
+                ),
                 location=f"operations (operation {operation.id})",
             )
-            for operation in operations
+            for operation in _in_run_order(operations, predecessors)
         )
         jobs.append(
             PlannedJob(
@@ -175,3 +179,33 @@ def read_flexible_jobshop(document: Mapping[str, object]) -> ReadFileResult:
             jobs=tuple(jobs),
         )
     )
+
+
+def _in_run_order(
+    operations: Sequence[FlexibleOperation], predecessors: Mapping[int, Sequence[int]]
+) -> list[FlexibleOperation]:
+    """One job's operations, each after everything it waits on (a topological order).
+
+    Kahn's algorithm: repeatedly take an operation with nothing left to wait for. The lowest id
+    goes first whenever several are ready, so a job already numbered in order keeps that order. The
+    seed parser has already refused a cycle, so every operation is reached.
+    """
+
+    by_id = {operation.id: operation for operation in operations}
+    waiting_on = {operation.id: len(predecessors.get(operation.id, ())) for operation in operations}
+    followers: dict[int, list[int]] = {}
+    for after, befores in predecessors.items():
+        for before in befores:
+            followers.setdefault(before, []).append(after)
+
+    ready = [operation_id for operation_id, count in waiting_on.items() if count == 0]
+    heapq.heapify(ready)
+    ordered: list[FlexibleOperation] = []
+    while ready:
+        operation_id = heapq.heappop(ready)
+        ordered.append(by_id[operation_id])
+        for follower in followers.get(operation_id, ()):
+            waiting_on[follower] -= 1
+            if waiting_on[follower] == 0:
+                heapq.heappush(ready, follower)
+    return ordered

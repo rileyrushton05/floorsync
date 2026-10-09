@@ -90,9 +90,11 @@ UX of its own (#299).
   carry a branching job; the import reuses its rules (active machines, no cycles) instead.
 - **409 for a machine-name race**: correct but unhelpful; waiting and reusing gives the outcome the
   person wanted.
-- **Accepting `after` in any order**: positions would then have to be numbered by a topological
-  sort, and cycles detected and reported. Requiring precedence to point forwards removes both, and
-  every committed flexible benchmark already numbers an operation after those it waits on.
+- **Accepting `after` in any order in a FloorSync file**: positions would then have to be numbered
+  by a topological sort, and cycles detected and reported. We define this format, so requiring
+  precedence to point forwards removes both. A flexible benchmark is someone else's format: its
+  operation ids are labels, not an order, so its jobs are put into an order they can run in (a
+  topological sort, lowest id first) and the seed parser has already refused a cycle.
 
 ## Consequences
 
