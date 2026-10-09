@@ -77,7 +77,7 @@ async def import_file(
         response.status_code = status.HTTP_200_OK
 
     # Read before the transaction opens: parsing is pure and needs no connection.
-    read = ImportService.read_file(await file.read())
+    read = ImportService.Parsing.read_file(await file.read())
     match read:
         case FileUnreadable(issues=issues):
             if dry_run:

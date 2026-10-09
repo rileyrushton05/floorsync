@@ -5,23 +5,29 @@ Pure: no database. Plans are built by reading small FloorSync documents, the way
 
 from __future__ import annotations
 
+import ast
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from floorsync_common.imports.checks import check_plan, plan_warnings, precedence_edges
 from floorsync_common.imports.plan import ImportPlan
 from floorsync_common.imports.results import PlanRead
 from floorsync_common.imports.service import ImportService
+from floorsync_common.imports.validation import ImportValidationService
 from floorsync_common.operations.graph import branching_operations
+
+check_plan = ImportValidationService.check_plan
+plan_warnings = ImportValidationService.plan_warnings
+precedence_edges = ImportValidationService.precedence_edges
 
 
 def plan_of(*jobs: dict[str, Any], machines: list[dict[str, Any]] | None = None) -> ImportPlan:
     document: dict[str, Any] = {"format": "floorsync", "version": 1, "jobs": list(jobs)}
     if machines is not None:
         document["machines"] = machines
-    result = ImportService.read_file(json.dumps(document).encode())
+    result = ImportService.Parsing.read_file(json.dumps(document).encode())
     assert isinstance(result, PlanRead), result
     return result.plan
 
@@ -68,7 +74,7 @@ def test_an_energy_figure_the_column_cannot_hold_exactly_is_refused(energy: str)
         '{"format": "floorsync", "version": 1, "jobs": [{"name": "P", "operations": [{"name": "A", '
         f'"routes": [{{"machine": "Saw", "duration": 1, "energy": {energy}}}]}}]}}]}}'
     ).encode()
-    result = ImportService.read_file(raw)
+    result = ImportService.Parsing.read_file(raw)
     assert isinstance(result, PlanRead)
 
     assert problems(result.plan) == {("invalid_value", "jobs[0].operations[0].routes[0].energy")}
@@ -199,3 +205,33 @@ def test_branching_operations_finds_fan_in_and_fan_out() -> None:
     assert branching_operations([("a", "b"), ("b", "c")]) == set()
     assert branching_operations([("a", "c"), ("b", "c")]) == {"c"}
     assert branching_operations([("a", "b"), ("a", "c")]) == {"a"}
+
+
+IMPORTS = Path(__file__).resolve().parents[2] / "src/backend/common/floorsync_common/imports"
+PURE_MODULES = [
+    "plan",
+    "results",
+    "validation",
+    "parsing",
+    "formats/floorsync",
+    "formats/benchmarks",
+]
+DATABASE_LAYER = (
+    "sqlalchemy",
+    "floorsync_common.imports.persistence",
+    "floorsync_common.imports.service",
+)
+
+
+@pytest.mark.parametrize("module", PURE_MODULES)
+def test_pure_import_modules_never_reach_for_the_database(module: str) -> None:
+    """Imports point down: parsing and validation must work, and be testable, with no database."""
+
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse((IMPORTS / f"{module}.py").read_text())):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported.add(node.module)
+
+    assert not {name for name in imported if name.startswith(DATABASE_LAYER)}

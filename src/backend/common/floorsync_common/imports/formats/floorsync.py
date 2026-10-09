@@ -1,8 +1,8 @@
 """The FloorSync JSON import format, declared once as Pydantic models.
 
-Validation collects every problem in a file in one pass, and `read_floorsync_file` translates them
-into the import's issue codes and file locations, so a person fixing a hand-written file sees
-everything wrong at once.
+Validation collects every problem in a file in one pass, and `FloorSyncImportService.read`
+translates them into the import's issue codes and file locations, so a person fixing a
+hand-written file sees everything wrong at once.
 
 Pydantic's defaults differ from what this format means in a few places, so those fields carry
 explicit validators:
@@ -26,7 +26,6 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationEr
 from pydantic_core import ErrorDetails, PydanticCustomError
 
 from floorsync_common.database.models.job import JobPriority
-from floorsync_common.imports.checks import check_plan
 from floorsync_common.imports.plan import (
     ImportFormat,
     ImportIssue,
@@ -38,6 +37,7 @@ from floorsync_common.imports.plan import (
     PlannedRoute,
 )
 from floorsync_common.imports.results import FileUnreadable, PlanRead, ReadFileResult
+from floorsync_common.imports.validation import ImportValidationService
 
 FLOORSYNC_VERSION = 1
 
@@ -128,44 +128,50 @@ class _File(_FileObject):
     jobs: Annotated[list[_Job], Field(min_length=1)]
 
 
-def read_floorsync_file(document: Mapping[str, object]) -> ReadFileResult:
-    """Read a FloorSync document into a plan, or report every problem in its shape at once."""
+class FloorSyncImportService:
+    """Reads the FloorSync JSON format, which we define."""
 
-    # Nothing else in a file of another version can be trusted to mean the same thing, so it is
-    # refused on its own.
-    try:
-        version: int | None = _whole_number(document.get("version"))
-    except PydanticCustomError:
-        version = None  # Missing or not a whole number: reported with every other problem below.
-    if version is not None and version != FLOORSYNC_VERSION:
-        return FileUnreadable(
-            issues=(
-                ImportIssue(
-                    ImportIssueCode.UNSUPPORTED_VERSION,
-                    f"The file is FloorSync format version {version}; this FloorSync reads "
-                    f"version {FLOORSYNC_VERSION}.",
+    @staticmethod
+    def read(document: Mapping[str, object]) -> ReadFileResult:
+        """Read a FloorSync document into a plan, or report every problem in its shape at once."""
+
+        # Nothing else in a file of another version can be trusted to mean the same thing, so it is
+        # refused on its own.
+        try:
+            version: int | None = _whole_number(document.get("version"))
+        except PydanticCustomError:
+            version = (
+                None  # Missing or not a whole number: reported with every other problem below.
+            )
+        if version is not None and version != FLOORSYNC_VERSION:
+            return FileUnreadable(
+                issues=(
+                    ImportIssue(
+                        ImportIssueCode.UNSUPPORTED_VERSION,
+                        f"The file is FloorSync format version {version}; this FloorSync reads "
+                        f"version {FLOORSYNC_VERSION}.",
+                    ),
+                )
+            )
+
+        try:
+            file = _File.model_validate(document)
+        except ValidationError as error:
+            issues = [_issue(detail) for detail in error.errors()]
+            # The file cannot be imported, but its well-formed machines and jobs can still be
+            # checked, so one upload shows their value problems too, not one round at a time.
+            issues.extend(ImportValidationService.check_plan(_intact_parts(document)))
+            return FileUnreadable(issues=tuple(issues))
+
+        return PlanRead(
+            plan=ImportPlan(
+                format=ImportFormat.FLOORSYNC,
+                machines=tuple(
+                    _planned_machine(machine, index) for index, machine in enumerate(file.machines)
                 ),
+                jobs=tuple(_planned_job(job, index) for index, job in enumerate(file.jobs)),
             )
         )
-
-    try:
-        file = _File.model_validate(document)
-    except ValidationError as error:
-        issues = [_issue(detail) for detail in error.errors()]
-        # The file cannot be imported, but its well-formed machines and jobs can still be checked,
-        # so one upload shows their value problems too instead of one round of fixes at a time.
-        issues.extend(check_plan(_intact_parts(document)))
-        return FileUnreadable(issues=tuple(issues))
-
-    return PlanRead(
-        plan=ImportPlan(
-            format=ImportFormat.FLOORSYNC,
-            machines=tuple(
-                _planned_machine(machine, index) for index, machine in enumerate(file.machines)
-            ),
-            jobs=tuple(_planned_job(job, index) for index, job in enumerate(file.jobs)),
-        )
-    )
 
 
 def _intact_parts(document: Mapping[str, object]) -> ImportPlan:

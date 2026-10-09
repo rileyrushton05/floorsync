@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from uuid import UUID
 
 from floorsync_common.database.models.job import JobPriority
 
@@ -138,3 +139,13 @@ class ImportPlan:
     @property
     def route_count(self) -> int:
         return sum(len(operation.routes) for job in self.jobs for operation in job.operations)
+
+
+@dataclass(frozen=True, slots=True)
+class FloorMachine:
+    """A machine the floor already has, as much of it as an import needs to judge."""
+
+    id: UUID
+    active: bool
+    salary: Decimal | None
+    category: str | None

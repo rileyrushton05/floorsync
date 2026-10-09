@@ -129,7 +129,7 @@ def add_machine(database_url: str, **values: Any) -> UUID:
 
 
 def plan_of(raw: bytes) -> ImportPlan:
-    result = ImportService.read_file(raw)
+    result = ImportService.Parsing.read_file(raw)
     assert isinstance(result, PlanRead)
     return result.plan
 

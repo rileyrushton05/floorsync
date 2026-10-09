@@ -13,27 +13,33 @@ from typing import Any
 
 import pytest
 
-from floorsync_common.imports import benchmarks
-from floorsync_common.imports.checks import MAX_IMPORT_JOBS, MAX_IMPORT_MACHINES, check_plan
+from floorsync_common.imports.formats import benchmarks
 from floorsync_common.imports.plan import ImportPlan
 from floorsync_common.imports.results import FileUnreadable, PlanRead
 from floorsync_common.imports.service import ImportService
+from floorsync_common.imports.validation import (
+    MAX_IMPORT_JOBS,
+    MAX_IMPORT_MACHINES,
+    ImportValidationService,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO / "docs" / "examples" / "import-example.json"
 SEED_DATA = REPO / "src" / "database" / "seed-data"
 
+check_plan = ImportValidationService.check_plan
+
 
 def plan_of(document: dict[str, Any] | bytes) -> ImportPlan:
     raw = document if isinstance(document, bytes) else json.dumps(document).encode()
-    result = ImportService.read_file(raw)
+    result = ImportService.Parsing.read_file(raw)
     assert isinstance(result, PlanRead), result
     return result.plan
 
 
 def problems_of(document: dict[str, Any] | bytes) -> set[tuple[str, str | None]]:
     raw = document if isinstance(document, bytes) else json.dumps(document).encode()
-    result = ImportService.read_file(raw)
+    result = ImportService.Parsing.read_file(raw)
     assert isinstance(result, FileUnreadable), result
     return {(issue.code, issue.location) for issue in result.issues}
 
@@ -117,7 +123,7 @@ def test_a_byte_order_mark_is_accepted() -> None:
     ],
 )
 def test_a_file_that_cannot_be_read_says_why(raw: bytes, code: str) -> None:
-    result = ImportService.read_file(raw)
+    result = ImportService.Parsing.read_file(raw)
 
     assert isinstance(result, FileUnreadable)
     assert [issue.code for issue in result.issues] == [code]
@@ -211,7 +217,7 @@ def test_true_and_false_are_never_numbers() -> None:
 
 
 def test_an_unknown_field_is_named_where_it_is() -> None:
-    result = ImportService.read_file(json.dumps(floorsync(job(colour="red"))).encode())
+    result = ImportService.Parsing.read_file(json.dumps(floorsync(job(colour="red"))).encode())
 
     assert isinstance(result, FileUnreadable)
     (issue,) = result.issues
@@ -351,7 +357,7 @@ def test_a_number_beyond_what_a_decimal_can_hold_is_unreadable_not_an_error() ->
         .replace(b'"duration": 10', b'"duration": 10, "energy": 1e999999999999999999999')
     )
 
-    result = ImportService.read_file(raw)
+    result = ImportService.Parsing.read_file(raw)
 
     assert isinstance(result, FileUnreadable)
     assert [issue.code for issue in result.issues] == ["not_json"]
@@ -431,7 +437,7 @@ def test_a_name_the_database_cannot_store_is_refused_whatever_the_format(
     document: dict[str, Any],
 ) -> None:
     # PostgreSQL text cannot hold NUL, so a plan carrying one would fail on its first query.
-    result = ImportService.read_file(json.dumps(document).encode())
+    result = ImportService.Parsing.read_file(json.dumps(document).encode())
 
     assert isinstance(result, FileUnreadable)
     assert {issue.code for issue in result.issues} == {"invalid_value"}
