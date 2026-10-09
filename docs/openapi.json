@@ -1623,6 +1623,7 @@
         "type": "string"
       },
       "ScheduleResponse": {
+        "description": "One schedule with its entries, dependency graph, and the jobs it was asked to plan.\n\n`job_ids` is the selection the generation request named, which can include a job that held no\nschedulable work and so has no entries. It is null for a schedule made for the whole floor: a\nseeded one, or one generated before runs took a selection (#231).",
         "properties": {
           "confirmed_at": {
             "anyOf": [
@@ -1682,6 +1683,21 @@
               }
             ],
             "title": "Input Operation Count"
+          },
+          "job_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Ids"
           },
           "makespan": {
             "anyOf": [
@@ -1774,7 +1790,8 @@
           "confirmed_by_user_id",
           "confirmed_at",
           "entries",
-          "dependencies"
+          "dependencies",
+          "job_ids"
         ],
         "title": "ScheduleResponse",
         "type": "object"
@@ -4058,7 +4075,7 @@
         ]
       },
       "get": {
-        "description": "Fetch one immutable schedule version with its entries and dependency graph.",
+        "description": "Fetch one immutable schedule version with its entries, dependency graph and job selection.",
         "operationId": "get_schedule_api_v1_schedules__schedule_id__get",
         "parameters": [
           {
