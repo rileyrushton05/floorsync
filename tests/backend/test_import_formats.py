@@ -436,3 +436,24 @@ def test_a_name_the_database_cannot_store_is_refused_whatever_the_format(
     assert isinstance(result, FileUnreadable)
     assert {issue.code for issue in result.issues} == {"invalid_value"}
     assert all("NUL" in issue.message for issue in result.issues)
+
+
+def test_the_row_limit_counts_dependencies_too() -> None:
+    # Each operation waits on every earlier one: 455 operations make 103,285 dependency rows from a
+    # file well under the request size limit, while machines, jobs, operations and routes are 912.
+    names = [f"O{index}" for index in range(455)]
+    document = floorsync(
+        {
+            "name": "Dense",
+            "operations": [
+                {
+                    "name": name,
+                    "routes": [{"machine": "Saw", "duration": 1}],
+                    "after": names[:index],
+                }
+                for index, name in enumerate(names)
+            ],
+        }
+    )
+
+    assert problems_of(document) == {("too_large", None)}

@@ -60,8 +60,10 @@ UX of its own (#299).
    routes). The size alone is not enough: a classic benchmark declares its job and machine counts
    rather than listing them, so a few bytes can ask for millions. An import is refused
    (`too_large`) above 1,000 machines, 10,000 jobs, or 100,000 rows in total, checked before a
-   declared count is expanded, and a whole number too large for any field (`1e5000000`) is
-   refused before it is converted. The largest committed benchmark is far below every limit.
+   declared count is expanded. The total counts every table the import writes, dependencies
+   included: they grow with the square of a job's operations, so a 700 KB file can describe
+   100,000 of them. A whole number too large for any field (`1e5000000`) is refused before it is
+   converted. The largest committed benchmark is far below every limit.
 
 ## Rationale
 

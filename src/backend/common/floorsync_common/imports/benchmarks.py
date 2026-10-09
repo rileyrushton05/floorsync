@@ -46,10 +46,11 @@ def read_jobshop(document: Mapping[str, object]) -> ReadFileResult:
         return FileUnreadable(issues=(issue,))
 
     # Checked before anything is built: the declared counts, unlike `data`, cost nothing to write.
+    # Each operation is one operation row, one route and at most one dependency (a chain).
     issues = check_size(
         machines=instance.machine_count,
         jobs=instance.job_count,
-        rows=instance.machine_count + instance.job_count + 2 * len(instance.operations),
+        rows=instance.machine_count + instance.job_count + 3 * len(instance.operations),
         machines_at="machines",
         jobs_at="jobs",
     )

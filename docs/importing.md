@@ -142,7 +142,7 @@ contains, so a file of a few bytes can declare millions. Those counts are checke
 | `unknown_format` | Neither a FloorSync file nor a benchmark |
 | `unsupported_version` | A FloorSync `version` other than 1 |
 | `invalid_benchmark` | A benchmark file the seed parsers refuse; the message says why |
-| `too_large` | More than one import can add: 1,000 machines, 10,000 jobs, or 100,000 machines, jobs, operations and routes in total |
+| `too_large` | More than one import can add: 1,000 machines, 10,000 jobs, or 100,000 rows in total (machines, categories, jobs, operations, routes and dependencies) |
 | `missing_field`, `unknown_field`, `wrong_type` | A FloorSync field is missing, not allowed, or the wrong type |
 | `invalid_value` | A value out of range, blank, or with too many decimals |
 | `duplicate_machine` | The file declares a machine twice |

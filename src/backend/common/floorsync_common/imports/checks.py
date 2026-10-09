@@ -25,7 +25,7 @@ from floorsync_common.operations.graph import branching_operations
 MAX_IMPORT_MACHINES = 1_000
 MAX_IMPORT_JOBS = 10_000
 MAX_IMPORT_ROWS = 100_000
-"""Machines, jobs, operations and routes together."""
+"""Every row one import may write, in all six tables together (see `rows_written`)."""
 
 MAX_DURATION_MINUTES = 2**31 - 1
 """The largest value `compatibilities.duration`, a PostgreSQL `integer`, can hold."""
@@ -63,11 +63,30 @@ def check_size(
         issues.append(
             ImportIssue(
                 ImportIssueCode.TOO_LARGE,
-                f"The file describes {rows:,} machines, jobs, operations and routes; one import "
-                f"can add at most {MAX_IMPORT_ROWS:,}.",
+                f"The file would add up to {rows:,} rows (machines, categories, jobs, "
+                f"operations, routes and dependencies); one import can add at most "
+                f"{MAX_IMPORT_ROWS:,}.",
             )
         )
     return tuple(issues)
+
+
+def rows_written(plan: ImportPlan) -> int:
+    """The most rows importing `plan` can write, counted table by table as the service writes them.
+
+    An upper bound: a machine or category the floor already has is reused, not written, but which
+    ones are only known once the floor has been read. Dependencies matter most: a job whose
+    operations each wait on every earlier one has n(n-1)/2 of them.
+    """
+
+    return (
+        len(plan.machines)
+        + len({machine.category for machine in plan.machines if machine.category is not None})
+        + len(plan.jobs)
+        + plan.operation_count
+        + plan.route_count
+        + sum(len(precedence_edges(job)) for job in plan.jobs)
+    )
 
 
 def check_text(plan: ImportPlan) -> tuple[ImportIssue, ...]:

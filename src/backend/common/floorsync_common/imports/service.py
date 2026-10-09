@@ -51,6 +51,7 @@ from floorsync_common.imports.checks import (
     check_text,
     plan_warnings,
     precedence_edges,
+    rows_written,
 )
 from floorsync_common.imports.floorsync_file import FLOORSYNC_VERSION, read_floorsync_file
 from floorsync_common.imports.plan import (
@@ -192,10 +193,7 @@ class ImportService:
                 issues = check_size(
                     machines=len(plan.machines),
                     jobs=len(plan.jobs),
-                    rows=len(plan.machines)
-                    + len(plan.jobs)
-                    + plan.operation_count
-                    + plan.route_count,
+                    rows=rows_written(plan),
                     machines_at=machines_at,
                     jobs_at=jobs_at,
                 ) or check_text(plan)
