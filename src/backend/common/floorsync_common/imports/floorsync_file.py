@@ -26,6 +26,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationEr
 from pydantic_core import ErrorDetails, PydanticCustomError
 
 from floorsync_common.database.models.job import JobPriority
+from floorsync_common.imports.checks import check_plan
 from floorsync_common.imports.plan import (
     ImportFormat,
     ImportIssue,
@@ -150,46 +151,78 @@ def read_floorsync_file(document: Mapping[str, object]) -> ReadFileResult:
     try:
         file = _File.model_validate(document)
     except ValidationError as error:
-        return FileUnreadable(issues=tuple(_issue(detail) for detail in error.errors()))
+        issues = [_issue(detail) for detail in error.errors()]
+        # The file cannot be imported, but its well-formed machines and jobs can still be checked,
+        # so one upload shows their value problems too instead of one round of fixes at a time.
+        issues.extend(check_plan(_intact_parts(document)))
+        return FileUnreadable(issues=tuple(issues))
 
-    machines = tuple(
-        PlannedMachine(
-            name=machine.name,
-            category=machine.category,
-            salary=machine.salary,
-            location=f"machines[{index}]",
-        )
-        for index, machine in enumerate(file.machines)
-    )
-    jobs: list[PlannedJob] = []
-    for job_index, job in enumerate(file.jobs):
-        job_location = f"jobs[{job_index}]"
-        operations: list[PlannedOperation] = []
-        for operation_index, operation in enumerate(job.operations):
-            location = f"{job_location}.operations[{operation_index}]"
-            routes = tuple(
-                PlannedRoute(
-                    machine=route.machine,
-                    duration=route.duration,
-                    energy=route.energy,
-                    location=f"{location}.routes[{route_index}]",
-                )
-                for route_index, route in enumerate(operation.routes)
-            )
-            after = None if operation.after is None else tuple(operation.after)
-            operations.append(
-                PlannedOperation(name=operation.name, routes=routes, after=after, location=location)
-            )
-        jobs.append(
-            PlannedJob(
-                name=job.name,
-                priority=job.priority,
-                operations=tuple(operations),
-                location=job_location,
-            )
-        )
     return PlanRead(
-        plan=ImportPlan(format=ImportFormat.FLOORSYNC, machines=machines, jobs=tuple(jobs))
+        plan=ImportPlan(
+            format=ImportFormat.FLOORSYNC,
+            machines=tuple(
+                _planned_machine(machine, index) for index, machine in enumerate(file.machines)
+            ),
+            jobs=tuple(_planned_job(job, index) for index, job in enumerate(file.jobs)),
+        )
+    )
+
+
+def _intact_parts(document: Mapping[str, object]) -> ImportPlan:
+    """The machines and jobs whose own shape is valid, each at its place in the file.
+
+    Each is validated alone, so a broken job does not hide a well-formed one beside it. Nothing is
+    made up to fill a gap: a part with any shape problem is left out (its problem is already
+    reported), so cross-part checks such as duplicate machine names may miss one, but never
+    report one that is not in the file.
+    """
+
+    machines: list[PlannedMachine] = []
+    listed_machines = document.get("machines")
+    for index, item in enumerate(listed_machines if isinstance(listed_machines, list) else []):
+        try:
+            machines.append(_planned_machine(_Machine.model_validate(item), index))
+        except ValidationError:
+            continue
+    jobs: list[PlannedJob] = []
+    listed_jobs = document.get("jobs")
+    for index, item in enumerate(listed_jobs if isinstance(listed_jobs, list) else []):
+        try:
+            jobs.append(_planned_job(_Job.model_validate(item), index))
+        except ValidationError:
+            continue
+    return ImportPlan(format=ImportFormat.FLOORSYNC, machines=tuple(machines), jobs=tuple(jobs))
+
+
+def _planned_machine(machine: _Machine, index: int) -> PlannedMachine:
+    return PlannedMachine(
+        name=machine.name,
+        category=machine.category,
+        salary=machine.salary,
+        location=f"machines[{index}]",
+    )
+
+
+def _planned_job(job: _Job, index: int) -> PlannedJob:
+    job_location = f"jobs[{index}]"
+    operations: list[PlannedOperation] = []
+    for operation_index, operation in enumerate(job.operations):
+        location = f"{job_location}.operations[{operation_index}]"
+        routes = tuple(
+            PlannedRoute(
+                machine=route.machine,
+                duration=route.duration,
+                energy=route.energy,
+                location=f"{location}.routes[{route_index}]",
+            )
+            for route_index, route in enumerate(operation.routes)
+        )
+        after = None if operation.after is None else tuple(operation.after)
+        operations.append(
+            PlannedOperation(name=operation.name, routes=routes, after=after, location=location)
+        )
+    return PlannedJob(
+        name=job.name, priority=job.priority, operations=tuple(operations), location=job_location
     )
 
 

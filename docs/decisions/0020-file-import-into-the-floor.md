@@ -48,8 +48,11 @@ UX of its own (#299).
    the builder chains a job by position on every save, and that chain can never contradict the
    stated precedence.
 6. **All or nothing.** A file is read, checked against itself, then checked against the floor, and
-   every problem is collected before anything is written, each naming its place in the file. The
-   route commits only an applied, real import; it rolls back a dry run and every refusal.
+   every problem is collected before anything is written, each naming its place in the file. A
+   shape problem does not hide value problems elsewhere: each machine and job whose own shape is
+   valid is still checked, and nothing is made up to fill a broken one. Floor checks need a
+   well-formed file. The route commits only an applied, real import; it rolls back a dry run and
+   every refusal.
 7. **Concurrent imports share new machines rather than fail.** New machines and categories are
    inserted with `ON CONFLICT DO NOTHING` in name order, so a second import creating the same
    machine waits for the first, then reuses it, and reports it as reused. Its `machine_differs`

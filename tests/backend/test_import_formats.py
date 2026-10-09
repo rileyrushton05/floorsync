@@ -457,3 +457,22 @@ def test_the_row_limit_counts_dependencies_too() -> None:
     )
 
     assert problems_of(document) == {("too_large", None)}
+
+
+def test_value_problems_in_intact_parts_are_reported_alongside_shape_problems() -> None:
+    document = floorsync(
+        {"operations": [{"name": "Cut", "routes": [{"machine": "Saw", "duration": 10}]}]},
+        {
+            "name": "Frame",
+            "operations": [{"name": "Cut", "routes": [{"machine": "Saw", "duration": 0}]}],
+        },
+        machines=[{"name": "Saw", "salary": -1}, {"name": "Lathe", "category": 5}],
+    )
+
+    assert problems_of(document) == {
+        ("missing_field", "jobs[0].name"),
+        ("wrong_type", "machines[1].category"),
+        # From the parts whose shape is fine, found in the same upload:
+        ("invalid_value", "jobs[1].operations[0].routes[0].duration"),
+        ("invalid_value", "machines[0].salary"),
+    }

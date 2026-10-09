@@ -8,6 +8,10 @@ selected for a schedule.
 A file with any problem imports nothing, and the response lists every problem with where it is in
 the file. Check a file first with a dry run.
 
+One upload finds every shape problem (a missing field, a wrong type) and every value problem in the
+machines and jobs whose shape is fine. Checks against the floor, such as whether a named machine
+exists, need the whole file to be well-formed, so they appear once the shape problems are fixed.
+
 ## The endpoint
 
 ```bash
