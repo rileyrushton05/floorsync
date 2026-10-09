@@ -17,16 +17,10 @@ import { TextField } from "@/components/ui/text-field";
 import { priorityIntent } from "@/core/presentation/badge-intent";
 import type { JobColor } from "@/domains/scheduling/colors";
 import { formatDuration, totalWorkMins } from "@/domains/scheduling/format";
-import type { JobDef, Machine } from "@/domains/scheduling/types";
+import type { JobDef } from "@/domains/scheduling/types";
 import { JobDot } from "@/domains/scheduling/ui/JobDot";
 import { ChevronRightIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import {
-    DURATION_FILTERS,
-    JOB_PRIORITIES,
-    SORT_OPTIONS,
-    STATUS_FILTERS,
-    type JobFilters,
-} from "../model/editor";
+import { SORT_OPTIONS, STATUS_FILTERS, type JobFilters } from "../model/editor";
 
 /**
  * How many rows are put in the DOM at once.
@@ -48,7 +42,6 @@ const MAX_ROWS = 150;
 export function JobBacklogPanel({
     jobs,
     visibleJobs,
-    machines,
     colors,
     sequenceNumbers,
     selectedJobId,
@@ -59,7 +52,6 @@ export function JobBacklogPanel({
 }: {
     jobs: JobDef[];
     visibleJobs: JobDef[];
-    machines: Machine[];
     colors: Map<string, JobColor>;
     sequenceNumbers: ReadonlyMap<string, number>;
     selectedJobId: string | null;
@@ -75,9 +67,7 @@ export function JobBacklogPanel({
     const filtersActive =
         filters.query.trim() !== "" ||
         filters.status !== "Active" ||
-        filters.priority !== "All" ||
-        filters.machineId !== "All" ||
-        filters.duration !== "All";
+        filters.machineId !== "All";
 
     // Clearing returns the status filter to Active rather than to "show
     // everything": the backlog is the default view, not an applied narrowing.
@@ -86,9 +76,7 @@ export function JobBacklogPanel({
             ...current,
             query: "",
             status: "Active",
-            priority: "All",
             machineId: "All",
-            duration: "All",
         }));
     }
 
@@ -138,68 +126,6 @@ export function JobBacklogPanel({
                         <SelectTrigger />
                         <SelectContent>
                             {STATUS_FILTERS.map((option) => (
-                                <SelectItem key={option.id} id={option.id} textValue={option.label}>
-                                    {option.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-
-                    <Select
-                        aria-label="Filter by priority"
-                        className="w-36"
-                        value={filters.priority}
-                        onChange={(value) =>
-                            onFiltersChange((current) => ({
-                                ...current,
-                                priority: value as JobFilters["priority"],
-                            }))
-                        }
-                    >
-                        <SelectTrigger />
-                        <SelectContent>
-                            <SelectItem id="All" textValue="All priorities">All priorities</SelectItem>
-                            {JOB_PRIORITIES.map((option) => (
-                                <SelectItem key={option.id} id={option.id} textValue={option.id}>
-                                    {option.id}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-
-                    <Select
-                        aria-label="Filter by machine"
-                        className="w-42"
-                        value={filters.machineId}
-                        onChange={(value) =>
-                            onFiltersChange((current) => ({ ...current, machineId: String(value) }))
-                        }
-                    >
-                        <SelectTrigger />
-                        <SelectContent>
-                            <SelectItem id="All" textValue="Any machine">Any machine</SelectItem>
-                            {machines.map((machine) => (
-                                <SelectItem key={machine.id} id={machine.id} textValue={machine.name}>
-                                    {machine.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-
-                    <Select
-                        aria-label="Filter by duration"
-                        className="w-44"
-                        value={filters.duration}
-                        onChange={(value) =>
-                            onFiltersChange((current) => ({
-                                ...current,
-                                duration: value as JobFilters["duration"],
-                            }))
-                        }
-                    >
-                        <SelectTrigger />
-                        <SelectContent>
-                            {DURATION_FILTERS.map((option) => (
                                 <SelectItem key={option.id} id={option.id} textValue={option.label}>
                                     {option.label}
                                 </SelectItem>
