@@ -10,7 +10,7 @@ Medium
 
 ## Impact
 
-Medium
+Low (down from Medium)
 
 ## Mitigation Plan
 
@@ -18,6 +18,8 @@ Medium
 - Add a note in the dashboard that disruptions are not automatically handled in the current version
 - Show pre-configured scenarios that demonstrate what the system would look like with disruptions
 - Emphasize the strength of the scheduling algorithm in baseline scenarios
+- **(Checkpoint 2)** Done: the static, day-before scheduling scope (no live repair, no disruption handling) was explicitly reconfirmed with Pasindu, making this a known and agreed product boundary rather than an open design question, which lowers the impact of a viewer noticing it
+- **(Checkpoint 2)** Remaining: no dashboard note or disruption-simulation mode has actually been built to communicate the limitation to a viewer, so the perception risk itself is still unmitigated
 
 ## Contingency Plan
 

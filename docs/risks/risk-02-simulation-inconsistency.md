@@ -18,6 +18,8 @@ High
 - Create a robust mapping system that translates schedule events directly into simulation events
 - Write unit tests to verify that for simple scenarios, the simulation mirrors the schedule exactly
 - Implement periodic consistency checks between schedule and simulation states
+- **(Checkpoint 2)** Done: `start_time` stored once at generation and read directly by the simulation (ADR 0011), removing a derivation path that could drift; simulation state changes proven transactional against real Postgres (#288)
+- **(Checkpoint 2)** Remaining: #181 (verify the simulation against its schedule, including reentrant and multi-predecessor cases) is still open, so there is no committed evidence run proving consistency over time
 
 ## Contingency Plan
 

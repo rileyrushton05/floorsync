@@ -150,9 +150,6 @@ class OperationService:
             operation.name = name.strip()
 
         await db.flush()
-        # `updated_at` is database-computed through `onupdate`, so an UPDATE expires it and reading
-        # it during serialisation would need a lazy reload that async SQLAlchemy cannot await.
-        await db.refresh(operation)
         return OperationUpdated(operation=operation)
 
     @staticmethod

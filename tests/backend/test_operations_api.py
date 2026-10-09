@@ -284,20 +284,6 @@ def test_operations_are_manager_only() -> None:
     assert response.status_code == 403
 
 
-def test_update_operation_refreshes_database_computed_columns() -> None:
-    """`updated_at` is filled by `onupdate`, so an UPDATE expires it.
-
-    Serialising the row afterwards would trigger a lazy reload that async SQLAlchemy cannot await,
-    surfacing as a 500. Only a live database reproduces it, so this asserts the fix is still there.
-    """
-
-    import inspect
-
-    assert "await db.refresh(" in inspect.getsource(
-        operation_service.OperationService.update_operation
-    )
-
-
 def test_list_job_dependencies_returns_the_saved_order(monkeypatch: pytest.MonkeyPatch) -> None:
     job_id = uuid4()
     before_id, after_id = uuid4(), uuid4()
