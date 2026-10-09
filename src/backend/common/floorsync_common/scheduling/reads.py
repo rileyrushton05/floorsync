@@ -50,9 +50,19 @@ class ScheduleReadService:
 
     @staticmethod
     async def get_schedule(db: AsyncSession, schedule_id: UUID) -> GetScheduleResult:
-        """One schedule with its entries, dependency graph and job selection, each in id order."""
+        """One schedule with its entries, dependency graph and job selection, each in id order.
 
-        schedule = await db.get(Schedule, schedule_id)
+        Four statements, and under READ COMMITTED each sees whatever has committed by the time it
+        runs. The schedule row is therefore locked in share mode first: every lifecycle change
+        (`ScheduleLifecycleService`) locks the same row for update before touching anything, so a
+        delete or confirm waits for this read, or this read waits for it. Either way the four
+        statements describe one moment, never a draft from before a delete with its entries and
+        selection from after it.
+        """
+
+        schedule = await db.scalar(
+            select(Schedule).where(Schedule.id == schedule_id).with_for_update(read=True)
+        )
         if schedule is None:
             return ScheduleNotFound(schedule_id=schedule_id)
 
