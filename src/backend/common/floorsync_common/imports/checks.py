@@ -70,6 +70,45 @@ def check_size(
     return tuple(issues)
 
 
+def check_text(plan: ImportPlan) -> tuple[ImportIssue, ...]:
+    """Every name in the plan that PostgreSQL cannot store, once each, whatever its format.
+
+    `text` columns refuse a NUL character, and the import queries the floor by name before it
+    writes anything, so a plan carrying one would fail on its first query. A FloorSync file is
+    refused earlier with a better location; this is the guarantee for every format, including
+    names a benchmark reader generates from its instance name.
+    """
+
+    texts: list[tuple[str, str]] = []
+    for machine in plan.machines:
+        texts.append((machine.name, f"{machine.location}.name"))
+        if machine.category is not None:
+            texts.append((machine.category, f"{machine.location}.category"))
+    for job in plan.jobs:
+        texts.append((job.name, f"{job.location}.name"))
+        for operation in job.operations:
+            texts.append((operation.name, f"{operation.location}.name"))
+            texts.extend((route.machine, f"{route.location}.machine") for route in operation.routes)
+            texts.extend(
+                (name, f"{operation.location}.after[{index}]")
+                for index, name in enumerate(operation.after or ())
+            )
+
+    issues: list[ImportIssue] = []
+    seen: set[str] = set()
+    for text, location in texts:
+        if "\x00" in text and text not in seen:
+            seen.add(text)
+            issues.append(
+                ImportIssue(
+                    ImportIssueCode.INVALID_VALUE,
+                    f"{text!r} contains a NUL character, which the database cannot store.",
+                    location,
+                )
+            )
+    return tuple(issues)
+
+
 def check_plan(plan: ImportPlan) -> tuple[ImportIssue, ...]:
     """Every problem with the plan's own values and precedence, all at once."""
 

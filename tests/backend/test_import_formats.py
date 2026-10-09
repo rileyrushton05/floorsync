@@ -410,3 +410,29 @@ def test_a_flexible_benchmark_is_listed_in_an_order_it_can_run_in_whatever_its_n
 
     assert check_plan(plan) == ()
     assert [operation.name for operation in plan.jobs[0].operations] == ["Op2", "Op0", "Op1"]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        tiny_classic() | {"instance": "bad\u0000name"},
+        {
+            "instance": "bad\u0000name",
+            "operations": [
+                {"operation": 0, "machine": 0, "duration": 1},
+                {"operation": 1, "machine": 0, "duration": 1},
+            ],
+            "precedences": [{"before": 0, "after": 1, "job": 0}],
+        },
+    ],
+    ids=["classic", "flexible"],
+)
+def test_a_name_the_database_cannot_store_is_refused_whatever_the_format(
+    document: dict[str, Any],
+) -> None:
+    # PostgreSQL text cannot hold NUL, so a plan carrying one would fail on its first query.
+    result = ImportService.read_file(json.dumps(document).encode())
+
+    assert isinstance(result, FileUnreadable)
+    assert {issue.code for issue in result.issues} == {"invalid_value"}
+    assert all("NUL" in issue.message for issue in result.issues)

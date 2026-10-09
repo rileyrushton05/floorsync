@@ -45,7 +45,13 @@ from floorsync_common.database.models.job import Job, JobPriority
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.imports.benchmarks import read_flexible_jobshop, read_jobshop
-from floorsync_common.imports.checks import check_plan, check_size, plan_warnings, precedence_edges
+from floorsync_common.imports.checks import (
+    check_plan,
+    check_size,
+    check_text,
+    plan_warnings,
+    precedence_edges,
+)
 from floorsync_common.imports.floorsync_file import FLOORSYNC_VERSION, read_floorsync_file
 from floorsync_common.imports.plan import (
     ImportFormat,
@@ -169,8 +175,9 @@ class ImportService:
             read = read_flexible_jobshop(document)
             machines_at, jobs_at = "operations", "precedences"
         elif "data" in document:
-            # A classic instance declares its counts, so it checks its size before building a plan.
-            return read_jobshop(document)
+            # Also checks its declared counts itself, before building anything from them.
+            read = read_jobshop(document)
+            machines_at, jobs_at = "machines", "jobs"
         else:
             return _unreadable(
                 ImportIssueCode.UNKNOWN_FORMAT,
@@ -179,6 +186,7 @@ class ImportService:
                 "benchmark file is a ScheduleOpt job-shop or flexible job-shop instance.",
             )
 
+        # Every format ends here, so these hold for any plan this returns.
         match read:
             case PlanRead(plan=plan):
                 issues = check_size(
@@ -190,7 +198,7 @@ class ImportService:
                     + plan.route_count,
                     machines_at=machines_at,
                     jobs_at=jobs_at,
-                )
+                ) or check_text(plan)
                 return FileUnreadable(issues=issues) if issues else read
             case FileUnreadable():
                 return read
