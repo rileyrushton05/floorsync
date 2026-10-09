@@ -1,3 +1,6 @@
+import ast
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -5,6 +8,10 @@ from pydantic import ValidationError
 
 from floorsync_api.problems import install_problem_handlers
 from floorsync_api.schemas import CursorPage, RequestSchema, ResponseSchema
+
+FEATURES = (
+    Path(__file__).resolve().parents[2] / "src" / "backend" / "api" / "floorsync_api" / "features"
+)
 
 
 def test_http_errors_use_problem_details() -> None:
@@ -66,3 +73,19 @@ def test_request_and_response_schema_defaults_enforce_contract_boundaries() -> N
         "items": [{"name": "Floor plan"}],
         "next_cursor": None,
     }
+
+
+@pytest.mark.parametrize(
+    "router", sorted(FEATURES.glob("*/*router*.py")), ids=lambda path: path.parent.name
+)
+def test_routers_never_build_sql(router: Path) -> None:
+    """SQL belongs in a service; a route calls the service and maps its result (#306)."""
+
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(router.read_text())):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported.add(node.module)
+
+    assert not {module for module in imported if module.split(".")[0] == "sqlalchemy"}
