@@ -264,9 +264,10 @@ class ImportService:
         # lookup is reused with its values, not the file's, and the file must be told.
         warnings = (*file_warnings, *_floor_differences(declared, machines), *similar)
 
-        # Seen only now: a machine someone else created, inactive, between the check and the
-        # insert, which this import then reused instead of creating.
-        late = _route_machine_issues(routes, declared, machines)
+        # Seen only now, with the machines locked: one someone else created inactive, which this
+        # import then reused instead of creating, or one deleted since the first lookup. Every
+        # machine must be on the floor by now, so the file declaring one no longer counts.
+        late = _route_machine_issues(routes, {}, machines)
         if late:
             return ImportRejected(summary=summary, issues=tuple(late), warnings=warnings)
 
@@ -276,14 +277,27 @@ class ImportService:
         return ImportApplied(summary=summary, job_ids=job_ids, warnings=warnings)
 
     @staticmethod
-    async def _load_machines(db: AsyncSession, names: Collection[str]) -> dict[str, _FloorMachine]:
+    async def _load_machines(
+        db: AsyncSession, names: Collection[str], *, lock: bool = False
+    ) -> dict[str, _FloorMachine]:
+        """The named machines the floor has. With `lock`, held until the caller's transaction ends.
+
+        A locked machine cannot be changed or deleted by anyone else until then, so what was read
+        stays true while routes are written to it. Locked in name order, the order every import
+        takes them in, so two imports wait for each other rather than deadlock.
+        """
+
         if not names:
             return {}
-        rows = await db.execute(
+        statement = (
             select(Machine.id, Machine.name, Machine.active, Machine.salary, Category.name)
             .outerjoin(Category, Category.id == Machine.category_id)
             .where(_named(Machine.name, names))
         )
+        if lock:
+            # Only the machine rows: a category may be shared by machines this import does not use.
+            statement = statement.order_by(Machine.name).with_for_update(of=Machine)
+        rows = await db.execute(statement)
         return {
             name: _FloorMachine(id=machine_id, active=active, salary=salary, category=category)
             for machine_id, name, active, salary, category in rows.tuples()
@@ -334,15 +348,16 @@ class ImportService:
     ) -> tuple[dict[str, _FloorMachine], set[str], set[str]]:
         """Insert the new machines and their categories, safe against a concurrent import.
 
-        Returns every needed machine as the floor now has it, and the machine and category names
-        this call actually inserted. Rows are inserted with `ON CONFLICT DO NOTHING`, sorted by
+        Returns every needed machine the floor now has, locked until the transaction ends (one
+        deleted meanwhile is simply absent), and the machine and category names this call
+        actually inserted. Rows are inserted with `ON CONFLICT DO NOTHING`, sorted by
         name so two imports take their row locks in the same order: when two imports create the
         same machine at once, the second waits for the first and reuses its machine rather than
         failing on the unique name.
         """
 
         if not to_create:
-            return await ImportService._load_machines(db, needed), set(), set()
+            return await ImportService._load_machines(db, needed, lock=True), set(), set()
 
         category_names = sorted({machine.category for machine in to_create if machine.category})
         created_categories: set[str] = set()
@@ -385,11 +400,7 @@ class ImportService:
             )
             created_categories -= set(removed)
 
-        machines = await ImportService._load_machines(db, needed)
-        missing = set(needed) - machines.keys()
-        if missing:
-            # Inserted or already present a moment ago, and machines are never deleted mid-import.
-            raise RuntimeError(f"Imported machines vanished before they could be used: {missing}")
+        machines = await ImportService._load_machines(db, needed, lock=True)
         return machines, created_machines, created_categories
 
     @staticmethod

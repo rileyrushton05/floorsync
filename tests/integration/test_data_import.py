@@ -36,8 +36,19 @@ from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.user import User
 from floorsync_common.imports.plan import ImportPlan
-from floorsync_common.imports.results import ImportApplied, ImportPlanResult, PlanRead
+from floorsync_common.imports.results import (
+    ImportApplied,
+    ImportPlanResult,
+    ImportRejected,
+    PlanRead,
+)
 from floorsync_common.imports.service import ImportService
+from floorsync_common.machines.results import (
+    DeleteMachineResult,
+    MachineDeleted,
+    MachineHasOperations,
+)
+from floorsync_common.machines.service import MachineService
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = (REPO / "docs" / "examples" / "import-example.json").read_bytes()
@@ -458,3 +469,77 @@ def test_a_file_over_the_request_size_limit_is_refused(api: TestClient) -> None:
 
     assert response.status_code == 413
     assert response.json()["type"] == "urn:floorsync:problem:request-body-too-large"
+
+
+def a_job_on(machine: str) -> ImportPlan:
+    """A one-job plan routed to a machine the file does not declare, so the floor must have it."""
+    return plan_of(
+        json.dumps(
+            {
+                "format": "floorsync",
+                "version": 1,
+                "jobs": [
+                    {
+                        "name": "Panel",
+                        "operations": [
+                            {"name": "Cut", "routes": [{"machine": machine, "duration": 5}]}
+                        ],
+                    }
+                ],
+            }
+        ).encode()
+    )
+
+
+def test_deleting_a_machine_an_unfinished_import_uses_is_refused(database_url: str) -> None:
+    # One at a time this is "import, then delete": the delete must see the import's routes.
+    saw = add_machine(database_url, name="Saw")
+
+    async def race(sessions: Sessions) -> tuple[ImportPlanResult, DeleteMachineResult]:
+        async with sessions() as importing, sessions() as deleting:
+            await importing.begin()
+            imported = await ImportService.import_plan(importing, a_job_on("Saw"))
+
+            async def delete() -> DeleteMachineResult:
+                await deleting.begin()
+                result = await MachineService.remove_machine(deleting, saw)
+                await deleting.commit()
+                return result
+
+            racing = asyncio.create_task(delete())
+            await asyncio.sleep(0.5)
+            await importing.commit()
+            return imported, await racing
+
+    imported, deleted = run(database_url, race)
+
+    assert isinstance(imported, ImportApplied)
+    assert isinstance(deleted, MachineHasOperations)
+
+
+def test_importing_onto_a_machine_an_unfinished_delete_removes_is_refused(
+    database_url: str,
+) -> None:
+    # One at a time this is "delete, then import": the import must not find the machine.
+    saw = add_machine(database_url, name="Saw")
+
+    async def race(sessions: Sessions) -> ImportPlanResult:
+        async with sessions() as deleting, sessions() as importing:
+            await deleting.begin()
+            assert isinstance(await MachineService.remove_machine(deleting, saw), MachineDeleted)
+
+            async def import_it() -> ImportPlanResult:
+                await importing.begin()
+                result = await ImportService.import_plan(importing, a_job_on("Saw"))
+                await importing.rollback()
+                return result
+
+            racing = asyncio.create_task(import_it())
+            await asyncio.sleep(0.5)
+            await deleting.commit()
+            return await racing
+
+    imported = run(database_url, race)
+
+    assert isinstance(imported, ImportRejected)
+    assert [issue.code for issue in imported.issues] == ["unknown_machine"]

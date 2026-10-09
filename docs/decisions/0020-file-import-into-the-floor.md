@@ -57,7 +57,11 @@ UX of its own (#299).
    inserted with `ON CONFLICT DO NOTHING` in name order, so a second import creating the same
    machine waits for the first, then reuses it, and reports it as reused. Its `machine_differs`
    warnings are judged against that machine as it then is, and a category it inserted only for
-   the machine it did not get to create is removed again rather than left empty.
+   the machine it did not get to create is removed again rather than left empty. The machines an
+   import routes to are locked (in name order) before its routes are written, and deleting a
+   machine locks it before counting its routes, so an import and a delete of the same machine
+   always end as if one ran first: the delete refused, or the import refused with
+   `unknown_machine`.
 8. **The existing 1 MiB request limit bounds the file; count limits bound what it describes.**
    Every committed benchmark fits in 1 MiB (the largest, `behnke58`, is 583 KB with 9,748
    routes). The size alone is not enough: a classic benchmark declares its job and machine counts
