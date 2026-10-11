@@ -3,16 +3,15 @@
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
-import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { Link } from "@/components/ui/link";
 import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { TextField } from "@/components/ui/text-field";
 import {
     Table,
     TableBody,
@@ -21,6 +20,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { TextField } from "@/components/ui/text-field";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { useAuth } from "@/core/auth/AuthProvider";
@@ -572,28 +572,24 @@ function PlannerPageInner() {
 
     /** A beat where the bar sits filled at 100% before the plan replaces the
         loading state, so a successful run is seen to finish rather than cut.
-        Derived during render — an effect here would lag one frame behind the
-        plan data arriving, which is exactly the cut it prevents. */
-    const [completionBeat, setCompletionBeat] = useState(false);
-    // Only a schedule this session generated gets the fill; an opened draft was
-    // never a running bar to complete. `beatShownFor` remembers which run has
-    // already had its fill — without it, the trigger below would re-fire after
-    // the beat ended (runJustCompleted stays true while the plan is showing)
-    // and the bar would loop back to 100% forever instead of giving way to the
-    // plan.
-    const beatShownFor = useRef<string | null>(null);
+        `beatFor` remembers which run has already had its fill — without it the
+        trigger below would re-fire after the beat ended (runJustCompleted
+        stays true while the plan is showing) and the bar would loop back to
+        100% forever instead of giving way to the plan. */
+    const [beatFor, setBeatFor] = useState<string | null>(null);
+    const [beatActive, setBeatActive] = useState(false);
     const runJustCompleted =
         generationRequest !== null && completedScheduleId !== null && generation.status === "ready";
-    if (runJustCompleted && beatShownFor.current !== completedScheduleId) {
-        beatShownFor.current = completedScheduleId;
-        setCompletionBeat(true);
+    if (runJustCompleted && beatFor !== completedScheduleId) {
+        setBeatFor(completedScheduleId);
+        setBeatActive(true);
     }
-    const completing = runJustCompleted && completionBeat;
+    const completing = beatActive && beatFor === completedScheduleId;
     // Hold the loading view (bar at 100%) for a short beat while completing.
     const showPlan = completing ? null : plan;
     useEffect(() => {
         if (!completing) return;
-        const timer = setTimeout(() => setCompletionBeat(false), 400);
+        const timer = setTimeout(() => setBeatActive(false), 400);
         return () => clearTimeout(timer);
     }, [completing]);
     // Zoom state for the plan chart: one number (pixels of track per hour),
@@ -619,7 +615,10 @@ function PlannerPageInner() {
         still meaningful rather than null. */
     const generationStartedAt = useMemo(() => {
         if (!generating && generation.status !== "ready" && generation.status !== "drawing") return null;
-        return generationRequest !== null ? requestSchedule.submittedAt ?? Date.now() : Date.now();
+        // The submitted-at timestamp is the run's true start; when it is
+        // missing there is nothing to estimate against, so the hook simply
+        // stays idle rather than fabricating a start time here.
+        return generationRequest !== null ? requestSchedule.submittedAt : null;
     }, [generating, generation.status, generationRequest, requestSchedule.submittedAt]);
     const progress = useGenerationProgress(generating, generationStartedAt, strategy);
 
@@ -629,14 +628,12 @@ function PlannerPageInner() {
     useEffect(() => {
         if (
             generationRequest !== null &&
+            generationStartedAt !== null &&
             generation.status === "ready" &&
             generationRequest.id !== recordedRunId.current
         ) {
             recordedRunId.current = generationRequest.id;
-            recordDuration(
-                strategy,
-                (Date.now() - (generationStartedAt ?? Date.now())) / 1000,
-            );
+            recordDuration(strategy, (Date.now() - generationStartedAt) / 1000);
         }
     }, [generation.status, generationRequest, strategy, generationStartedAt]);
     const busy = generating || writing;
