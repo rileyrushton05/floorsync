@@ -88,14 +88,13 @@ function SchedulesPageInner() {
         return sortScheduleRows(matches, sort);
     }, [query, rows, sort, statusFilter, strategyFilter]);
 
-    // A selection survives refetching and filtering unless the schedule is no
-    // longer visible; then the first visible row takes over, so the pane is
-    // never empty while the list has something to show.
+    // A selection survives refetching and filtering, but nothing is opened
+    // automatically: the pane starts empty until the manager picks a schedule
+    // (or arrives from a link to one).
     const selectedOverrideId = userSelectedId ?? linkedScheduleId;
-    const effectiveSelectedId =
-        filteredRows.some((row) => row.id === selectedOverrideId)
-            ? selectedOverrideId
-            : filteredRows[0]?.id ?? null;
+    const effectiveSelectedId = filteredRows.some((row) => row.id === selectedOverrideId)
+        ? selectedOverrideId
+        : null;
 
     const selected = rows.find((row) => row.id === effectiveSelectedId) ?? null;
     const timelineQuery = useScheduleTimeline(effectiveSelectedId);
@@ -223,7 +222,7 @@ function SchedulesPageInner() {
                     onClearFilters={clearFilters}
                     onSelect={setUserSelectedId}
                 />
-                <div className="flex min-w-0 flex-col gap-3">
+                <div className="flex min-h-0 min-w-0 flex-col xl:sticky xl:top-5 xl:h-[calc(100dvh-2.5rem)] xl:overflow-y-auto">
                     {schedulesQuery.error && (
                         <Note intent="warning" role="status">
                             Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}

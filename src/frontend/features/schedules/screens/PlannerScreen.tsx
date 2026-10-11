@@ -7,6 +7,7 @@ import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
 import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
 import { Link } from "@/components/ui/link";
+import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -52,7 +53,7 @@ import {
 import { formatCreatedAt, shortScheduleId, strategyLabel } from "@/features/schedules/model/archive";
 import { PlanStartDateDialog } from "@/features/schedules/ui/PlanStartDateDialog";
 import { SavePlanPanel, type SavePanelState } from "@/features/schedules/ui/SavePlanPanel";
-import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, ArrowPathIcon, ClockIcon, ExclamationCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -139,6 +140,73 @@ const STRATEGIES: { value: ScheduleStrategy; label: string; hint: string }[] = [
 /** How long to poll a generation before giving up on it, in ms. */
 const GENERATION_DEADLINE_MS = 180_000;
 
+/** Fallback estimate for a strategy with no history this session, in seconds. */
+const DEFAULT_ESTIMATE_S: Record<ScheduleStrategy, number> = {
+    resched: 15,
+    exact: 60,
+};
+
+/** How many past durations to average into the estimate. */
+const HISTORY_SIZE = 3;
+
+/** Past durations per strategy, in seconds. In-memory: a session's worth of
+    history is enough, and localStorage would go stale after engine updates. */
+const durationHistory = new Map<ScheduleStrategy, number[]>();
+
+/** The estimate a fresh run starts with: the mean of recent runs, or the
+    strategy's default when this is the first run of the session. */
+function estimateFor(strategy: ScheduleStrategy): number {
+    const history = durationHistory.get(strategy);
+    if (!history || history.length === 0) return DEFAULT_ESTIMATE_S[strategy];
+    return history.reduce((sum, seconds) => sum + seconds, 0) / history.length;
+}
+
+/** Record a finished run's duration so the next estimate tracks reality. */
+function recordDuration(strategy: ScheduleStrategy, seconds: number) {
+    const history = durationHistory.get(strategy) ?? [];
+    history.push(seconds);
+    durationHistory.set(strategy, history.slice(-HISTORY_SIZE));
+}
+
+/**
+ * Estimated seconds remaining and the bar percentage for the current run.
+ *
+ * The API exposes no progress field, so the percentage is a smooth curve that
+ * advances quickly at first and slows down toward ~90% — a monotonic visual
+ * cue that the run is ongoing, the way an npm-install bar behaves — and it
+ * snaps to 100% only on success. The ETA is seeded from this session's past
+ * runs for the strategy rather than a fixed maximum, so fast runs don't
+ * promise three minutes. Updated at most once a second.
+ */
+function useGenerationProgress(
+    generating: boolean,
+    startedAt: number | null,
+    strategy: ScheduleStrategy,
+): { pct: number; remainingS: number | null; over: boolean } | null {
+    const [progress, setProgress] = useState<{ pct: number; remainingS: number | null; over: boolean } | null>(null);
+
+    useEffect(() => {
+        if (!generating || startedAt === null) return;
+        const estimateS = estimateFor(strategy);
+        const tick = () => {
+            const elapsedS = (Date.now() - startedAt) / 1000;
+            // Ease-out curve: an asymptote at 90% keeps the bar moving early
+            // and honest late — never a fabricated "almost done".
+            const pct = Math.min(90, Math.round(90 * (1 - Math.exp(-elapsedS / estimateS))));
+            if (elapsedS > estimateS * 2) {
+                setProgress({ pct, remainingS: null, over: true });
+            } else {
+                setProgress({ pct, remainingS: Math.max(0, Math.ceil(estimateS - elapsedS)), over: false });
+            }
+        };
+        tick();
+        const timer = setInterval(tick, 1_000);
+        return () => clearInterval(timer);
+    }, [generating, startedAt, strategy]);
+
+    return generating ? progress : null;
+}
+
 /** A full-page state for when the floor itself could not be read. */
 function Placeholder({
     title,
@@ -167,7 +235,18 @@ function Placeholder({
  * problem, and a timeout means nothing ever picked the command up. Three
  * different people fix those three things.
  */
-function GenerationState({ generation }: { generation: Generation }) {
+function GenerationState({
+    generation,
+    progress,
+    complete,
+}: {
+    generation: Generation;
+    /** The live ETA/percentage estimate; null when not counting down. */
+    progress: { pct: number; remainingS: number | null; over: boolean } | null;
+    /** The run succeeded: fill the bar to 100% for a beat before the plan
+        replaces this state, so the fill is seen to land. */
+    complete: boolean;
+}) {
     switch (generation.status) {
         case "queued":
         case "running":
@@ -184,6 +263,39 @@ function GenerationState({ generation }: { generation: Generation }) {
                             : "A worker is running the scheduling engine over the selected jobs."}{" "}
                         Run <code>{shortScheduleId(generation.generationId)}</code>.
                     </p>
+                    <div className="mx-auto mt-4 w-full max-w-sm">
+                        {complete ? (
+                            // The beat between the run succeeding and the plan
+                            // drawing: the bar lands at 100% and stays there,
+                            // so the fill is seen rather than cut.
+                            <ProgressBar value={100} aria-label="Plan generation complete">
+                                <ProgressBarTrack className="min-w-0" />
+                            </ProgressBar>
+                        ) : (
+                            <>
+                                <div className="flex items-center gap-1.5 text-muted-fg text-xs tabular-nums">
+                                    <ClockIcon aria-hidden className="size-3.5" />
+                                    <span>
+                                        {progress === null
+                                            ? "Estimating…"
+                                            : progress.over
+                                                ? "Taking longer than expected…"
+                                                : `Estimated ${progress.remainingS}s remaining`}
+                                    </span>
+                                    {progress !== null && !progress.over && (
+                                        <span className="ml-auto">~{progress.pct}%</span>
+                                    )}
+                                </div>
+                                <ProgressBar
+                                    value={progress?.pct ?? 0}
+                                    className="mt-1.5"
+                                    aria-label="Plan generation progress"
+                                >
+                                    <ProgressBarTrack className="min-w-0" />
+                                </ProgressBar>
+                            </>
+                        )}
+                    </div>
                 </div>
             );
 
@@ -357,6 +469,9 @@ function PlannerPageInner() {
             return jobSort === "oldest" ? byAge : -byAge;
         });
     }, [plannableJobs, jobQuery, jobSort, jobStatusFilter]);
+    // Called before the page's early returns below — it is a hook, and the
+    // early returns would make its call order conditional.
+    const jobPager = useCollapsedRows(visibleJobs, null);
     const validationQuery = useScheduleValidation(selectedJobIds);
     const validationFeedback = useMemo(
         () => [
@@ -454,6 +569,33 @@ function PlannerPageInner() {
         () => (generation.status === "ready" ? timelineToPlan(generation.timeline) : null),
         [generation],
     );
+
+    /** A beat where the bar sits filled at 100% before the plan replaces the
+        loading state, so a successful run is seen to finish rather than cut.
+        Derived during render — an effect here would lag one frame behind the
+        plan data arriving, which is exactly the cut it prevents. */
+    const [completionBeat, setCompletionBeat] = useState(false);
+    // Only a schedule this session generated gets the fill; an opened draft was
+    // never a running bar to complete. `beatShownFor` remembers which run has
+    // already had its fill — without it, the trigger below would re-fire after
+    // the beat ended (runJustCompleted stays true while the plan is showing)
+    // and the bar would loop back to 100% forever instead of giving way to the
+    // plan.
+    const beatShownFor = useRef<string | null>(null);
+    const runJustCompleted =
+        generationRequest !== null && completedScheduleId !== null && generation.status === "ready";
+    if (runJustCompleted && beatShownFor.current !== completedScheduleId) {
+        beatShownFor.current = completedScheduleId;
+        setCompletionBeat(true);
+    }
+    const completing = runJustCompleted && completionBeat;
+    // Hold the loading view (bar at 100%) for a short beat while completing.
+    const showPlan = completing ? null : plan;
+    useEffect(() => {
+        if (!completing) return;
+        const timer = setTimeout(() => setCompletionBeat(false), 400);
+        return () => clearTimeout(timer);
+    }, [completing]);
     // Zoom state for the plan chart: one number (pixels of track per hour),
     // driven by scrolling over the chart.
     const timelineZoom = useTimelineZoom(plan?.schedule?.makespanMins ?? 0);
@@ -471,6 +613,32 @@ function PlannerPageInner() {
 
     const writing = updateSchedule.isPending || deleteSchedule.isPending;
     const generating = requestSchedule.isPending || IN_FLIGHT.has(generation.status);
+
+    /** When the current (or most recent) run started, for the ETA estimate.
+        Falls back to "now" when the timestamp is unknown so the estimate is
+        still meaningful rather than null. */
+    const generationStartedAt = useMemo(() => {
+        if (!generating && generation.status !== "ready" && generation.status !== "drawing") return null;
+        return generationRequest !== null ? requestSchedule.submittedAt ?? Date.now() : Date.now();
+    }, [generating, generation.status, generationRequest, requestSchedule.submittedAt]);
+    const progress = useGenerationProgress(generating, generationStartedAt, strategy);
+
+    // Every finished run feeds the next one's estimate, so the ETA tracks the
+    // strategy's real cost instead of a fixed worst case.
+    const recordedRunId = useRef<string | null>(null);
+    useEffect(() => {
+        if (
+            generationRequest !== null &&
+            generation.status === "ready" &&
+            generationRequest.id !== recordedRunId.current
+        ) {
+            recordedRunId.current = generationRequest.id;
+            recordDuration(
+                strategy,
+                (Date.now() - (generationStartedAt ?? Date.now())) / 1000,
+            );
+        }
+    }, [generation.status, generationRequest, strategy, generationStartedAt]);
     const busy = generating || writing;
     const canGenerate =
         !busy && selectedJobIds.length > 0 && validationQuery.data?.schedulable[strategy] !== false;
@@ -622,9 +790,9 @@ function PlannerPageInner() {
     const jobs = jobsQuery.data ?? [];
     const machines = machinesQuery.data ?? [];
     const activeMachines = machines.filter((machine) => machine.active);
-    const schedule = plan?.schedule ?? null;
+    const schedule = showPlan?.schedule ?? null;
     const machineName = (id: string) =>
-        plan?.machines.find((machine) => machine.id === id)?.name ?? id;
+        showPlan?.machines.find((machine) => machine.id === id)?.name ?? id;
     const selectedIds = new Set(selectedJobIds);
     const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every((job) => selectedIds.has(job.id));
     const openJobCount = plannableJobs.filter((job) => job.backlogStatus === "open").length;
@@ -772,7 +940,7 @@ function PlannerPageInner() {
                             isDisabled={busy}
                             onChange={(values) => setSelectedJobIds([...values])}
                         >
-                            {visibleJobs.map((job) => {
+                            {jobPager.shown.map((job) => {
                                 const issue = validationIssuesByJobId.get(job.id);
                                 return (
                                     <CheckboxField
@@ -800,6 +968,14 @@ function PlannerPageInner() {
                                 );
                             })}
                         </CheckboxGroup>
+
+                        <ListPager
+                            hiddenCount={jobPager.hiddenCount}
+                            expanded={jobPager.expanded}
+                            highlighted={jobPager.selectedIsHidden}
+                            onToggle={jobPager.toggle}
+                            noun="jobs"
+                        />
 
                         {validationFeedback.length > 0 && (
                             <Note intent="warning" className="mt-3">
@@ -863,10 +1039,10 @@ function PlannerPageInner() {
                         )}
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {plan && schedule ? (
+                        {showPlan && schedule ? (
                             <GanttChart
-                                machines={plan.machines}
-                                jobs={plan.jobs}
+                                machines={showPlan.machines}
+                                jobs={showPlan.jobs}
                                 schedule={schedule}
                                 colors={colors}
                                 mode="plan"
@@ -875,7 +1051,11 @@ function PlannerPageInner() {
                                 zoom={timelineZoom}
                             />
                         ) : (
-                            <GenerationState generation={generation} />
+                            <GenerationState
+                                generation={generation}
+                                progress={progress}
+                                complete={completing}
+                            />
                         )}
                     </CardContent>
                 </Card>
@@ -898,7 +1078,7 @@ function PlannerPageInner() {
                             <CardTitle>Plan summary</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {plan && schedule ? (
+                            {showPlan && schedule ? (
                                 <>
                                     <div className="grid grid-cols-2 gap-2.5">
                                         <div className="rounded-lg border bg-muted p-3">
@@ -973,7 +1153,7 @@ function PlannerPageInner() {
                                                             <span className="flex items-center gap-2">
                                                                 <JobDot colors={colors} jobId={id} />
                                                                 <span>
-                                                                    {plan.jobs.find((job) => job.id === id)?.name ?? id}
+                                                                    {showPlan.jobs.find((job) => job.id === id)?.name ?? id}
                                                                 </span>
                                                             </span>
                                                         </TableCell>

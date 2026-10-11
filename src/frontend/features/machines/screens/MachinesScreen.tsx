@@ -1,6 +1,9 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { PageMessage } from "@/core/feedback/PageMessage";
+import { PlusIcon } from "@heroicons/react/24/outline";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
@@ -32,7 +35,6 @@ import {
 import { DeleteMachineDialog } from "@/features/machines/ui/DeleteMachineDialog";
 import { MachineEditor } from "@/features/machines/ui/MachineEditor";
 import { MachineInventoryPanel } from "@/features/machines/ui/MachineInventoryPanel";
-import { PlusIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -98,13 +100,9 @@ function MachinesPageInner() {
     const dirty = draftFingerprint(draft) !== draftFingerprint(baselineDraft);
     const gate = saveGate({ isNew: draft.id === null, dirty, problem: draftProblem(draft, machines) });
 
-    // The screen opens on a machine rather than an empty form, as the jobs
-    // screen does. Only while the editor is pristine, so a list arriving late
-    // never overwrites a new machine someone has already started typing.
-    const firstMachine = machines.find((machine) => machine.active) ?? machines[0];
-    if (firstMachine && !isCreating && draft.id === null && !dirty) {
-        openDraft(draftFromMachine(firstMachine));
-    }
+    // The screen opens with nothing selected: the right pane shows a neutral
+    // empty state until a machine is picked in the list, or "Add machine" is
+    // pressed. Only a ?machine=<id> link or user action opens the editor.
 
     // The machine on screen was removed elsewhere (or in another tab): drop
     // it rather than leave a form that can only ever save into a 404.
@@ -168,12 +166,15 @@ function MachinesPageInner() {
     }
 
     // Where cancelling a new machine lands: the one it was started from if
-    // that still exists, otherwise whichever the screen opens on.
-    const cancelTarget = machines.find((machine) => machine.id === returnId) ?? firstMachine ?? null;
+    // that still exists, otherwise nothing — the empty pane.
+    const cancelTarget = machines.find((machine) => machine.id === returnId) ?? null;
 
     function leaveNewMachine(target: MachineSummary | null) {
         if (target) openMachine(target);
-        else openDraft(EMPTY_MACHINE_DRAFT);
+        else {
+            setIsCreating(false);
+            openDraft(EMPTY_MACHINE_DRAFT);
+        }
     }
 
     function cancelNewMachine() {
@@ -307,35 +308,62 @@ function MachinesPageInner() {
     const openJobsOnSelected = selectedUsage?.jobs.filter((job) => job.backlogStatus === "open").length ?? 0;
 
     return (
-        <ManagerShell actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
-            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
-                <MachineInventoryPanel
-                    total={machines.length}
-                    activeCount={activeCount}
-                    rows={visibleRows}
-                    categories={categories}
-                    selectedId={draft.id}
-                    filters={filters}
-                    busy={saving}
-                    onFiltersChange={(update) => setFilters(update)}
-                    onSelect={selectMachine}
-                />
-                <MachineEditor
-                    draft={draft}
-                    selected={selected}
-                    categories={categories}
-                    saving={saving}
-                    dirty={dirty}
-                    gate={gate}
-                    usage={selectedUsage}
-                    notes={notes}
-                    onDraftChange={(update) => setDraft(update)}
-                    onSave={() => void save()}
-                    onDiscard={() => setDraft(baselineDraft)}
-                    onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
-                    onToggleActive={requestToggleActive}
-                    onRemove={() => setConfirmRemove(true)}
-                />
+        <ManagerShell>
+            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:min-h-0 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
+                <div className="flex min-h-0 min-w-0 flex-col xl:row-span-full">
+                    <MachineInventoryPanel
+                        total={machines.length}
+                        activeCount={activeCount}
+                        rows={visibleRows}
+                        categories={categories}
+                        selectedId={draft.id}
+                        filters={filters}
+                        busy={saving}
+                        onAddMachine={startNewMachine}
+                        onFiltersChange={(update) => setFilters(update)}
+                        onSelect={selectMachine}
+                    />
+                </div>
+                {/* Sticky so the editor stays in view while the inventory
+                    scrolls beside it. */}
+                <div className="flex min-h-0 min-w-0 flex-col xl:sticky xl:top-5 xl:h-[calc(100dvh-2.5rem)] xl:overflow-y-auto">
+                    {draft.id === null && !isCreating ? (
+                        // Inline card rather than ManagerPageState, which would
+                        // nest a second ManagerShell (and a second topbar) in
+                        // the grid.
+                        <Card className="min-h-full min-w-0">
+                            <CardContent className="flex h-full flex-col items-center justify-center gap-4 rounded-lg border-dashed">
+                                <PageMessage title="No machine selected" tone="info">
+                                    <p>
+                                        {machines.length === 0
+                                            ? "The floor has no machines yet. Add one to get started."
+                                            : "Select a machine to view its details."}
+                                    </p>
+                                </PageMessage>
+                                <Button onPress={startNewMachine} isDisabled={saving}>
+                                    <PlusIcon /> Add machine
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <MachineEditor
+                            draft={draft}
+                            selected={selected}
+                            categories={categories}
+                            saving={saving}
+                            dirty={dirty}
+                            gate={gate}
+                            usage={selectedUsage}
+                            notes={notes}
+                            onDraftChange={(update) => setDraft(update)}
+                            onSave={() => void save()}
+                            onDiscard={() => setDraft(baselineDraft)}
+                            onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
+                            onToggleActive={requestToggleActive}
+                            onRemove={() => setConfirmRemove(true)}
+                        />
+                    )}
+                </div>
             </main>
 
             {pendingOpen !== null && (

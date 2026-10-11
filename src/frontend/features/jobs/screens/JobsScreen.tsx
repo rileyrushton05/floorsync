@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
@@ -20,6 +21,7 @@ import { scheduleReferences, type ScheduleReferences } from "@/features/jobs/dat
 import { useDeleteSchedule } from "@/features/schedules/data/queries";
 import { useMachines } from "@/features/machines/data/queries";
 import { PlusIcon } from "@heroicons/react/24/outline";
+import { PageMessage } from "@/core/feedback/PageMessage";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -96,7 +98,10 @@ function JobsPageInner() {
         archiveJob.isPending ||
         deleteSchedule.isPending;
     const searchParams = useSearchParams();
-    const [draft, setDraft] = useState<JobDraft>(() => (jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT));
+    // The screen opens with nothing selected — the right pane shows the
+    // neutral empty state, exactly like the Machines page. A draft is only
+    // loaded by picking a job in the backlog, a ?job=<id> link, or "New job".
+    const [draft, setDraft] = useState<JobDraft>(EMPTY_JOB_DRAFT);
     // The job as the API has it. Anything the draft says differently is unsaved
     // work, which is what the leave warnings key off.
     //
@@ -105,9 +110,7 @@ function JobsPageInner() {
     // edit, and folding them into the baseline alone would also fold in
     // whatever the manager had typed while the fetch was in flight, silently
     // clearing the dirty flag that protects it.
-    const [baselineDraft, setBaselineDraft] = useState<JobDraft>(() =>
-        jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT,
-    );
+    const [baselineDraft, setBaselineDraft] = useState<JobDraft>(EMPTY_JOB_DRAFT);
     const [isCreating, setIsCreating] = useState(false);
     /** A job switch or a new job, held back until unsaved work is dealt with. */
     const [pendingOpen, setPendingOpen] = useState<
@@ -150,19 +153,9 @@ function JobsPageInner() {
      */
     const [blockingDrafts, setBlockingDrafts] = useState<ScheduleReferences | null>(null);
 
-    // The floor definition arrives after authentication. Select its first job
-    // only while the editor is pristine, so a delayed API response never
-    // overwrites a new draft a manager has already started. This guarded render
-    // update settles immediately, without a transient blank draft after load.
-    //
-    // An open job is preferred over a job that has left the backlog: the list carries both,
-    // and landing on a read-only editor would read as the page being broken.
-    // Falling back to the first job at all is deliberate — on a floor where
-    // everything is archived, showing one is better than showing nothing.
-    const firstJobToOpen = jobs.find((job) => job.backlogStatus === "open") ?? jobs[0];
-    if (firstJobToOpen && !isCreating && draft.id === null && draft.name === "") {
-        openDraft(draftFromJob(firstJobToOpen));
-    }
+    // The screen opens with nothing selected: the right pane shows a neutral
+    // empty state until a job is picked in the backlog, or "New job" is
+    // pressed. Only a ?job=<id> link or user action opens the editor.
 
     function dismissDelete() {
         if (deleteClosing) return;
@@ -322,12 +315,15 @@ function JobsPageInner() {
     }
 
     // Where cancelling a new job lands: the job it was started from if that
-    // still exists, otherwise the one the screen opens on. Null when the floor
-    // has no jobs at all, in which case there is nothing to cancel back to.
-    const cancelTarget = jobs.find((job) => job.id === returnJobId) ?? firstJobToOpen ?? null;
+    // still exists, otherwise nothing — the empty pane.
+    const cancelTarget = jobs.find((job) => job.id === returnJobId) ?? null;
 
     function cancelNewJob() {
-        if (cancelTarget === null) return;
+        if (cancelTarget === null) {
+            setIsCreating(false);
+            openDraft(EMPTY_JOB_DRAFT);
+            return;
+        }
         if (dirty) setPendingOpen({ kind: "cancel", job: cancelTarget });
         else openJob(cancelTarget);
     }
@@ -628,27 +624,46 @@ function JobsPageInner() {
     );
 
     return (
-        <ManagerShell
-            actions={
-                <Button onPress={startNewJob} isDisabled={loading || saving}>
-                    <PlusIcon /> New job
-                </Button>
-            }
-        >
-            <main className="grid flex-1 grid-cols-1 gap-3 p-3 sm:gap-5 sm:p-5 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2fr)]">
-                <JobBacklogPanel
-                    jobs={jobs}
-                    visibleJobs={visibleJobs}
-                    colors={colors}
-                    sequenceNumbers={sequenceNumbers}
-                    selectedJobId={draft.id}
-                    filters={filters}
-                    busy={saving}
-                    onFiltersChange={(update) => setFilters(update)}
-                    onSelect={editJob}
-                />
+        <ManagerShell>
+            <main className="grid flex-1 grid-cols-1 gap-3 p-3 sm:gap-5 sm:p-5 xl:min-h-0 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2fr)]">
+                <div className="flex min-h-0 min-w-0 flex-col">
+                    <JobBacklogPanel
+                        jobs={jobs}
+                        visibleJobs={visibleJobs}
+                        colors={colors}
+                        sequenceNumbers={sequenceNumbers}
+                        selectedJobId={draft.id}
+                        filters={filters}
+                        busy={saving}
+                        onNewJob={startNewJob}
+                        onFiltersChange={(update) => setFilters(update)}
+                        onSelect={editJob}
+                    />
+                </div>
 
-                <JobEditorPanel
+                {/* Sticky so the editor stays in view while the backlog
+                    scrolls beside it. */}
+                <div className="flex min-h-0 min-w-0 flex-col xl:sticky xl:top-5 xl:h-[calc(100dvh-2.5rem)] xl:overflow-y-auto">
+                    {draft.id === null && !isCreating && !dirty ? (
+                        // Inline card rather than ManagerPageState, which would
+                        // nest a second ManagerShell (and a second topbar) in
+                        // the grid.
+                        <Card className="min-h-full min-w-0">
+                            <CardContent className="flex h-full flex-col items-center justify-center gap-4 rounded-lg border-dashed">
+                                <PageMessage title="No job selected" tone="info">
+                                    <p>
+                                        {jobs.length === 0
+                                            ? "The backlog is empty. Create a job to get started."
+                                            : "Select a job to edit it."}
+                                    </p>
+                                </PageMessage>
+                                <Button onPress={startNewJob} isDisabled={loading || saving}>
+                                    <PlusIcon /> New job
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <JobEditorPanel
                     draft={draft}
                     sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
                     machines={machines}
@@ -678,12 +693,14 @@ function JobsPageInner() {
                         setSelectedOperationId(operationId);
                         setFocusOperationId(null);
                     }}
-                    onSave={saveDraft}
-                    canDuplicate={canDuplicate}
-                    onDuplicate={duplicateJob}
-                    onRequestDelete={() => setConfirmingDelete(true)}
-                    onRequestArchive={() => setConfirmingArchive(true)}
-                />
+                            onSave={saveDraft}
+                            canDuplicate={canDuplicate}
+                            onDuplicate={duplicateJob}
+                            onRequestDelete={() => setConfirmingDelete(true)}
+                            onRequestArchive={() => setConfirmingArchive(true)}
+                        />
+                    )}
+                </div>
             </main>
 
             {pendingOpen !== null && (

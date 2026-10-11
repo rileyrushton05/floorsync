@@ -11,6 +11,7 @@ import {
     GridListSpacer,
 } from "@/components/ui/grid-list";
 import { Input, InputGroup } from "@/components/ui/input";
+import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
@@ -19,7 +20,7 @@ import type { JobColor } from "@/domains/scheduling/colors";
 import { formatDuration, totalWorkMins } from "@/domains/scheduling/format";
 import type { JobDef } from "@/domains/scheduling/types";
 import { JobDot } from "@/domains/scheduling/ui/JobDot";
-import { ChevronRightIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ChevronRightIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { SORT_OPTIONS, STATUS_FILTERS, type JobFilters } from "../model/editor";
 
 /**
@@ -47,6 +48,7 @@ export function JobBacklogPanel({
     selectedJobId,
     filters,
     busy,
+    onNewJob,
     onFiltersChange,
     onSelect,
 }: {
@@ -58,11 +60,13 @@ export function JobBacklogPanel({
     filters: JobFilters;
     /** A save is in flight; switching jobs now would be overwritten when it lands. */
     busy: boolean;
+    /** Open the blank new-job editor; rendered at the foot of the panel. */
+    onNewJob: () => void;
     onFiltersChange: (update: (filters: JobFilters) => JobFilters) => void;
     onSelect: (job: JobDef) => void;
 }) {
     const rows = visibleJobs.slice(0, MAX_ROWS);
-    const hidden = visibleJobs.length - rows.length;
+    const pager = useCollapsedRows(rows, selectedJobId);
     const openCount = jobs.filter((job) => job.backlogStatus === "open").length;
     const filtersActive =
         filters.query.trim() !== "" ||
@@ -81,14 +85,15 @@ export function JobBacklogPanel({
     }
 
     return (
-        <Card>
+        <Card className="flex h-full flex-col">
             <CardHeader>
                 <CardTitle>
                     Job backlog
                     <HeaderCount label={`${openCount} open ${openCount === 1 ? "job" : "jobs"}`}>{openCount}</HeaderCount>
                 </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex min-h-0 flex-1 flex-col">
+                <div className="scroll-rail min-h-0 flex-1 overflow-y-auto">
                 <TextField
                     aria-label="Search jobs by name"
                     value={filters.query}
@@ -155,15 +160,16 @@ export function JobBacklogPanel({
                         </SelectContent>
                     </Select>
                     <Badge intent="outline" className="ml-auto" role="status">
-                        Showing {visibleJobs.length} of {jobs.length}
+                        Showing {pager.shown.length} of {visibleJobs.length} jobs
                     </Badge>
                 </div>
 
+                <div className="scroll-rail min-h-0 flex-1 overflow-y-auto">
                 <GridList
                     aria-label="Job backlog"
                     selectionMode="single"
                     selectionBehavior="replace"
-                    items={rows}
+                    items={pager.shown}
                     // A save reopens the editor on the job it wrote, so a switch
                     // started mid-flight would be silently undone when it lands.
                     disabledKeys={busy ? rows.map((job) => job.id) : []}
@@ -189,6 +195,7 @@ export function JobBacklogPanel({
                         return (
                             <GridListItem
                                 id={job.id}
+                                data-row-id={job.id}
                                 textValue={`Job ${sequence ?? ""} ${job.name}${isOpen ? "" : ` (${backlogStatus})`}`}
                                 className="items-start"
                             >
@@ -225,14 +232,24 @@ export function JobBacklogPanel({
                         );
                     }}
                 </GridList>
+                </div>
+                </div>
 
-                {hidden > 0 && (
-                    <p className="mt-3 text-center text-muted-fg text-xs" role="status">
-                        {hidden} more {hidden === 1 ? "job is" : "jobs are"} not shown. Search or
-                        filter to narrow the backlog.
-                    </p>
-                )}
+                {/* Leftover height lives between the expand button and the
+                    pinned New job button below. */}
+                <ListPager
+                    hiddenCount={pager.hiddenCount}
+                    expanded={pager.expanded}
+                    highlighted={pager.selectedIsHidden}
+                    onToggle={pager.toggle}
+                    noun="jobs"
+                />
             </CardContent>
+            <div className="mt-auto border-t p-3">
+                <Button className="w-full" onPress={onNewJob} isDisabled={busy}>
+                    <PlusIcon /> New job
+                </Button>
+            </div>
         </Card>
     );
 }

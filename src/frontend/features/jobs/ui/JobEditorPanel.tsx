@@ -436,7 +436,7 @@ export function JobEditorPanel({
                             isDisabled={!gate.canSave}
                             aria-keyshortcuts="Control+S Meta+S"
                         >
-                            <CheckIcon /> {draft.id ? "Save changes" : "Create job"}
+                            <CheckIcon /> Save changes
                             {/* A shortcut nobody is told about is a shortcut
                                 nobody uses. Rendered only after mount, so the
                                 server and the first client render agree on

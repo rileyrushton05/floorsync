@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { errorMessage } from "@/core/http/errors";
 import { statusIntent } from "@/core/presentation/badge-intent";
+import { ExpandListButton } from "@/components/ui/list-pager";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { useJobSummaries } from "@/features/jobs/data/queries";
@@ -21,6 +22,7 @@ import { useMachines } from "@/features/machines/data/queries";
 import { FALLBACK_POLL_MS, useActiveSimulation } from "@/features/operator/data/queries";
 import { simulatedMinutes } from "@/features/operator/model/operator-queue";
 import { useScheduleSummaries, useScheduleTimeline } from "@/features/schedules/data/queries";
+import { strategyColor, strategyLabel } from "@/features/schedules/model/archive";
 import {
     BriefcaseIcon,
     ChevronRightIcon,
@@ -44,8 +46,14 @@ import { BarChart, DonutChart } from "./ui/charts";
 
 const BACKLOG_LABELS = { open: "Open", planned: "Planned", done: "Done", archived: "Archived" } as const;
 const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"];
-const STRATEGY_COLORS: Record<string, string> = { resched: "var(--chart-1)", exact: "var(--chart-2)" };
+/**
+ * The legend entries for the recent-schedules chart. The colours come from
+ * `strategyColor` in the schedules model so the legend cannot drift from the
+ * bars — both read the same mapping.
+ */
 const STRATEGY_LABELS: Record<string, string> = { resched: "ReSched", exact: "Exact" };
+/** Rows of "Today's Jobs" shown before the tail folds behind "View all". */
+const JOBS_SHOWN_LIMIT = 6;
 
 export default function OverviewScreen() {
     return (
@@ -196,14 +204,20 @@ function OverviewBody() {
                                         key: item.id,
                                         label: `#${i + 1}`,
                                         value: item.makespan,
-                                        color: STRATEGY_COLORS[item.strategy] ?? "var(--chart-3)",
-                                        detail: `${STRATEGY_LABELS[item.strategy] ?? item.strategy} · ${formatDuration(item.makespan)} · ${item.status}`,
+                                        // The strategy string is a versioned
+                                        // identifier, so the colour goes through
+                                        // the family mapping rather than a bare
+                                        // key lookup (which fell through to the
+                                        // fallback green for every bar).
+                                        color: strategyColor(item.strategy),
+                                        detail: `${strategyLabel(item.strategy)} · ${formatDuration(item.makespan)} · ${item.status}`,
+                                        dotColor: strategyColor(item.strategy),
                                     }))}
                                 />
                                 <div className="mt-3 flex gap-4 text-muted-fg text-xs">
                                     {Object.entries(STRATEGY_LABELS).map(([strategy, label]) => (
                                         <span key={strategy} className="flex items-center gap-1.5">
-                                            <span className="size-2.5 rounded-full" style={{ background: STRATEGY_COLORS[strategy] }} />
+                                            <span className="size-2.5 rounded-full" style={{ background: strategyColor(strategy) }} />
                                             {label}
                                         </span>
                                     ))}
@@ -279,10 +293,24 @@ function EmptyChart({ children }: { children: React.ReactNode }) {
 
 function ScheduleJobs({ jobs }: { jobs: JobProgress[] }) {
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
+    const [expandedFor, setExpandedFor] = useState<string | null>(null);
+    // Expansion is keyed to the list contents: a schedule change replaces
+    // `jobs`, so the remembered key no longer matches and the view resets
+    // to collapsed.
+    const isExpanded = jobs.length > 0 && expandedFor === jobs[0]?.key;
     const selected = jobs.find((job) => job.key === selectedKey)
         ?? jobs.find((job) => job.state === "In progress")
         ?? jobs[0]
         ?? null;
+    // The tail folds behind a "View all" toggle: a long schedule would otherwise
+    // push the detail card far below the fold. The current selection stays
+    // visible in either state, and the expansion is forgotten when the schedule
+    // (a change of `jobs`) replaces the list.
+    const shown =
+        selected === null || isExpanded || jobs.findIndex((job) => job.key === selected.key) < JOBS_SHOWN_LIMIT
+            ? isExpanded ? jobs : jobs.slice(0, JOBS_SHOWN_LIMIT)
+            : jobs.filter((job, index) => index < JOBS_SHOWN_LIMIT || job.key === selected.key);
+    const hiddenCount = isExpanded ? 0 : jobs.length - shown.length;
 
     return (
         <div className="grid gap-5 xl:grid-cols-[1.6fr_1fr]">
@@ -310,7 +338,7 @@ function ScheduleJobs({ jobs }: { jobs: JobProgress[] }) {
                             <TableColumn>Current machine</TableColumn>
                             <TableColumn />
                         </TableHeader>
-                        <TableBody items={jobs}>
+                        <TableBody items={shown}>
                             {(job) => (
                                 <TableRow id={job.key}>
                                     <TableCell className="font-semibold">{job.label}</TableCell>
@@ -339,6 +367,20 @@ function ScheduleJobs({ jobs }: { jobs: JobProgress[] }) {
                             )}
                         </TableBody>
                     </Table>
+
+                    {(hiddenCount > 0 || isExpanded) && (
+                        <div className="mt-3">
+                            <ExpandListButton
+                                hiddenCount={hiddenCount}
+                                expanded={isExpanded}
+                                onToggle={() => {
+                                    if (isExpanded) setExpandedFor(null);
+                                    else setExpandedFor(jobs[0]?.key ?? null);
+                                }}
+                                noun="jobs"
+                            />
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
