@@ -63,12 +63,6 @@ class CategoryCreateRequest(RequestSchema):
     name: ResourceName
 
 
-class CategoryUpdateRequest(RequestSchema):
-    """A rename, the only change a category has."""
-
-    name: ResourceName
-
-
 class CapabilityResponse(ResponseSchema):
     operation_id: UUID
     machine_id: UUID

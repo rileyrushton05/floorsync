@@ -387,20 +387,6 @@
         "title": "CategoryResponse",
         "type": "object"
       },
-      "CategoryUpdateRequest": {
-        "additionalProperties": false,
-        "description": "A rename, the only change a category has.",
-        "properties": {
-          "name": {
-            "$ref": "#/components/schemas/ResourceName"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "CategoryUpdateRequest",
-        "type": "object"
-      },
       "CurrentUserResponse": {
         "description": "The safe subset of the signed-in account exposed to the frontend.",
         "properties": {
@@ -2915,66 +2901,6 @@
           }
         ],
         "summary": "Remove a machine category",
-        "tags": [
-          "machines"
-        ]
-      },
-      "patch": {
-        "description": "Rename a category. Its machines keep it, under the new name.",
-        "operationId": "rename_category_api_v1_categories__category_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "category_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Category Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CategoryUpdateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CategoryResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "409": {
-            "description": "Another category already uses that name, ignoring case"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "summary": "Rename a machine category",
         "tags": [
           "machines"
         ]

@@ -30,7 +30,6 @@ from floorsync_common.machines.results import (
     CategoryInUse,
     CategoryNameAlreadyExists,
     CategoryNotFound,
-    CategoryRenamed,
     CreateCategoryResult,
     CreateMachineResult,
     DeleteCategoryResult,
@@ -45,7 +44,6 @@ from floorsync_common.machines.results import (
     MachineNotFound,
     MachineUpdated,
     RemoveCapabilityResult,
-    RenameCategoryResult,
     SetCapabilityResult,
     UpdateMachineResult,
 )
@@ -318,7 +316,7 @@ class MachineService:
 
         Key-share is the lock the machine's foreign key takes anyway, taken here at the check: a
         concurrent delete is waited for and seen, instead of passing this check and then failing
-        the foreign key. Renames are not blocked.
+        the foreign key.
         """
 
         category = await db.scalar(
@@ -336,9 +334,9 @@ class CategoryService:
     is returned whole rather than paged.
 
     Names are unique ignoring case, and only the `uq_categories_lower_name` index decides that: a
-    name is written inside a savepoint and a clash on that index becomes the expected outcome. A
-    pre-check could not see a name another transaction has written but not committed yet; the index
-    makes the second writer wait for the first and then refuses it.
+    new category is written inside a savepoint and a clash on that index becomes the expected
+    outcome. A pre-check could not see a name another transaction has written but not committed yet;
+    the index makes the second writer wait for the first and then refuses it.
     """
 
     @staticmethod
@@ -354,41 +352,14 @@ class CategoryService:
         except IntegrityError as error:
             if not _is_category_name_clash(error):
                 raise
-            return CategoryNameAlreadyExists(
-                name=await CategoryService._existing_name(db, normalized_name)
+            # Quote the floor's spelling; the request's if that category was deleted again since.
+            existing = await db.scalar(
+                select(Category.name).where(
+                    func.lower(Category.name) == func.lower(normalized_name)
+                )
             )
+            return CategoryNameAlreadyExists(name=existing or normalized_name)
         return CategoryCreated(category=category)
-
-    @staticmethod
-    async def rename_category(
-        db: AsyncSession, category_id: UUID, *, name: str
-    ) -> RenameCategoryResult:
-        """Rename a category, rejecting a name another category uses in any capitalisation.
-
-        Changing only the capitalisation of its own name is allowed. The row is locked first, so
-        a delete that commits meanwhile makes this not found rather than an update of nothing.
-        `FOR NO KEY UPDATE` is the lock the update takes anyway: it waits for a delete but not
-        for a machine being assigned the category.
-        """
-
-        category = await db.scalar(
-            select(Category).where(Category.id == category_id).with_for_update(key_share=True)
-        )
-        if category is None:
-            return CategoryNotFound(category_id=category_id)
-
-        normalized_name = name.strip()
-        try:
-            async with db.begin_nested():
-                category.name = normalized_name
-                await db.flush()
-        except IntegrityError as error:
-            if not _is_category_name_clash(error):
-                raise
-            return CategoryNameAlreadyExists(
-                name=await CategoryService._existing_name(db, normalized_name)
-            )
-        return CategoryRenamed(category=category)
 
     @staticmethod
     async def remove_category(db: AsyncSession, category_id: UUID) -> DeleteCategoryResult:
@@ -422,16 +393,6 @@ class CategoryService:
 
         categories = (await db.scalars(select(Category).order_by(Category.name))).all()
         return tuple(categories)
-
-    @staticmethod
-    async def _existing_name(db: AsyncSession, name: str) -> str:
-        """How the floor spells the category `name` clashed with, for the refusal to quote."""
-
-        existing = await db.scalar(
-            select(Category.name).where(func.lower(Category.name) == func.lower(name))
-        )
-        # Deleted again since the clash: quote the request.
-        return existing or name
 
 
 def _is_category_name_clash(error: IntegrityError) -> bool:

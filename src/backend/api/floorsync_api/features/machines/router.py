@@ -11,7 +11,6 @@ from floorsync_api.features.machines.schemas import (
     CapabilityUpsertRequest,
     CategoryCreateRequest,
     CategoryResponse,
-    CategoryUpdateRequest,
     MachineCreateRequest,
     MachineDetailResponse,
     MachineResponse,
@@ -30,7 +29,6 @@ from floorsync_common.machines.results import (
     CategoryInUse,
     CategoryNameAlreadyExists,
     CategoryNotFound,
-    CategoryRenamed,
     MachineCreated,
     MachineDeleted,
     MachineFound,
@@ -359,7 +357,15 @@ async def create_category(
                 response.headers["Location"] = f"/api/v1/categories/{category.id}"
                 return CategoryResponse.model_validate(category)
             case CategoryNameAlreadyExists(name=name):
-                return _category_name_conflict(request, name)
+                return problem_response(
+                    ProblemDetail(
+                        type="urn:floorsync:problem:category-name-conflict",
+                        title="Category name already in use",
+                        status=status.HTTP_409_CONFLICT,
+                        detail=f"A category named {name!r} already exists.",
+                        instance=request.url.path,
+                    )
+                )
             case _:
                 assert_never(result)
 
@@ -376,35 +382,6 @@ async def list_categories(db: DbSession, _: Manager) -> list[CategoryResponse]:
         categories = await CategoryService.list_categories(db)
 
     return [CategoryResponse.model_validate(category) for category in categories]
-
-
-@categories_router.patch(
-    "/{category_id}",
-    response_model=CategoryResponse,
-    summary="Rename a machine category",
-    responses={409: {"description": "Another category already uses that name, ignoring case"}},
-)
-async def rename_category(
-    category_id: UUID,
-    command: CategoryUpdateRequest,
-    request: Request,
-    db: DbSession,
-    _: Manager,
-) -> CategoryResponse | JSONResponse:
-    """Rename a category. Its machines keep it, under the new name."""
-
-    async with db.begin():
-        result = await CategoryService.rename_category(db, category_id, name=command.name)
-
-        match result:
-            case CategoryRenamed(category=category):
-                return CategoryResponse.model_validate(category)
-            case CategoryNotFound():
-                raise _category_not_found()
-            case CategoryNameAlreadyExists(name=name):
-                return _category_name_conflict(request, name)
-            case _:
-                assert_never(result)
 
 
 @categories_router.delete(
@@ -436,7 +413,9 @@ async def delete_category(
             case CategoryDeleted():
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
             case CategoryNotFound():
-                raise _category_not_found()
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Category not found."
+                )
             case CategoryInUse(machine_count=count):
                 return problem_response(
                     ProblemDetail(
@@ -465,22 +444,6 @@ def _machine_name_conflict(request: Request, name: str) -> JSONResponse:
             title="Machine name already in use",
             status=status.HTTP_409_CONFLICT,
             detail=f"A machine named {name!r} already exists.",
-            instance=request.url.path,
-        )
-    )
-
-
-def _category_not_found() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
-
-
-def _category_name_conflict(request: Request, name: str) -> JSONResponse:
-    return problem_response(
-        ProblemDetail(
-            type="urn:floorsync:problem:category-name-conflict",
-            title="Category name already in use",
-            status=status.HTTP_409_CONFLICT,
-            detail=f"A category named {name!r} already exists.",
             instance=request.url.path,
         )
     )

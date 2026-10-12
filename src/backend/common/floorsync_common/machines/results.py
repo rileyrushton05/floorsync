@@ -112,11 +112,6 @@ class CategoryCreated:
 
 
 @dataclass(frozen=True, slots=True)
-class CategoryRenamed:
-    category: Category
-
-
-@dataclass(frozen=True, slots=True)
 class CategoryDeleted:
     category_id: UUID
 
@@ -137,5 +132,4 @@ class CategoryInUse(ExpectedOutcome):
 
 
 type CreateCategoryResult = CategoryCreated | CategoryNameAlreadyExists
-type RenameCategoryResult = CategoryRenamed | CategoryNotFound | CategoryNameAlreadyExists
 type DeleteCategoryResult = CategoryDeleted | CategoryNotFound | CategoryInUse

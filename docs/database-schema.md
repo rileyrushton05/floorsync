@@ -20,7 +20,7 @@ general-purpose rather than glass-cutting-specific.
 | name | Text | not null, unique ignoring case (`uq_categories_lower_name` on `lower(name)`) |
 
 "Cutting" and "cutting" are one category to a manager, so the second is refused. A category is
-renamed in place (its machines keep it) and deleted only while no machine belongs to it.
+deleted only while no machine belongs to it.
 
 ## machines
 
