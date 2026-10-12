@@ -199,32 +199,38 @@ export function categoryNames(categories: MachineCategory[]): ReadonlyMap<string
 }
 
 /**
- * Why a new category cannot be created under this name, or null when it can.
+ * The existing category a new name would duplicate, if any.
  *
  * The database only refuses exact duplicates, but "Cutting" beside "cutting"
- * would be two filter entries nobody can tell apart, so case is ignored here.
+ * would be two entries nobody can tell apart, so case is ignored here. An
+ * unused category is hidden from the pickers, so a match is offered for reuse
+ * rather than refused: refusing a name the manager cannot see is a dead end.
  */
-export function categoryNameProblem(name: string, categories: readonly MachineCategory[]): string | null {
-    const trimmed = name.trim();
-    if (trimmed === "") return "Give the category a name.";
-    const existing = categories.find((category) => category.name.toLowerCase() === trimmed.toLowerCase());
-    return existing ? `“${existing.name}” already exists.` : null;
+export function existingCategory(name: string, categories: readonly MachineCategory[]): MachineCategory | null {
+    const needle = name.trim().toLowerCase();
+    if (needle === "") return null;
+    return categories.find((category) => category.name.toLowerCase() === needle) ?? null;
 }
 
 /**
- * The categories worth offering in the list's filter: those a saved machine
- * is filed under. A category created in the editor appears only once a
- * machine using it is saved, and picking one that matches nothing is a dead
- * end. The current choice is kept so the filter never shows a blank value.
+ * The categories worth offering in a picker: those a saved machine is filed
+ * under. A category created in the editor appears only once a machine using
+ * it is saved, so one made and then abandoned never clutters the lists. The
+ * current choice is kept, so a picker never shows a blank value and a
+ * category just created can be picked before the machine is saved.
  */
-export function filterableCategories(
+export function categoriesInUse(
     categories: readonly MachineCategory[],
     machines: readonly MachineSummary[],
-    selectedId: string,
+    selectedId: string | null,
 ): MachineCategory[] {
     const used = new Set(machines.map((machine) => machine.category_id));
     return categories.filter((category) => used.has(category.id) || category.id === selectedId);
 }
+
+/** What the category pickers' tooltips say, so the filter and the form agree. */
+export const CATEGORIES_IN_USE_HINT =
+    "Only categories with at least one saved machine are listed. A new category joins the list once a machine using it is saved.";
 
 export const STATUS_FILTERS = [
     { id: "all", label: "All machines" },

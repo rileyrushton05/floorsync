@@ -22,7 +22,7 @@ import {
     draftFromMachine,
     draftProblem,
     filterMachineRows,
-    filterableCategories,
+    categoriesInUse,
     machineInputFromDraft,
     machineUsage,
     saveGate,
@@ -93,8 +93,12 @@ function MachinesPageInner() {
     );
     const visibleRows = useMemo(() => filterMachineRows(rows, filters), [filters, rows]);
     const filterCategories = useMemo(
-        () => filterableCategories(categories, machines, filters.categoryId),
+        () => categoriesInUse(categories, machines, filters.categoryId),
         [categories, filters.categoryId, machines],
+    );
+    const draftCategories = useMemo(
+        () => categoriesInUse(categories, machines, draft.categoryId),
+        [categories, draft.categoryId, machines],
     );
     const activeCount = useMemo(() => machines.filter((machine) => machine.active).length, [machines]);
 
@@ -335,7 +339,8 @@ function MachinesPageInner() {
                     <MachineEditor
                         draft={draft}
                         selected={selected}
-                        categories={categories}
+                        categories={draftCategories}
+                        allCategories={categories}
                         saving={saving}
                         dirty={dirty}
                         gate={gate}

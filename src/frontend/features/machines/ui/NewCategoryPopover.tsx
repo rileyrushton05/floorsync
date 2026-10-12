@@ -9,35 +9,36 @@ import { PlusIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useCreateMachineCategory } from "../data/queries";
-import { categoryNameProblem, type MachineCategory } from "../model/machine";
+import { existingCategory, type MachineCategory } from "../model/machine";
 
 /**
  * A small "New category" form that opens beside the category picker.
  *
  * Categories are only ever needed at the moment a machine is being filed
  * under one, so they are created here rather than on a screen of their own.
- * The created category is handed back so the caller can select it at once.
+ * The category is handed back so the caller can select it at once.
+ *
+ * `categories` is every category, not just the ones the picker shows: a name
+ * matching one that no machine uses yet picks that one instead of creating it.
  */
 export function NewCategoryPopover({
     categories,
     isDisabled,
-    onCreated,
+    onPicked,
 }: {
     categories: readonly MachineCategory[];
     isDisabled?: boolean;
-    onCreated: (category: MachineCategory) => void;
+    onPicked: (category: MachineCategory) => void;
 }) {
     const createCategory = useCreateMachineCategory();
     const [open, setOpen] = useState(false);
     const [name, setName] = useState("");
     // Set as soon as the name is sent. The category reaches the list before
-    // the request settles here, so the name would otherwise flash up as a
-    // duplicate of itself while the popover closes.
+    // the request settles here, so the form would otherwise flip to "already
+    // exists" for an instant while the popover closes.
     const [submitted, setSubmitted] = useState(false);
-    // Only complain once something has been typed: an empty field the
-    // manager has not touched yet is not a mistake.
-    const problem = name === "" || submitted ? null : categoryNameProblem(name, categories);
-    const canCreate = name.trim() !== "" && problem === null && !submitted;
+    const existing = submitted ? null : existingCategory(name, categories);
+    const canSubmit = name.trim() !== "" && !submitted;
 
     function changeOpen(next: boolean) {
         if (createCategory.isPending) return;
@@ -51,12 +52,17 @@ export function NewCategoryPopover({
     }
 
     async function submit() {
-        if (!canCreate) return;
+        if (!canSubmit) return;
         setSubmitted(true);
+        if (existing) {
+            setOpen(false);
+            onPicked(existing);
+            return;
+        }
         try {
             const category = await createCategory.mutateAsync(name.trim());
             setOpen(false);
-            onCreated(category);
+            onPicked(category);
             toast.success(`Category “${category.name}” added.`);
         } catch (error) {
             setSubmitted(false);
@@ -85,15 +91,14 @@ export function NewCategoryPopover({
                                 autoFocus
                                 value={name}
                                 onChange={setName}
-                                isInvalid={problem !== null}
                                 isDisabled={createCategory.isPending}
                             >
                                 <Label>Name</Label>
                                 <Input placeholder="e.g. Cutting" autoComplete="off" />
                             </TextField>
-                            {problem !== null && (
-                                <p className="text-danger text-xs" role="alert">
-                                    {problem}
+                            {existing && (
+                                <p className="text-muted-fg text-xs" role="status">
+                                    “{existing.name}” already exists, so it will be selected.
                                 </p>
                             )}
                         </PopoverBody>
@@ -101,8 +106,8 @@ export function NewCategoryPopover({
                             <Button intent="plain" onPress={() => changeOpen(false)} isDisabled={createCategory.isPending}>
                                 Cancel
                             </Button>
-                            <Button type="submit" isPending={createCategory.isPending} isDisabled={!canCreate}>
-                                Add category
+                            <Button type="submit" isPending={createCategory.isPending} isDisabled={!canSubmit}>
+                                {existing ? "Use category" : "Add category"}
                             </Button>
                         </PopoverFooter>
                     </form>

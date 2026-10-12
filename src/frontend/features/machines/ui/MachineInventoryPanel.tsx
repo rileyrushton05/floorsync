@@ -14,9 +14,11 @@ import { Input, InputGroup } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { ChevronRightIcon, MagnifyingGlassIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
     ANY_CATEGORY,
+    CATEGORIES_IN_USE_HINT,
     INITIAL_MACHINE_FILTERS,
     NO_CATEGORY,
     SORT_OPTIONS,
@@ -131,6 +133,7 @@ export function MachineInventoryPanel({
                             ))}
                         </SelectContent>
                     </Select>
+                    <InfoTooltip label="Which categories are listed">{CATEGORIES_IN_USE_HINT}</InfoTooltip>
                 </div>
 
                 <Separator className="my-5" />
