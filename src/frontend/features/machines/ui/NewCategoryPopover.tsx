@@ -30,26 +30,36 @@ export function NewCategoryPopover({
     const createCategory = useCreateMachineCategory();
     const [open, setOpen] = useState(false);
     const [name, setName] = useState("");
+    // Set as soon as the name is sent. The category reaches the list before
+    // the request settles here, so the name would otherwise flash up as a
+    // duplicate of itself while the popover closes.
+    const [submitted, setSubmitted] = useState(false);
     // Only complain once something has been typed: an empty field the
     // manager has not touched yet is not a mistake.
-    const problem = name === "" ? null : categoryNameProblem(name, categories);
-    const canCreate = name.trim() !== "" && problem === null && !createCategory.isPending;
+    const problem = name === "" || submitted ? null : categoryNameProblem(name, categories);
+    const canCreate = name.trim() !== "" && problem === null && !submitted;
 
     function changeOpen(next: boolean) {
         if (createCategory.isPending) return;
         setOpen(next);
-        if (!next) setName("");
+        // Cleared on opening rather than closing, so the field does not
+        // empty out in front of the manager while the popover fades away.
+        if (next) {
+            setName("");
+            setSubmitted(false);
+        }
     }
 
     async function submit() {
         if (!canCreate) return;
+        setSubmitted(true);
         try {
             const category = await createCategory.mutateAsync(name.trim());
+            setOpen(false);
             onCreated(category);
             toast.success(`Category “${category.name}” added.`);
-            setOpen(false);
-            setName("");
         } catch (error) {
+            setSubmitted(false);
             reportMutationError(error);
         }
     }

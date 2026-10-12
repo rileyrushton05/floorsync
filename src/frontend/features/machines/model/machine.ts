@@ -211,6 +211,21 @@ export function categoryNameProblem(name: string, categories: readonly MachineCa
     return existing ? `“${existing.name}” already exists.` : null;
 }
 
+/**
+ * The categories worth offering in the list's filter: those a saved machine
+ * is filed under. A category created in the editor appears only once a
+ * machine using it is saved, and picking one that matches nothing is a dead
+ * end. The current choice is kept so the filter never shows a blank value.
+ */
+export function filterableCategories(
+    categories: readonly MachineCategory[],
+    machines: readonly MachineSummary[],
+    selectedId: string,
+): MachineCategory[] {
+    const used = new Set(machines.map((machine) => machine.category_id));
+    return categories.filter((category) => used.has(category.id) || category.id === selectedId);
+}
+
 export const STATUS_FILTERS = [
     { id: "all", label: "All machines" },
     { id: "active", label: "Active" },
