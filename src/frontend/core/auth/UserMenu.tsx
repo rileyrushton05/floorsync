@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowRightStartOnRectangleIcon, UserCircleIcon } from "@heroicons/react/24/outline";
+import { ArrowRightStartOnRectangleIcon, Cog6ToothIcon, UserCircleIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Link } from "@/components/ui/link";
 import { useAuth } from "./AuthProvider";
 
 /**
@@ -10,7 +11,8 @@ import { useAuth } from "./AuthProvider";
  *
  * Shared by every dashboard topbar so sign-out is reachable from wherever
  * somebody happens to be, and so the name shown is the account actually holding
- * the token rather than a label baked into the page.
+ * the token rather than a label baked into the page. The cog is how operators,
+ * who have no sidebar, reach Settings.
  */
 export function UserMenu() {
     const { user, signOut } = useAuth();
@@ -25,6 +27,10 @@ export function UserMenu() {
                 <span className="block font-semibold text-sm">{user.name}</span>
                 <span className="block text-muted-fg text-xs capitalize">{user.role}</span>
             </span>
+            {/* A Link, not router.push, so the navigation guard can hold it for unsaved work. */}
+            <Link href="/settings" aria-label="Settings" className={buttonStyles({ intent: "plain", size: "sq-sm" })}>
+                <Cog6ToothIcon />
+            </Link>
             <Button
                 intent="plain"
                 size="sq-sm"

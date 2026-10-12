@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     jwt_audience: str = "floorsync-frontend"
     jwt_access_token_expire_minutes: int = Field(default=30, gt=0, le=1_440)
 
+    # The password every automatically created operator login starts with: one per new machine,
+    # whether added by a manager or by seeding. Managers change it per account from Settings.
+    operator_default_password: str = Field(default="floorsync-dev", min_length=1)
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, value: str) -> str:

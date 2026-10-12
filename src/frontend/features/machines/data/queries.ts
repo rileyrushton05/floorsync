@@ -13,6 +13,7 @@ import {
     type MachineInput,
 } from "./api";
 import { jobKeys } from "@/features/jobs/data/keys";
+import { operatorKeys } from "@/features/operators/data/keys";
 import { scheduleKeys } from "@/features/schedules/data/keys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { machineKeys } from "./keys";
@@ -75,6 +76,9 @@ export function useDeleteMachine() {
                 queryClient.invalidateQueries({ queryKey: machineKeys.all, exact: true }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                // Creating, renaming or removing a machine does the same
+                // to its operator login.
+                queryClient.invalidateQueries({ queryKey: operatorKeys.all }),
             ]);
         },
     });
@@ -95,6 +99,9 @@ export function useSaveMachine() {
                 queryClient.invalidateQueries({ queryKey: machineKeys.all, exact: true }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                // Creating, renaming or removing a machine does the same
+                // to its operator login.
+                queryClient.invalidateQueries({ queryKey: operatorKeys.all }),
             ]);
         },
     });

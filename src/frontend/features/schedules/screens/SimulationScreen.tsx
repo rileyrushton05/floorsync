@@ -12,6 +12,7 @@ import { errorMessage } from "@/core/http/errors";
 import { useLiveUpdates, type LiveStatus } from "@/core/live-updates/useLiveUpdates";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -416,137 +417,140 @@ function SimulationPageInner() {
 
     return (
         <ManagerShell actions={schedulesLink}>
-            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.7fr)_minmax(0,2.3fr)]">
-                <SimulationSchedulePanel
-                    total={confirmedRows.length}
-                    rows={visibleRows}
-                    selectedId={selectedId}
-                    operatorScheduleId={operatorSimulation?.status === "not_started" ? null : operatorSimulation?.schedule_id ?? null}
-                    query={query}
-                    onQueryChange={setQuery}
-                    onSelect={(id) => {
-                        if (id === selectedId) return;
-                        cancelScrub();
-                        setHighlightedJobId(null);
-                        setUserChoiceId(id);
-                    }}
-                />
+            <SidePaneLayout>
+                <SidePane id="simulation.schedules" side="left" label="Schedules" grow={0.7} minWidth={280}>
+                    <SimulationSchedulePanel
+                        total={confirmedRows.length}
+                        rows={visibleRows}
+                        selectedId={selectedId}
+                        operatorScheduleId={operatorSimulation?.status === "not_started" ? null : operatorSimulation?.schedule_id ?? null}
+                        query={query}
+                        onQueryChange={setQuery}
+                        onSelect={(id) => {
+                            if (id === selectedId) return;
+                            cancelScrub();
+                            setHighlightedJobId(null);
+                            setUserChoiceId(id);
+                        }}
+                    />
+                </SidePane>
+                <SidePaneMain grow={2.3}>
+                    <div className="flex min-w-0 flex-col gap-5">
+                        {schedulesQuery.error && (
+                            <Note intent="warning" role="status">
+                                Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}
+                            </Note>
+                        )}
 
-                <div className="flex min-w-0 flex-col gap-5">
-                    {schedulesQuery.error && (
-                        <Note intent="warning" role="status">
-                            Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}
-                        </Note>
-                    )}
-
-                    <Card className="min-w-0">
-                        <CardHeader className="gap-1">
-                            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-                                <CardTitle className={`truncate text-2xl ${selected?.name ? "" : "text-muted-fg italic"}`}>
-                                    {selected ? scheduleDisplayName(selected) : "–"}
-                                </CardTitle>
-                                <Badge intent={PLAYBACK_INTENT[status]}>{PLAYBACK_LABEL[status]}</Badge>
-                                {simulation !== null && <LiveBadge status={liveStatus} />}
-                            </div>
-                            <p className="text-muted-fg text-sm">
-                                {selected ? strategyLabel(selected.strategy) : ""}
-                                {plan && ` · ${count(plan.jobs.length, "job")} on ${count(machinesNow.length, "machine")} · ${count(plan.schedule.ops.length, "operation")} · makespan ${formatDuration(makespan)}`}
-                            </p>
-                            <CardAction>
-                                {selected && (
-                                    <Link
-                                        href={`/manager/schedules?schedule=${encodeURIComponent(selected.id)}`}
-                                        className={buttonStyles({ intent: "plain", size: "sm" })}
-                                    >
-                                        Schedule details
-                                    </Link>
-                                )}
-                            </CardAction>
-                        </CardHeader>
-                        <CardContent className="flex flex-col gap-4">
-                            {simulationQuery.error && (
-                                <Note intent="danger" role="alert">
-                                    <strong>Could not read the simulation&apos;s position.</strong>{" "}
-                                    {errorMessage(simulationQuery.error)}
-                                </Note>
-                            )}
-                            {operatorsFollowOther && (
-                                <Note intent="info" role="status">
-                                    Operator screens are following {operatorScheduleName}, not this schedule.
-                                    Reset that simulation to hand the floor to this one.
-                                </Note>
-                            )}
-
-                            {plan ? (
-                                <>
-                                    <PlaybackControls
-                                        status={status}
-                                        nowMins={displayMins}
-                                        makespanMins={makespan}
-                                        speed={speed}
-                                        pending={controlsPending || simulationQuery.isPending}
-                                        canReset={simulation !== null && (status !== "not_started" || serverMins > 0)}
-                                        onTogglePlay={() => void togglePlayback()}
-                                        onReset={() => void resetPlayback()}
-                                        onStep={(delta) => previewScrub(displayMins + delta)}
-                                        onSpeedChange={(next) => void changeSpeed(next)}
-                                        onScrub={previewScrub}
-                                        onScrubEnd={(mins) => {
-                                            latestScrub.current = clamp(mins, 0, makespan);
-                                            void commitScrub();
-                                        }}
-                                    />
-                                    {totals && <FloorTotalsStrip totals={totals} started={started} />}
-                                    <GanttChart
-                                        machines={plan.machines}
-                                        jobs={plan.jobs}
-                                        schedule={plan.schedule}
-                                        colors={colors}
-                                        mode="simulation"
-                                        nowMins={floorMins}
-                                        selectedJobId={highlightedJobId}
-                                        highlightedMachineId={highlightedMachineId}
-                                        zoom={timelineZoom}
-                                        followNow={running && scrubMins === null}
-                                        onSelectJob={(jobId) => setHighlightedJobId((previous) => (previous === jobId ? null : jobId))}
-                                        onScrub={previewScrub}
-                                        onScrubEnd={() => void commitScrub()}
-                                    />
-                                </>
-                            ) : timelineQuery.error ? (
-                                <PageMessage title="This schedule's timeline could not be read" tone="danger">
-                                    <p>{errorMessage(timelineQuery.error)}</p>
-                                    <Button intent="outline" size="sm" className="mt-3" onPress={() => void timelineQuery.refetch()}>
-                                        <ArrowPathIcon /> Try again
-                                    </Button>
-                                </PageMessage>
-                            ) : (
-                                <p className="py-10 text-center text-muted-fg text-sm" role="status">
-                                    Reading this schedule&apos;s timeline…
+                        <Card className="min-w-0">
+                            <CardHeader className="gap-1">
+                                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                                    <CardTitle className={`truncate text-2xl ${selected?.name ? "" : "text-muted-fg italic"}`}>
+                                        {selected ? scheduleDisplayName(selected) : "–"}
+                                    </CardTitle>
+                                    <Badge intent={PLAYBACK_INTENT[status]}>{PLAYBACK_LABEL[status]}</Badge>
+                                    {simulation !== null && <LiveBadge status={liveStatus} />}
+                                </div>
+                                <p className="text-muted-fg text-sm">
+                                    {selected ? strategyLabel(selected.strategy) : ""}
+                                    {plan && ` · ${count(plan.jobs.length, "job")} on ${count(machinesNow.length, "machine")} · ${count(plan.schedule.ops.length, "operation")} · makespan ${formatDuration(makespan)}`}
                                 </p>
-                            )}
-                        </CardContent>
-                    </Card>
+                                <CardAction>
+                                    {selected && (
+                                        <Link
+                                            href={`/manager/schedules?schedule=${encodeURIComponent(selected.id)}`}
+                                            className={buttonStyles({ intent: "plain", size: "sm" })}
+                                        >
+                                            Schedule details
+                                        </Link>
+                                    )}
+                                </CardAction>
+                            </CardHeader>
+                            <CardContent className="flex flex-col gap-4">
+                                {simulationQuery.error && (
+                                    <Note intent="danger" role="alert">
+                                        <strong>Could not read the simulation&apos;s position.</strong>{" "}
+                                        {errorMessage(simulationQuery.error)}
+                                    </Note>
+                                )}
+                                {operatorsFollowOther && (
+                                    <Note intent="info" role="status">
+                                        Operator screens are following {operatorScheduleName}, not this schedule.
+                                        Reset that simulation to hand the floor to this one.
+                                    </Note>
+                                )}
 
-                    {plan && (
-                        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                            <MachinesNowPanel
-                                machines={machinesNow}
-                                colors={colors}
-                                jobName={jobName}
-                                highlightedMachineId={highlightedMachineId}
-                                onHighlightMachine={setHighlightedMachineId}
-                            />
-                            <JobProgressPanel
-                                jobs={jobsNow}
-                                colors={colors}
-                                selectedJobId={highlightedJobId}
-                                onSelectJob={setHighlightedJobId}
-                            />
-                        </div>
-                    )}
-                </div>
-            </main>
+                                {plan ? (
+                                    <>
+                                        <PlaybackControls
+                                            status={status}
+                                            nowMins={displayMins}
+                                            makespanMins={makespan}
+                                            speed={speed}
+                                            pending={controlsPending || simulationQuery.isPending}
+                                            canReset={simulation !== null && (status !== "not_started" || serverMins > 0)}
+                                            onTogglePlay={() => void togglePlayback()}
+                                            onReset={() => void resetPlayback()}
+                                            onStep={(delta) => previewScrub(displayMins + delta)}
+                                            onSpeedChange={(next) => void changeSpeed(next)}
+                                            onScrub={previewScrub}
+                                            onScrubEnd={(mins) => {
+                                                latestScrub.current = clamp(mins, 0, makespan);
+                                                void commitScrub();
+                                            }}
+                                        />
+                                        {totals && <FloorTotalsStrip totals={totals} started={started} />}
+                                        <GanttChart
+                                            machines={plan.machines}
+                                            jobs={plan.jobs}
+                                            schedule={plan.schedule}
+                                            colors={colors}
+                                            mode="simulation"
+                                            nowMins={floorMins}
+                                            selectedJobId={highlightedJobId}
+                                            highlightedMachineId={highlightedMachineId}
+                                            zoom={timelineZoom}
+                                            followNow={running && scrubMins === null}
+                                            onSelectJob={(jobId) => setHighlightedJobId((previous) => (previous === jobId ? null : jobId))}
+                                            onScrub={previewScrub}
+                                            onScrubEnd={() => void commitScrub()}
+                                        />
+                                    </>
+                                ) : timelineQuery.error ? (
+                                    <PageMessage title="This schedule's timeline could not be read" tone="danger">
+                                        <p>{errorMessage(timelineQuery.error)}</p>
+                                        <Button intent="outline" size="sm" className="mt-3" onPress={() => void timelineQuery.refetch()}>
+                                            <ArrowPathIcon /> Try again
+                                        </Button>
+                                    </PageMessage>
+                                ) : (
+                                    <p className="py-10 text-center text-muted-fg text-sm" role="status">
+                                        Reading this schedule&apos;s timeline…
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {plan && (
+                            <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                                <MachinesNowPanel
+                                    machines={machinesNow}
+                                    colors={colors}
+                                    jobName={jobName}
+                                    highlightedMachineId={highlightedMachineId}
+                                    onHighlightMachine={setHighlightedMachineId}
+                                />
+                                <JobProgressPanel
+                                    jobs={jobsNow}
+                                    colors={colors}
+                                    selectedJobId={highlightedJobId}
+                                    onSelectJob={setHighlightedJobId}
+                                />
+                            </div>
+                        )}
+                    </div>
+                </SidePaneMain>
+            </SidePaneLayout>
         </ManagerShell>
     );
 }

@@ -5,16 +5,40 @@
 /**
  * FloorSync theme for Intent UI.
  *
- * Two surfaces, because the product has always had two:
- *   :root        the light operations surface (/manager, /operator) — slate
- *                shell, white panels, #2563eb accent.
- *   .theme-navy  the navy marketing surface (the landing page) — #071b2a with
- *                cyan accents. Also aliased to .dark so a dark-mode toggle
- *                lands somewhere coherent rather than on unstyled defaults.
+ * Every palette is a set of CSS variables keyed by `data-theme`, which the root
+ * layout puts on <html> from the saved choice (see components/themes.ts). The
+ * attribute works on any element, so the settings page previews a theme just
+ * by rendering a swatch with its own `data-theme`.
  *
- * Every value here is lifted from the CSS modules this replaced, so Intent UI
- * components render in the palette the team already designed against.
+ *   :root / light   the light operations surface — slate shell, white panels,
+ *                   #2563eb accent. The default.
+ *   dark            the same layout in slate-on-near-black.
+ *   system          light or dark, by `prefers-color-scheme`.
+ *   .theme-navy     the navy marketing surface (the landing page) — #071b2a
+ *                   with cyan accents. Also selectable as "Deep Sea".
+ *   synthwave, terminal, forest, bubblegum
+ *                   the fun ones.
+ *
+ * The light and navy values are lifted from the CSS modules this replaced, so
+ * Intent UI components render in the palette the team already designed against.
  */
+
+/* Tailwind's `dark:` follows the chosen theme rather than the OS. */
+@custom-variant dark {
+  &:where(
+      [data-theme="dark"], [data-theme="dark"] *,
+      [data-theme="navy"], [data-theme="navy"] *, .theme-navy, .theme-navy *,
+      [data-theme="synthwave"], [data-theme="synthwave"] *,
+      [data-theme="terminal"], [data-theme="terminal"] *
+    ) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where([data-theme="system"], [data-theme="system"] *) {
+      @slot;
+    }
+  }
+}
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
@@ -80,8 +104,77 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/**
+ * Re-resolve the theme mapping wherever a palette is applied.
+ *
+ * `@theme` declares `--color-bg: var(--bg)` (and friends) on :root, and a
+ * custom property holding var() is resolved where it is declared — so every
+ * descendant inherits :root's *colour*, not a reference to `--bg`. Without this
+ * rule an element with its own `data-theme` (the settings swatches) or
+ * `.theme-navy` (the landing page) would change `--bg` and nothing would use it.
+ */
+[data-theme],
+.theme-navy {
+  /* Reset so Terminal's monospace does not leak into a nested swatch; Terminal
+     restates its own below, which wins by source order. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-display: var(--font-sans);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-fg: var(--primary-subtle-fg);
+  --color-secondary: var(--secondary);
+  --color-secondary-fg: var(--secondary-fg);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-success: var(--success);
+  --color-success-fg: var(--success-fg);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-subtle-fg: var(--success-subtle-fg);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-subtle-fg: var(--danger-subtle-fg);
+  --color-warning: var(--warning);
+  --color-warning-fg: var(--warning-fg);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-subtle-fg: var(--warning-subtle-fg);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-subtle-fg: var(--info-subtle-fg);
+  --color-muted: var(--muted);
+  --color-muted-fg: var(--muted-fg);
+  --color-overlay: var(--overlay);
+  --color-overlay-fg: var(--overlay-fg);
+  --color-navbar: var(--navbar);
+  --color-navbar-fg: var(--navbar-fg);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-fg: var(--sidebar-fg);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-fg: var(--sidebar-primary-fg);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-fg: var(--sidebar-accent-fg);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-lg: var(--radius);
+}
+
 /* ── Light operations surface ─────────────────────────────────────────────── */
-:root {
+/* `[data-theme="light"]` as well as :root so a light swatch nested in a dark
+   page still gets light values. */
+:root,
+[data-theme="light"],
+[data-theme="system"] {
+  color-scheme: light;
   --radius: 0.625rem;
 
   --bg: #f1f5f9;
@@ -145,9 +238,133 @@
   --chart-5: #e87ba4;
 }
 
+/* ── Dark operations surface ──────────────────────────────────────────────── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --radius: 0.625rem;
+
+  --bg: #0b1220;
+  --fg: #e2e8f0;
+
+  --primary: #3b82f6;
+  --primary-fg: #ffffff;
+  --primary-subtle: #172554;
+  --primary-subtle-fg: #93c5fd;
+
+  --secondary: #1e293b;
+  --secondary-fg: #e2e8f0;
+
+  --overlay: #0f172a;
+  --overlay-fg: #e2e8f0;
+
+  --accent: #1e293b;
+  --accent-fg: #e2e8f0;
+
+  --muted: #111a2e;
+  --muted-fg: #94a3b8;
+
+  --success: #22c55e;
+  --success-fg: #04210f;
+  --success-subtle: #052e1a;
+  --success-subtle-fg: #86efac;
+
+  --info-subtle: #172554;
+  --info-subtle-fg: #93c5fd;
+
+  --warning: #f59e0b;
+  --warning-fg: #2c1a02;
+  --warning-subtle: #3a2606;
+  --warning-subtle-fg: #fcd34d;
+
+  --danger: #ef4444;
+  --danger-fg: #ffffff;
+  --danger-subtle: #3b0d0d;
+  --danger-subtle-fg: #fca5a5;
+
+  --border: #1e293b;
+  --input: #334155;
+  --ring: #3b82f6;
+
+  --navbar: #0f172a;
+  --navbar-fg: #e2e8f0;
+
+  --sidebar: #0f172a;
+  --sidebar-fg: #e2e8f0;
+  --sidebar-primary: #172554;
+  --sidebar-primary-fg: #93c5fd;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-fg: #e2e8f0;
+  --sidebar-border: #1e293b;
+  --sidebar-ring: #3b82f6;
+}
+
+/* The same values again: a media query cannot share a rule with a plain selector. */
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    color-scheme: dark;
+
+    --bg: #0b1220;
+    --fg: #e2e8f0;
+
+    --primary: #3b82f6;
+    --primary-fg: #ffffff;
+    --primary-subtle: #172554;
+    --primary-subtle-fg: #93c5fd;
+
+    --secondary: #1e293b;
+    --secondary-fg: #e2e8f0;
+
+    --overlay: #0f172a;
+    --overlay-fg: #e2e8f0;
+
+    --accent: #1e293b;
+    --accent-fg: #e2e8f0;
+
+    --muted: #111a2e;
+    --muted-fg: #94a3b8;
+
+    --success: #22c55e;
+    --success-fg: #04210f;
+    --success-subtle: #052e1a;
+    --success-subtle-fg: #86efac;
+
+    --info-subtle: #172554;
+    --info-subtle-fg: #93c5fd;
+
+    --warning: #f59e0b;
+    --warning-fg: #2c1a02;
+    --warning-subtle: #3a2606;
+    --warning-subtle-fg: #fcd34d;
+
+    --danger: #ef4444;
+    --danger-fg: #ffffff;
+    --danger-subtle: #3b0d0d;
+    --danger-subtle-fg: #fca5a5;
+
+    --border: #1e293b;
+    --input: #334155;
+    --ring: #3b82f6;
+
+    --navbar: #0f172a;
+    --navbar-fg: #e2e8f0;
+
+    --sidebar: #0f172a;
+    --sidebar-fg: #e2e8f0;
+    --sidebar-primary: #172554;
+    --sidebar-primary-fg: #93c5fd;
+    --sidebar-accent: #1e293b;
+    --sidebar-accent-fg: #e2e8f0;
+    --sidebar-border: #1e293b;
+    --sidebar-ring: #3b82f6;
+  }
+}
+
 /* ── Navy marketing surface ───────────────────────────────────────────────── */
 .theme-navy,
-.dark {
+[data-theme="navy"] {
+  color-scheme: dark;
+  --radius: 0.625rem;
+
   --bg: #071b2a;
   --fg: #eaf7ff;
 
@@ -201,6 +418,247 @@
   --sidebar-accent-fg: #eaf7ff;
   --sidebar-border: #1d6687;
   --sidebar-ring: #43c5ff;
+}
+
+/* ── Fun themes ───────────────────────────────────────────────────────────── */
+/* Every one sets the full variable list so nothing falls through to :root. */
+
+[data-theme="synthwave"] {
+  color-scheme: dark;
+  --radius: 0.625rem;
+
+  --bg: #1a1033;
+  --fg: #f5e9ff;
+
+  --primary: #ff4fd8;
+  --primary-fg: #2a0628;
+  --primary-subtle: #3d1857;
+  --primary-subtle-fg: #ff9bea;
+
+  --secondary: #261748;
+  --secondary-fg: #f5e9ff;
+
+  --overlay: #221440;
+  --overlay-fg: #f5e9ff;
+
+  --accent: #33205c;
+  --accent-fg: #f5e9ff;
+
+  --muted: #221440;
+  --muted-fg: #b9a3d9;
+
+  --success: #3ef0b0;
+  --success-fg: #052b1f;
+  --success-subtle: #0f3a35;
+  --success-subtle-fg: #7ff5cb;
+
+  --info-subtle: #13305c;
+  --info-subtle-fg: #7cc8ff;
+
+  --warning: #ffd23f;
+  --warning-fg: #2c2002;
+  --warning-subtle: #3d300a;
+  --warning-subtle-fg: #ffe27a;
+
+  --danger: #ff5c7a;
+  --danger-fg: #2b0610;
+  --danger-subtle: #4a1426;
+  --danger-subtle-fg: #ff9fb2;
+
+  --border: #4a2f7a;
+  --input: #5b3b92;
+  --ring: #36e2ff;
+
+  --navbar: #160d2b;
+  --navbar-fg: #f5e9ff;
+
+  --sidebar: #160d2b;
+  --sidebar-fg: #f5e9ff;
+  --sidebar-primary: #3d1857;
+  --sidebar-primary-fg: #ff9bea;
+  --sidebar-accent: #2a1a4d;
+  --sidebar-accent-fg: #f5e9ff;
+  --sidebar-border: #3a2563;
+  --sidebar-ring: #36e2ff;
+}
+
+[data-theme="terminal"] {
+  color-scheme: dark;
+  --radius: 0rem;
+  --font-sans: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-display: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  --bg: #050805;
+  --fg: #b6ffb6;
+
+  --primary: #39ff14;
+  --primary-fg: #021a02;
+  --primary-subtle: #0d2a0d;
+  --primary-subtle-fg: #7dff6a;
+
+  --secondary: #0c140c;
+  --secondary-fg: #b6ffb6;
+
+  --overlay: #0a110a;
+  --overlay-fg: #b6ffb6;
+
+  --accent: #123012;
+  --accent-fg: #b6ffb6;
+
+  --muted: #0a110a;
+  --muted-fg: #6fbf6f;
+
+  --success: #39ff14;
+  --success-fg: #021a02;
+  --success-subtle: #0d2a0d;
+  --success-subtle-fg: #7dff6a;
+
+  --info-subtle: #082a2a;
+  --info-subtle-fg: #5ff5f5;
+
+  --warning: #ffb000;
+  --warning-fg: #1f1400;
+  --warning-subtle: #2e2104;
+  --warning-subtle-fg: #ffc94d;
+
+  --danger: #ff3b3b;
+  --danger-fg: #1f0202;
+  --danger-subtle: #330b0b;
+  --danger-subtle-fg: #ff8a8a;
+
+  --border: #1f4d1f;
+  --input: #2b6b2b;
+  --ring: #39ff14;
+
+  --navbar: #050805;
+  --navbar-fg: #b6ffb6;
+
+  --sidebar: #070c07;
+  --sidebar-fg: #b6ffb6;
+  --sidebar-primary: #0d2a0d;
+  --sidebar-primary-fg: #7dff6a;
+  --sidebar-accent: #123012;
+  --sidebar-accent-fg: #b6ffb6;
+  --sidebar-border: #1f4d1f;
+  --sidebar-ring: #39ff14;
+}
+
+[data-theme="forest"] {
+  color-scheme: light;
+  --radius: 0.625rem;
+
+  --bg: #eef3ea;
+  --fg: #1c2b1e;
+
+  --primary: #2f7d4a;
+  --primary-fg: #ffffff;
+  --primary-subtle: #d6eadb;
+  --primary-subtle-fg: #1f5e35;
+
+  --secondary: #dfe8da;
+  --secondary-fg: #1c2b1e;
+
+  --overlay: #fbfdf8;
+  --overlay-fg: #1c2b1e;
+
+  --accent: #dfe8da;
+  --accent-fg: #1c2b1e;
+
+  --muted: #f5f8f1;
+  --muted-fg: #5c6e5e;
+
+  --success: #3a8a3a;
+  --success-fg: #ffffff;
+  --success-subtle: #dcefd6;
+  --success-subtle-fg: #276227;
+
+  --info-subtle: #dbe9f0;
+  --info-subtle-fg: #2b5d78;
+
+  --warning: #d08c1a;
+  --warning-fg: #2a1a02;
+  --warning-subtle: #f6e7c4;
+  --warning-subtle-fg: #8a5a0b;
+
+  --danger: #b83a2e;
+  --danger-fg: #ffffff;
+  --danger-subtle: #f6dcd7;
+  --danger-subtle-fg: #8f2a20;
+
+  --border: #d3ddcd;
+  --input: #b9c7b2;
+  --ring: #2f7d4a;
+
+  --navbar: #fbfdf8;
+  --navbar-fg: #1c2b1e;
+
+  --sidebar: #f5f8f1;
+  --sidebar-fg: #1c2b1e;
+  --sidebar-primary: #d6eadb;
+  --sidebar-primary-fg: #1f5e35;
+  --sidebar-accent: #dfe8da;
+  --sidebar-accent-fg: #1c2b1e;
+  --sidebar-border: #d3ddcd;
+  --sidebar-ring: #2f7d4a;
+}
+
+[data-theme="bubblegum"] {
+  color-scheme: light;
+  --radius: 1rem;
+
+  --bg: #fff0f7;
+  --fg: #3b0a2a;
+
+  --primary: #d61f80;
+  --primary-fg: #ffffff;
+  --primary-subtle: #ffd6ec;
+  --primary-subtle-fg: #a3165f;
+
+  --secondary: #ffe0ef;
+  --secondary-fg: #3b0a2a;
+
+  --overlay: #ffffff;
+  --overlay-fg: #3b0a2a;
+
+  --accent: #ffe0ef;
+  --accent-fg: #3b0a2a;
+
+  --muted: #fff7fb;
+  --muted-fg: #9a4d78;
+
+  --success: #1f9d6b;
+  --success-fg: #ffffff;
+  --success-subtle: #d5f5e6;
+  --success-subtle-fg: #11704a;
+
+  --info-subtle: #e3e0ff;
+  --info-subtle-fg: #5040c0;
+
+  --warning: #f59e0b;
+  --warning-fg: #422006;
+  --warning-subtle: #fff0c9;
+  --warning-subtle-fg: #a35d00;
+
+  --danger: #e11d48;
+  --danger-fg: #ffffff;
+  --danger-subtle: #ffe0e6;
+  --danger-subtle-fg: #be123c;
+
+  --border: #fbcfe4;
+  --input: #f5a8cf;
+  --ring: #d61f80;
+
+  --navbar: #ffffff;
+  --navbar-fg: #3b0a2a;
+
+  --sidebar: #ffffff;
+  --sidebar-fg: #3b0a2a;
+  --sidebar-primary: #ffd6ec;
+  --sidebar-primary-fg: #a3165f;
+  --sidebar-accent: #ffe0ef;
+  --sidebar-accent-fg: #3b0a2a;
+  --sidebar-border: #fbcfe4;
+  --sidebar-ring: #d61f80;
 }
 
 @layer base {

@@ -61,7 +61,10 @@ async def create_machine(
     db: DbSession,
     _: Manager,
 ) -> MachineResponse | JSONResponse:
-    """Add a machine the scheduler can assign work to."""
+    """Add a machine the scheduler can assign work to, along with its operator login.
+
+    The login starts with the configured default password; managers manage it from Settings.
+    """
 
     async with db.begin():
         result = await MachineService.create_machine(
@@ -70,6 +73,7 @@ async def create_machine(
             category_id=command.category_id,
             salary=command.salary,
             active=command.active,
+            operator_password=request.app.state.settings.operator_default_password,
         )
 
         match result:
@@ -195,7 +199,7 @@ async def delete_machine(
     db: DbSession,
     _: Manager,
 ) -> Response | JSONResponse:
-    """Remove a machine no operation is assigned to.
+    """Remove a machine no operation is assigned to, and the operator login bound to it.
 
     A machine that any job definition's routes still name cannot be removed: the scheduler would be
     left planning work onto a machine that no longer exists. Unassign or re-route those operations
