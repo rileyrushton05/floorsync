@@ -10,14 +10,15 @@ once. Here the two halves are split:
 
 The master learns from each subproblem through a Benders optimality cut
 
-    Cmax >= h - sum_{i in S} p[i, m(i)] * (1 - x[i, m(i)])
+    Cmax >= h - sum_{i in S} c_i * (1 - x[i, m(i)])
 
 read as "as long as the operations in S stay where they are, the makespan cannot
-drop below h, and moving one of them off its machine can buy back at most its
-processing time". The second half is valid because for any fixed sequencing the
-makespan is a longest path, and a path visits an operation at most once, so
-zeroing p_i shortens it by at most p_i; moving i to another machine only adds
-work elsewhere. S is shrunk by strengthen_cut() before the cut is added.
+drop below h, and moving one of them off its machine can buy back at most c_i".
+c_i = p[i, m(i)] alone is not enough once the remaining operations are
+re-sequenced: job a(A,1)->o(m,1)->c(C,1) and job b(m,10) give 12 with o on m but
+10 with o elsewhere, more than p_o = 1 less. So c_i = p[i, m(i)] plus the longest
+other operation of S on m(i), minus 1 (shift-and-insert, as in
+scheduling/FJSP_lbbd.py). S is shrunk by strengthen_cut() before the cut is added.
 """
 
 import time
@@ -324,11 +325,16 @@ def benders(
             print(f"out of time, gap still [{lower_bound:.1f}, {upper_bound:.0f}]")
             break
         cut_ops = [i for i in operations if machine_of[i] in critical]
+        # c_i = p_i + longest other op of S on i's machine - 1 (see module docstring)
+        coef = {}
+        for i in cut_ops:
+            others = [
+                p[j, machine_of[j]] for j in cut_ops if j != i and machine_of[j] == machine_of[i]
+            ]
+            coef[i] = p[i, machine_of[i]] + (max(others) - 1 if others else 0)
 
         master.addConstr(
-            cmax
-            >= makespan
-            - gp.quicksum(p[i, machine_of[i]] * (1 - x[i, machine_of[i]]) for i in cut_ops)
+            cmax >= makespan - gp.quicksum(coef[i] * (1 - x[i, machine_of[i]]) for i in cut_ops)
         )
         # nothing better than `makespan` lives behind this assignment, and the
         # incumbent already has it -- so forbid it outright and keep moving

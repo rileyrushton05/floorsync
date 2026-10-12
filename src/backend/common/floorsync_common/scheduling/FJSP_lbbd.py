@@ -304,8 +304,7 @@ def lbbd(
             "lbbd iteration",
             extra={"iteration": iteration, "amp": amp.ObjVal, "sssp1": res[0], "lb": lb, "ub": ub},
         )
-        if res[1] <= amp.ObjVal:  # AMP == SSSP1: assignment proven optimal
-            lb = max(lb, res[1])
+        if lb >= ub:  # SSSP1 reached the master's proven bound: incumbent optimal
             break
         critical = add_cut(res[1], res[2], res[3])
 
