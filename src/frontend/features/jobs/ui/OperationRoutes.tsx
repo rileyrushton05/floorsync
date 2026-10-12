@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/field";
 import { NumberField, NumberInput } from "@/components/ui/number-field";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger } from "@/components/ui/select";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
+import { NewMachineDialog } from "@/features/machines/ui/NewMachineDialog";
 import { PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { UNASSIGNED_MACHINE } from "../model/editor";
 
 /**
  * The machines that can run one step, and what each costs.
@@ -19,6 +21,12 @@ import { useEffect, useRef } from "react";
  * step with more of them — never moves the save and discard buttons below it.
  * Adding a machine scrolls the new row into view instead.
  *
+ * "Add machine" adds an empty row to assign, never a guess. Each row's picker
+ * leads with "Create a new machine", which adds one to the floor without
+ * leaving the job and assigns it to that row — finding out mid-edit that the
+ * right machine does not exist yet should not mean a trip to the machines page
+ * and back.
+ *
  * The row layout keys off this box's own width (a container query), not the
  * viewport's: beside the step's name and predecessors it can be far narrower
  * than the screen, and three fixed-width columns then ran out past its edge.
@@ -29,6 +37,9 @@ import { useEffect, useRef } from "react";
  * stay focusable and selectable rather than greying out. Only the controls that
  * would write are taken away.
  */
+/** The picker item that opens the new-machine dialog instead of picking one. */
+const CREATE_MACHINE = "__create";
+
 /** Shared by the heading row and every route row so the columns line up. */
 const EDITABLE_COLUMNS = "@min-[28rem]:grid-cols-[minmax(0,1fr)_7rem_7rem_1.75rem]";
 const READ_ONLY_COLUMNS = "@min-[28rem]:grid-cols-[minmax(0,1fr)_7rem_7rem]";
@@ -52,13 +63,15 @@ export function OperationRoutes({
     /** The job is archived: show the routes, offer no way to change them. */
     readOnly?: boolean;
     onPatchRoute: (routeIndex: number, patch: Partial<OperationDef["routes"][number]>) => void;
+    /** Adds an unassigned row for the manager to pick a machine in. */
     onAddRoute: () => void;
     onRemoveRoute: (routeIndex: number) => void;
 }) {
-    const canAddRoute = activeMachines.some(
-        (machine) => !routes.some((route) => route.machineId === machine.id),
-    );
+    // An empty row already waiting is the one to fill in next.
+    const canAddRoute = !routes.some((route) => route.machineId === UNASSIGNED_MACHINE);
     const columns = readOnly ? READ_ONLY_COLUMNS : EDITABLE_COLUMNS;
+    /** The row the new-machine dialog will assign its machine to, while it is open. */
+    const [creatingFor, setCreatingFor] = useState<number | null>(null);
 
     // Only an add should scroll. The panel stays mounted across selections, so
     // watching the length alone would also jump to the bottom whenever a step
@@ -119,15 +132,29 @@ export function OperationRoutes({
                         >
                             <Select
                                 className="min-w-0"
-                                value={route.machineId}
+                                value={route.machineId === UNASSIGNED_MACHINE ? null : route.machineId}
+                                placeholder="Choose a machine"
                                 isDisabled={readOnly}
-                                onChange={(machineId) =>
-                                    onPatchRoute(routeIndex, { machineId: String(machineId) })
-                                }
+                                // Outlined from the moment it is added: the job
+                                // cannot be saved until it is filled in, and this
+                                // is the row the save button's warning means.
+                                isInvalid={route.machineId === UNASSIGNED_MACHINE}
+                                onChange={(machineId) => {
+                                    // Not a machine: the row keeps its value
+                                    // until the dialog hands back the new one.
+                                    if (machineId === CREATE_MACHINE) setCreatingFor(routeIndex);
+                                    else if (machineId !== null) onPatchRoute(routeIndex, { machineId: String(machineId) });
+                                }}
                             >
                                 <Label className="text-muted-fg text-xs @min-[28rem]:sr-only">Machine</Label>
                                 <SelectTrigger />
-                                <SelectContent>
+                                {/* A floor can have dozens of machines; left to the
+                                    viewport, the list ran most of the screen tall. */}
+                                <SelectContent popover={{ maxHeight: 256 }}>
+                                    <SelectItem id={CREATE_MACHINE} textValue="Create a new machine">
+                                        <PlusIcon /> Create a new machine…
+                                    </SelectItem>
+                                    <SelectSeparator />
                                     {activeMachines.map((machine) => (
                                         <SelectItem
                                             key={machine.id}
@@ -209,6 +236,16 @@ export function OperationRoutes({
                     );
                 })}
             </ul>
+
+            {creatingFor !== null && (
+                <NewMachineDialog
+                    onDismiss={() => setCreatingFor(null)}
+                    onCreated={(machine) => {
+                        setCreatingFor(null);
+                        onPatchRoute(creatingFor, { machineId: machine.id });
+                    }}
+                />
+            )}
         </div>
     );
 }

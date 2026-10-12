@@ -37,6 +37,16 @@ export interface JobDraft {
     foreignEdges: DependencyEdge[];
 }
 
+/**
+ * The machine id of a route nobody has picked a machine for yet.
+ *
+ * Adding a machine to a step adds an empty row rather than guessing one: the
+ * first machine on the floor was almost never the right one, and a guess that
+ * looks deliberate is easy to save without noticing. Saving waits until every
+ * row has been assigned.
+ */
+export const UNASSIGNED_MACHINE = "";
+
 export const EMPTY_JOB_DRAFT: JobDraft = {
     id: null,
     name: "",
@@ -228,6 +238,10 @@ export function draftProblem(draft: JobDraft): string | null {
     if (unnamed >= 0) return `Step ${unnamed + 1} needs a name.`;
     const routeless = draft.operations.find((operation) => operation.routes.length === 0);
     if (routeless) return `“${routeless.name.trim()}” needs at least one machine.`;
+    const unassigned = draft.operations.find((operation) =>
+        operation.routes.some((route) => route.machineId === UNASSIGNED_MACHINE),
+    );
+    if (unassigned) return `Choose a machine for every row in “${unassigned.name.trim()}” before saving.`;
     const undurated = draft.operations.find((operation) =>
         operation.routes.some((route) => !Number.isFinite(route.durationMins) || route.durationMins < 1),
     );
@@ -242,6 +256,12 @@ export interface SaveGate {
     reason: string | null;
     /** True when there is work to write but something is standing in the way. */
     held: boolean;
+    /**
+     * True when the draft itself is what is wrong, so the manager has an edit
+     * to make before it can be saved — as opposed to waiting on a load or a job
+     * that is read-only. The reason is shown as a warning then, not a footnote.
+     */
+    needsFix: boolean;
 }
 
 /**
@@ -267,7 +287,7 @@ export function saveGate(input: {
     readOnly: boolean;
 }): SaveGate {
     if (input.loading || input.hasLoadError) {
-        return { canSave: false, reason: null, held: input.dirty };
+        return { canSave: false, reason: null, held: input.dirty, needsFix: false };
     }
     // Ahead of everything else, including the graph: a job outside the active backlog is not
     // being saved whatever else is true of it, and saying why is more use than
@@ -280,6 +300,7 @@ export function saveGate(input: {
             // quietly: the editor looks editable enough to try saving, and
             // silence would read as the shortcut being broken.
             held: true,
+            needsFix: false,
         };
     }
     if (!input.graphReady) {
@@ -289,13 +310,14 @@ export function saveGate(input: {
                 ? "This job's step order could not be loaded, so saving would overwrite it."
                 : "Loading this job's step order…",
             held: true,
+            needsFix: false,
         };
     }
-    if (input.problem !== null) return { canSave: false, reason: input.problem, held: true };
+    if (input.problem !== null) return { canSave: false, reason: input.problem, held: true, needsFix: true };
     if (!input.dirty) {
-        return { canSave: false, reason: input.isNew ? null : "No unsaved changes.", held: false };
+        return { canSave: false, reason: input.isNew ? null : "No unsaved changes.", held: false, needsFix: false };
     }
-    return { canSave: true, reason: null, held: false };
+    return { canSave: true, reason: null, held: false, needsFix: false };
 }
 
 export interface JobFilters {
