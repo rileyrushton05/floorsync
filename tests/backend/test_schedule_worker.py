@@ -20,7 +20,7 @@ from floorsync_common.scheduling.contracts import (
     RouteSpec,
     UnavailabilitySpec,
 )
-from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
+from floorsync_common.scheduling.FJSP_lbbd import STRATEGY as EXACT_SOLVER_STRATEGY
 from floorsync_common.scheduling.gurobi_exact_solver import NoFeasibleSchedule
 from floorsync_workers.tasks import schedules
 
