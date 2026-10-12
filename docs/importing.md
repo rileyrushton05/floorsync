@@ -89,7 +89,7 @@ imported by the integration tests, so it always works.
 | `version` | yes | Always `1` |
 | `machines` | no | Machines to create if the floor does not have them |
 | `machines[].name` | yes | Matched against the floor's machines by exact name |
-| `machines[].category` | no | Category name, created if it does not exist |
+| `machines[].category` | no | Category name, matched ignoring case; created if the floor has none |
 | `machines[].salary` | no | Labour cost of running the machine, 0 to 99,999,999.99, at most two decimals |
 | `jobs` | yes | At least one job |
 | `jobs[].name` | yes | Free text; two jobs may share a name |
@@ -118,8 +118,9 @@ they can run in. Each operation's position in the job is its place in the list.
 
 ### Machines
 
-Machines are matched by exact name. A machine the floor already has is reused and **never
-changed**: if the file gives it a different category or salary, the floor's values are kept and the
+Machines are matched by exact name; categories ignoring case, so `cutting` in a file is the
+floor's `Cutting`, and two spellings in one file create one category (the first spelling). A machine
+the floor already has is reused and **never changed**: if the file gives it a different category or salary, the floor's values are kept and the
 import warns. A route may name a machine the file does not declare, as long as the floor has it. A
 route to an inactive machine is refused.
 

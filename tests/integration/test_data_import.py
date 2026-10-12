@@ -45,11 +45,12 @@ from floorsync_common.imports.results import (
 )
 from floorsync_common.imports.service import ImportService
 from floorsync_common.machines.results import (
+    CategoryDeleted,
     DeleteMachineResult,
     MachineDeleted,
     MachineHasOperations,
 )
-from floorsync_common.machines.service import MachineService
+from floorsync_common.machines.service import CategoryService, MachineService
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = (REPO / "docs" / "examples" / "import-example.json").read_bytes()
@@ -551,6 +552,108 @@ def test_importing_onto_a_machine_an_unfinished_delete_removes_is_refused(
 
     assert isinstance(imported, ImportRejected)
     assert [issue.code for issue in imported.issues] == ["unknown_machine"]
+
+
+def saws_in(*categories: str) -> bytes:
+    """A file declaring one new saw per category spelling, each running one job's operation."""
+    return json.dumps(
+        {
+            "format": "floorsync",
+            "version": 1,
+            "machines": [
+                {"name": f"Saw {index}", "category": category}
+                for index, category in enumerate(categories)
+            ],
+            "jobs": [
+                {
+                    "name": "Panel",
+                    "operations": [
+                        {
+                            "name": "Cut",
+                            "routes": [
+                                {"machine": f"Saw {index}", "duration": 5}
+                                for index in range(len(categories))
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    ).encode()
+
+
+def machine_categories(database_url: str) -> dict[str, str]:
+    async def read(sessions: Sessions) -> dict[str, str]:
+        async with transaction(sessions) as db:
+            rows = await db.execute(
+                select(Machine.name, Category.name).join(
+                    Category, Category.id == Machine.category_id
+                )
+            )
+            return dict(rows.tuples().all())
+
+    return run(database_url, read)
+
+
+def test_a_category_is_matched_ignoring_case(api: TestClient, database_url: str) -> None:
+    assert api.post("/api/v1/categories", json={"name": "Cutting"}).status_code == 201
+    broken = json.loads(saws_in("cutting"))
+    broken["jobs"][0]["operations"][0]["routes"][0]["duration"] = 0
+
+    refused = upload(api, json.dumps(broken).encode(), dry_run=True)
+    preview = upload(api, saws_in("cutting", "CUTTING"), dry_run=True)
+    imported = upload(api, saws_in("cutting", "CUTTING"))
+
+    # A refused file's summary is all the planning it got: it too must not promise a new category.
+    assert refused.json()["importable"] is False
+    assert refused.json()["summary"]["categories_created"] == []
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["summary"]["categories_created"] == []
+    assert preview.json()["summary"] == imported.json()["summary"]
+    assert machine_categories(database_url) == {"Saw 0": "Cutting", "Saw 1": "Cutting"}
+
+
+def test_two_spellings_in_one_file_create_one_category(api: TestClient, database_url: str) -> None:
+    preview = upload(api, saws_in("cutting", "Cutting"), dry_run=True)
+    imported = upload(api, saws_in("cutting", "Cutting"))
+
+    assert imported.status_code == 201, imported.text
+    # The file's first spelling.
+    assert imported.json()["summary"]["categories_created"] == ["cutting"]
+    assert preview.json()["summary"] == imported.json()["summary"]
+    assert machine_categories(database_url) == {"Saw 0": "cutting", "Saw 1": "cutting"}
+
+
+def test_importing_into_a_category_an_unfinished_delete_removes_creates_it_again(
+    api: TestClient, database_url: str
+) -> None:
+    # One at a time this is "delete, then import": the import finds no category and creates it.
+    category_id = UUID(api.post("/api/v1/categories", json={"name": "Cutting"}).json()["id"])
+
+    async def race(sessions: Sessions) -> ImportPlanResult:
+        async with sessions() as deleting, sessions() as importing:
+            await deleting.begin()
+            deleted = await CategoryService.remove_category(deleting, category_id)
+            assert deleted == CategoryDeleted(category_id=category_id)
+
+            async def import_it() -> ImportPlanResult:
+                await importing.begin()
+                result = await ImportService.import_plan(
+                    importing, plan_of(saws_in("cutting")), operator_password="pw"
+                )
+                await importing.commit()
+                return result
+
+            racing = asyncio.create_task(import_it())
+            await asyncio.sleep(0.5)
+            await deleting.commit()
+            return await racing
+
+    imported = run(database_url, race)
+
+    assert isinstance(imported, ImportApplied)
+    assert imported.summary.categories_created == ("cutting",)
+    assert machine_categories(database_url) == {"Saw 0": "cutting"}
 
 
 def test_every_machine_an_import_creates_gets_one_operator_login(
