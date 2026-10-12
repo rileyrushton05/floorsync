@@ -129,7 +129,7 @@ export function OperationDetailPanel({
                         isReadOnly={readOnly}
                         onChange={(name) => onPatch({ name })}
                     >
-                        <Label className="text-muted-fg text-xs">Step name</Label>
+                        <Label className="text-muted-fg text-xs">Operation name</Label>
                         <Input ref={nameRef} placeholder="Operation name" autoComplete="off" />
                     </TextField>
 

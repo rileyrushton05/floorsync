@@ -53,9 +53,7 @@ const INITIAL_FILTERS: JobFilters = {
     // The backlog is the work that is left, so the list opens on open jobs.
     // Archived ones are fetched all the same and are one filter change away.
     status: "Active",
-    priority: "All",
     machineId: "All",
-    duration: "All",
     sort: DEFAULT_SORT,
 };
 
@@ -641,7 +639,6 @@ function JobsPageInner() {
                 <JobBacklogPanel
                     jobs={jobs}
                     visibleJobs={visibleJobs}
-                    machines={machines}
                     colors={colors}
                     sequenceNumbers={sequenceNumbers}
                     selectedJobId={draft.id}
