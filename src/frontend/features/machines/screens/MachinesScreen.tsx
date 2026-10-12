@@ -10,6 +10,7 @@ import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { useJobDefinitions } from "@/features/jobs/data/queries";
 import { useDeleteMachine, useMachineCategories, useMachines, useSaveMachine } from "@/features/machines/data/queries";
 import {
@@ -194,7 +195,10 @@ function MachinesPageInner() {
                     : { id: draft.id, values: { ...machineInputFromDraft(draft), active: undefined } },
             );
             openMachine(saved);
-            toast.success(wasExisting ? `“${saved.name}” updated.` : `“${saved.name}” added to the floor.`);
+            if (wasExisting) toast.success(`“${saved.name}” updated.`);
+            else toast.success(`“${saved.name}” added to the floor.`, {
+                description: "Its operator login was created with the default password. Manage it in Settings.",
+            });
         } catch (error) {
             reportMutationError(error);
         }
@@ -308,35 +312,39 @@ function MachinesPageInner() {
 
     return (
         <ManagerShell actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
-            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
-                <MachineInventoryPanel
-                    total={machines.length}
-                    activeCount={activeCount}
-                    rows={visibleRows}
-                    categories={categories}
-                    selectedId={draft.id}
-                    filters={filters}
-                    busy={saving}
-                    onFiltersChange={(update) => setFilters(update)}
-                    onSelect={selectMachine}
-                />
-                <MachineEditor
-                    draft={draft}
-                    selected={selected}
-                    categories={categories}
-                    saving={saving}
-                    dirty={dirty}
-                    gate={gate}
-                    usage={selectedUsage}
-                    notes={notes}
-                    onDraftChange={(update) => setDraft(update)}
-                    onSave={() => void save()}
-                    onDiscard={() => setDraft(baselineDraft)}
-                    onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
-                    onToggleActive={requestToggleActive}
-                    onRemove={() => setConfirmRemove(true)}
-                />
-            </main>
+            <SidePaneLayout>
+                <SidePane id="machines.inventory" side="left" label="Machines" grow={0.8} minWidth={280}>
+                    <MachineInventoryPanel
+                        total={machines.length}
+                        activeCount={activeCount}
+                        rows={visibleRows}
+                        categories={categories}
+                        selectedId={draft.id}
+                        filters={filters}
+                        busy={saving}
+                        onFiltersChange={(update) => setFilters(update)}
+                        onSelect={selectMachine}
+                    />
+                </SidePane>
+                <SidePaneMain grow={2}>
+                    <MachineEditor
+                        draft={draft}
+                        selected={selected}
+                        categories={categories}
+                        saving={saving}
+                        dirty={dirty}
+                        gate={gate}
+                        usage={selectedUsage}
+                        notes={notes}
+                        onDraftChange={(update) => setDraft(update)}
+                        onSave={() => void save()}
+                        onDiscard={() => setDraft(baselineDraft)}
+                        onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
+                        onToggleActive={requestToggleActive}
+                        onRemove={() => setConfirmRemove(true)}
+                    />
+                </SidePaneMain>
+            </SidePaneLayout>
 
             {pendingOpen !== null && (
                 <ConfirmDialog

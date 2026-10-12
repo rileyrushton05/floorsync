@@ -533,6 +533,10 @@
         "title": "DependencyResponse",
         "type": "object"
       },
+      "DisplayName": {
+        "minLength": 1,
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1383,6 +1387,119 @@
         },
         "title": "OperationUpdateRequest",
         "type": "object"
+      },
+      "OperatorResponse": {
+        "description": "An operator login as a manager sees it. Never includes the password or its hash.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_authenticated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Authenticated At"
+          },
+          "machine_id": {
+            "format": "uuid",
+            "title": "Machine Id",
+            "type": "string"
+          },
+          "machine_name": {
+            "title": "Machine Name",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "active",
+          "machine_id",
+          "machine_name",
+          "last_authenticated_at",
+          "created_at"
+        ],
+        "title": "OperatorResponse",
+        "type": "object"
+      },
+      "OperatorUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A partial update to an operator login. Every field is optional and none may be null.\n\n`password` replaces the current one outright; the manager does not need to know the old one.\nThere is no `machine_id`: an operator stays on the machine it was created for, and sending one\nis rejected like any other unknown field.",
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DisplayName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "password": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Password"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Username"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "OperatorUpdateRequest",
+        "type": "object"
+      },
+      "Password": {
+        "minLength": 1,
+        "type": "string"
       },
       "ResourceName": {
         "minLength": 1,
@@ -2299,6 +2416,11 @@
           "manager",
           "operator"
         ],
+        "type": "string"
+      },
+      "Username": {
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9._-]+$",
         "type": "string"
       },
       "ValidationError": {
@@ -3298,7 +3420,7 @@
         ]
       },
       "post": {
-        "description": "Add a machine the scheduler can assign work to.",
+        "description": "Add a machine the scheduler can assign work to, along with its operator login.\n\nThe login starts with the configured default password; managers manage it from Settings.",
         "operationId": "create_machine_api_v1_machines_post",
         "requestBody": {
           "content": {
@@ -3341,7 +3463,7 @@
     },
     "/api/v1/machines/{machine_id}": {
       "delete": {
-        "description": "Remove a machine no operation is assigned to.\n\nA machine that any job definition's routes still name cannot be removed: the scheduler would be\nleft planning work onto a machine that no longer exists. Unassign or re-route those operations\nfirst, or deactivate the machine to keep it out of new plans while retaining history.",
+        "description": "Remove a machine no operation is assigned to, and the operator login bound to it.\n\nA machine that any job definition's routes still name cannot be removed: the scheduler would be\nleft planning work onto a machine that no longer exists. Unassign or re-route those operations\nfirst, or deactivate the machine to keep it out of new plans while retaining history.",
         "operationId": "delete_machine_api_v1_machines__machine_id__delete",
         "parameters": [
           {
@@ -3821,6 +3943,99 @@
         "summary": "Update an operation",
         "tags": [
           "operations"
+        ]
+      }
+    },
+    "/api/v1/operators": {
+      "get": {
+        "description": "List every operator login with the machine it runs.\n\nOne per machine, so the collection is bounded by the floor and returned whole rather than paged.\nOperator logins are created with their machine; there is no route to create one on its own.",
+        "operationId": "list_operators_api_v1_operators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OperatorResponse"
+                  },
+                  "title": "Response List Operators Api V1 Operators Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List operator logins",
+        "tags": [
+          "operators"
+        ]
+      }
+    },
+    "/api/v1/operators/{user_id}": {
+      "patch": {
+        "description": "Rename, re-password, enable or disable an operator. Its machine cannot be changed.\n\nDisabling takes effect on the operator's next request, not when its current token expires.",
+        "operationId": "update_operator_api_v1_operators__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Another login already uses that username"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update an operator login",
+        "tags": [
+          "operators"
         ]
       }
     },
