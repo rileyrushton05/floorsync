@@ -15,12 +15,12 @@ from floorsync_common.scheduling import (
     SchedulingInputInvalid,
     SchedulingService,
 )
-from floorsync_common.scheduling.gurobi_exact_solver import STRATEGY as EXACT_SOLVER_STRATEGY
-from floorsync_common.scheduling.gurobi_exact_solver import TIME_LIMIT_SECONDS as EXACT_TIME_LIMIT
+from floorsync_common.scheduling.FJSP_lbbd import STRATEGY as EXACT_SOLVER_STRATEGY
+from floorsync_common.scheduling.FJSP_lbbd import TIME_LIMIT_SECONDS as EXACT_TIME_LIMIT
+from floorsync_common.scheduling.FJSP_lbbd import solve_fajsp
 from floorsync_common.scheduling.gurobi_exact_solver import (
     NoFeasibleSchedule,
     adapt_scheduling_input,
-    solve_fajsp,
 )
 from floorsync_common.scheduling.input_checks import validate_for_strategy
 from floorsync_common.scheduling.task_names import (
@@ -30,9 +30,10 @@ from floorsync_common.scheduling.task_names import (
 from floorsync_workers.celery_app import celery_app
 from floorsync_workers.database import worker_session_scope
 
-# Celery's own limits sit above Gurobi's `TimeLimit`, so a hung solve or a stalled database call is
-# still bounded even if Gurobi itself never returns: `soft_time_limit` gives the task a chance to
-# raise cleanly once the solve should already be done, `time_limit` is the last-resort hard kill.
+# Celery's own limits sit above the LBBD time limit, so a hung solve or a stalled database call
+# is still bounded even if the solver itself never returns: `soft_time_limit` gives the task a
+# chance to raise cleanly once the solve should already be done, `time_limit` is the last-resort
+# hard kill.
 _EXACT_SOFT_TIME_LIMIT = EXACT_TIME_LIMIT + 30
 _EXACT_HARD_TIME_LIMIT = EXACT_TIME_LIMIT + 45
 
@@ -113,7 +114,7 @@ def generate_schedule(starts_at: str, job_ids: list[str]) -> dict[str, object]:
     time_limit=_EXACT_HARD_TIME_LIMIT,
 )
 def generate_schedule_exact(starts_at: str, job_ids: list[str]) -> dict[str, object]:
-    """Generate and persist a draft with the exact Gurobi solver.
+    """Generate and persist a draft with the exact solver (LBBD: Gurobi master, CP-SAT subproblems).
 
     Loads through the same `SchedulingService.load_input` as `generate_schedule`, so `job_ids`
     scoping and its refusals (`unknown_job`, `empty_selection`, `planned_job`,
@@ -122,7 +123,7 @@ def generate_schedule_exact(starts_at: str, job_ids: list[str]) -> dict[str, obj
     solver-only read path to keep in sync with #231's rules.
 
     Loading and storing each run in their own transaction, same as `generate_schedule`, so the
-    database connection isn't held for the duration of `model.optimize()`. A dependency cycle is
+    database connection isn't held for the duration of the solve. A dependency cycle is
     rejected before the model is even built: Gurobi would otherwise report the same instance as
     infeasible, which is indistinguishable from a genuinely hard but acyclic one. A missing or
     rejected Gurobi licence raises `GurobiError` rather than failing to find a feasible solution, so

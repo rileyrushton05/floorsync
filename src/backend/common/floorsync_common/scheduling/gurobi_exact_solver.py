@@ -264,26 +264,23 @@ def report(
 
 def build_schedule_plan(
     operation_data: Sequence[OpRecord],
-    eligible_machines: dict[int, list[int]],
-    assignment: dict[tuple[int, int], gp.Var],
-    start_time: dict[int, gp.Var],
-    makespan: gp.Var,
+    machine_by_operation: Sequence[int],
+    start_minutes: Sequence[int],
+    makespan_minutes: int,
     machine_meta: list[tuple[UUID, Decimal | None]],
     starts_at: datetime,
 ) -> SchedulePlan:
-    """Turn a solved model into a `SchedulePlan`, ready for `SchedulingService.store_draft`."""
+    """Turn a solved schedule into a `SchedulePlan`, ready for `SchedulingService.store_draft`.
+
+    Takes plain machine indices and start offsets (minutes from `starts_at`), indexed like
+    `operation_data`, so any engine working on the adapted arrays can share it.
+    """
     assignments: list[ScheduledOperation] = []
-    machine_by_operation: list[int] = []
     for operation, record in enumerate(operation_data):
-        machine = next(
-            candidate
-            for candidate in eligible_machines[operation]
-            if assignment[operation, candidate].X > 0.5
-        )
-        machine_by_operation.append(machine)
+        machine = machine_by_operation[operation]
         duration = required_processing_time(operation_data, operation, machine)
         machine_id, salary_per_minute = machine_meta[machine]
-        op_starts_at = starts_at + timedelta(minutes=int(start_time[operation].X))
+        op_starts_at = starts_at + timedelta(minutes=start_minutes[operation])
         assignments.append(
             ScheduledOperation(
                 operation_id=record["op_id"],
@@ -321,7 +318,7 @@ def build_schedule_plan(
                 if assigned_machine == machine
             ),
             key=lambda operation: (
-                int(start_time[operation].X),
+                start_minutes[operation],
                 str(operation_data[operation]["op_id"]),
             ),
         )
@@ -361,7 +358,7 @@ def build_schedule_plan(
         assignments=tuple(assignments),
         dependencies=tuple(dependencies),
         metrics=ScheduleMetrics(
-            makespan_minutes=int(makespan.X),
+            makespan_minutes=makespan_minutes,
             total_energy=total_energy,
             total_labour_cost=total_labour_cost,
         ),
@@ -408,8 +405,21 @@ def solve_fajsp(
         )
 
     report(operation_data, eligible_machines, assignment, start_time, makespan, model)
+    machine_by_operation = [
+        next(
+            machine
+            for machine in eligible_machines[operation]
+            if assignment[operation, machine].X > 0.5
+        )
+        for operation in operations
+    ]
     plan = build_schedule_plan(
-        operation_data, eligible_machines, assignment, start_time, makespan, machine_meta, starts_at
+        operation_data,
+        machine_by_operation,
+        [round(start_time[operation].X) for operation in operations],
+        round(makespan.X),
+        machine_meta,
+        starts_at,
     )
     proven_optimal = model.Status == gp.GRB.OPTIMAL
     return plan, runtime_ms, proven_optimal, 0.0 if proven_optimal else model.MIPGap
