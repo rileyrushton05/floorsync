@@ -2,7 +2,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import type { ShiftSegment, ShiftStatus } from "@/features/operator/model/operator-queue";
-import { BoltIcon, ExclamationTriangleIcon, PauseCircleIcon } from "@heroicons/react/24/outline";
+import { BoltIcon, ExclamationTriangleIcon, FlagIcon, PauseCircleIcon } from "@heroicons/react/24/outline";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const mins = (value: number) => formatDuration(Math.max(1, Math.round(value)));
 
@@ -65,7 +66,9 @@ export function ShiftStatusCard({ status }: { status: ShiftStatus }) {
                     </div>
                 </div>
                 <div className="flex items-center gap-3 rounded-lg bg-info-subtle/60 px-4 py-2.5 text-info-subtle-fg">
-                    <PauseCircleIcon className="size-5 shrink-0" aria-hidden />
+                    {status.nextBreak
+                        ? <PauseCircleIcon className="size-5 shrink-0" aria-hidden />
+                        : <FlagIcon className="size-5 shrink-0" aria-hidden />}
                     <div className="text-sm">
                         {status.nextBreak ? (
                             <>
@@ -75,7 +78,7 @@ export function ShiftStatusCard({ status }: { status: ShiftStatus }) {
                                 </div>
                             </>
                         ) : (
-                            <div className="font-semibold">No more breaks after this stretch</div>
+                            <div className="font-semibold">Final stretch</div>
                         )}
                     </div>
                 </div>
@@ -84,31 +87,59 @@ export function ShiftStatusCard({ status }: { status: ShiftStatus }) {
     );
 }
 
+/** Rough rendered width of a "T+12:30" label at text-xs, plus breathing room. */
+const MARK_LABEL_PX = 46;
+const MARK_ROWS = 2;
+
+interface StripMark {
+    key: string;
+    mins: number;
+    pct: number;
+    /** Which side of the point the label sits on, so a break's two times point away from each other. */
+    side: "before" | "after";
+    row: number | null;
+}
+
 /**
  * The whole machine's plan as one bar: work stretches and breaks to scale, with
- * a marker at the simulation clock.
+ * a marker at the simulation clock and the time each break starts and ends.
  */
 export function ShiftStrip({ segments, nowMins }: { segments: ShiftSegment[]; nowMins: number | null }) {
-    if (segments.length === 0) return null;
-    const startMins = segments[0].startMins;
-    const endMins = segments[segments.length - 1].endMins;
+    const ref = useRef<HTMLDivElement>(null);
+    const [widthPx, setWidthPx] = useState(600);
+    useEffect(() => {
+        const element = ref.current;
+        if (!element) return;
+        const observer = new ResizeObserver(([entry]) => setWidthPx(entry.contentRect.width));
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, []);
+
+    const startMins = segments[0]?.startMins ?? 0;
+    const endMins = segments[segments.length - 1]?.endMins ?? 0;
     const span = endMins - startMins;
-    if (span <= 0) return null;
-    const nowPct = nowMins === null ? null : ((nowMins - startMins) / span) * 100;
+    const marks = useMemo(
+        () => (span > 0 ? placeMarks(segments, startMins, span, widthPx) : []),
+        [segments, startMins, span, widthPx],
+    );
+    if (segments.length === 0 || span <= 0) return null;
+    const pctOf = (value: number) => ((value - startMins) / span) * 100;
+    const nowPct = nowMins === null ? null : pctOf(nowMins);
+    const rows = Math.max(1, ...marks.map((mark) => (mark.row ?? 0) + 1));
 
     return (
-        <div className="flex flex-col gap-1.5">
-            <div className="relative flex h-4 gap-0.5" role="img" aria-label={stripLabel(segments)}>
+        <div className="flex flex-col gap-1.5" ref={ref}>
+            <div className="relative h-4" role="img" aria-label={stripLabel(segments)}>
                 {segments.map((segment) => (
                     <div
                         key={segment.key}
                         title={`${segment.kind === "work" ? "Work" : "Break"} · ${mins(segment.endMins - segment.startMins)} · ${formatOffset(segment.startMins)} to ${formatOffset(segment.endMins)}`}
                         className={
                             segment.kind === "work"
-                                ? "min-w-1 rounded-sm bg-primary"
-                                : "min-w-1 rounded-sm border border-info-subtle-fg/40 border-dashed bg-info-subtle"
+                                ? "absolute inset-y-0 min-w-0.5 rounded-sm bg-primary"
+                                : "absolute inset-y-0 min-w-0.5 rounded-sm border border-info-subtle-fg/40 border-dashed bg-info-subtle"
                         }
-                        style={{ flexGrow: segment.endMins - segment.startMins, flexBasis: 0 }}
+                        style={{ left: `${pctOf(segment.startMins)}%`, width: `${((segment.endMins - segment.startMins) / span) * 100}%` }}
                     />
                 ))}
                 {nowPct !== null && nowPct >= 0 && nowPct <= 100 && (
@@ -119,18 +150,64 @@ export function ShiftStrip({ segments, nowMins }: { segments: ShiftSegment[]; no
                     />
                 )}
             </div>
-            <div className="flex justify-between text-muted-fg text-xs tabular-nums">
-                <span>{formatOffset(startMins)}</span>
-                <span className="flex items-center gap-3">
-                    <span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-primary" /> Work</span>
-                    <span className="flex items-center gap-1">
-                        <span className="size-2.5 rounded-sm border border-info-subtle-fg/40 border-dashed bg-info-subtle" /> Break
-                    </span>
+            <div className="relative text-muted-fg text-xs tabular-nums" style={{ height: `${rows * 1.25 + 0.375}rem` }} aria-hidden>
+                {marks.map((mark) => (
+                    <div key={mark.key} className="absolute top-0" style={{ left: `${mark.pct}%` }}>
+                        <div
+                            className="-translate-x-1/2 absolute top-0 w-px bg-border"
+                            style={{ height: mark.row === null ? "0.375rem" : `${mark.row * 1.25 + 0.5}rem` }}
+                        />
+                        {mark.row !== null && (
+                            <span
+                                className={`absolute whitespace-nowrap leading-5 ${mark.side === "before" ? "right-0 pr-0.5" : "left-0 pl-0.5"}`}
+                                style={{ top: `${mark.row * 1.25 + 0.375}rem` }}
+                            >
+                                {formatOffset(mark.mins)}
+                            </span>
+                        )}
+                    </div>
+                ))}
+            </div>
+            <div className="flex justify-end gap-3 text-muted-fg text-xs">
+                <span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-primary" /> Work</span>
+                <span className="flex items-center gap-1">
+                    <span className="size-2.5 rounded-sm border border-info-subtle-fg/40 border-dashed bg-info-subtle" /> Break
                 </span>
-                <span>{formatOffset(endMins)}</span>
             </div>
         </div>
     );
+}
+
+/**
+ * Times to show under the bar: the plan's start and end, then each break's start
+ * and end. Each label takes the first row where it does not collide with one
+ * already placed; one that fits nowhere keeps its tick but drops its text.
+ */
+function placeMarks(segments: ShiftSegment[], startMins: number, span: number, widthPx: number): StripMark[] {
+    const labelPct = (MARK_LABEL_PX / Math.max(widthPx, 1)) * 100;
+    const pctOf = (value: number) => ((value - startMins) / span) * 100;
+    const marks: StripMark[] = [
+        { key: "start", mins: startMins, pct: 0, side: "after", row: null },
+        { key: "end", mins: startMins + span, pct: 100, side: "before", row: null },
+    ];
+    for (const segment of segments) {
+        if (segment.kind !== "break") continue;
+        marks.push(
+            { key: `${segment.key}:start`, mins: segment.startMins, pct: pctOf(segment.startMins), side: "before", row: null },
+            { key: `${segment.key}:end`, mins: segment.endMins, pct: pctOf(segment.endMins), side: "after", row: null },
+        );
+    }
+
+    const taken: Array<Array<[number, number]>> = Array.from({ length: MARK_ROWS }, () => []);
+    for (const mark of marks) {
+        const from = mark.side === "before" ? mark.pct - labelPct : mark.pct;
+        const to = from + labelPct;
+        const row = taken.findIndex((placed) => placed.every(([left, right]) => to <= left || from >= right));
+        if (row < 0) continue;
+        taken[row].push([from, to]);
+        mark.row = row;
+    }
+    return marks;
 }
 
 function stripLabel(segments: ShiftSegment[]): string {
