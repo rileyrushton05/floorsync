@@ -1,8 +1,9 @@
 """Machine, category and capability persistence with caller-owned transactions.
 
 Nothing here commits or rolls back: the route owns the transaction boundary, per
-docs/backend-conventions.md. Uniqueness is checked here for a readable outcome and enforced again by
-the database, which is what actually holds under concurrent writes.
+docs/backend-conventions.md. Machine name uniqueness is checked here for a readable outcome and
+enforced again by the database, which is what actually holds under concurrent writes; category names
+are left to the database alone (see `CategoryService`).
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import Select, func, select, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.category import Category
@@ -24,10 +26,14 @@ from floorsync_common.machines.results import (
     CapabilityRemoved,
     CapabilitySet,
     CategoryCreated,
+    CategoryDeleted,
+    CategoryInUse,
     CategoryNameAlreadyExists,
     CategoryNotFound,
+    CategoryRenamed,
     CreateCategoryResult,
     CreateMachineResult,
+    DeleteCategoryResult,
     DeleteMachineResult,
     GetMachineResult,
     ListCapabilitiesResult,
@@ -39,6 +45,7 @@ from floorsync_common.machines.results import (
     MachineNotFound,
     MachineUpdated,
     RemoveCapabilityResult,
+    RenameCategoryResult,
     SetCapabilityResult,
     UpdateMachineResult,
 )
@@ -303,7 +310,19 @@ class MachineService:
 
     @staticmethod
     async def _category_exists(db: AsyncSession, category_id: UUID) -> bool:
-        return (await db.scalar(select(Category.id).where(Category.id == category_id))) is not None
+        """Whether the category exists, kept from being deleted until the transaction ends.
+
+        Key-share is the lock the machine's foreign key takes anyway, taken here at the check: a
+        concurrent delete is waited for and seen, instead of passing this check and then failing
+        the foreign key. Renames are not blocked.
+        """
+
+        category = await db.scalar(
+            select(Category.id)
+            .where(Category.id == category_id)
+            .with_for_update(read=True, key_share=True)
+        )
+        return category is not None
 
 
 class CategoryService:
@@ -311,21 +330,87 @@ class CategoryService:
 
     Categories group machines and carry nothing else, so the collection stays small and bounded and
     is returned whole rather than paged.
+
+    Names are unique ignoring case, and only the `uq_categories_lower_name` index decides that: a
+    name is written inside a savepoint and a clash on that index becomes the expected outcome. A
+    pre-check could not see a name another transaction has written but not committed yet; the index
+    makes the second writer wait for the first and then refuses it.
     """
 
     @staticmethod
     async def create_category(db: AsyncSession, *, name: str) -> CreateCategoryResult:
-        """Add a category, rejecting a duplicate name."""
+        """Add a category, rejecting a name already used in any capitalisation."""
 
         normalized_name = name.strip()
-        existing = await db.scalar(select(Category.id).where(Category.name == normalized_name))
-        if existing is not None:
-            return CategoryNameAlreadyExists(name=normalized_name)
-
         category = Category(name=normalized_name)
-        db.add(category)
-        await db.flush()
+        try:
+            async with db.begin_nested():
+                db.add(category)
+                await db.flush()
+        except IntegrityError as error:
+            if not _is_category_name_clash(error):
+                raise
+            return CategoryNameAlreadyExists(
+                name=await CategoryService._existing_name(db, normalized_name)
+            )
         return CategoryCreated(category=category)
+
+    @staticmethod
+    async def rename_category(
+        db: AsyncSession, category_id: UUID, *, name: str
+    ) -> RenameCategoryResult:
+        """Rename a category, rejecting a name another category uses in any capitalisation.
+
+        Changing only the capitalisation of its own name is allowed. The row is locked first, so
+        a delete that commits meanwhile makes this not found rather than an update of nothing.
+        `FOR NO KEY UPDATE` is the lock the update takes anyway: it waits for a delete but not
+        for a machine being assigned the category.
+        """
+
+        category = await db.scalar(
+            select(Category).where(Category.id == category_id).with_for_update(key_share=True)
+        )
+        if category is None:
+            return CategoryNotFound(category_id=category_id)
+
+        normalized_name = name.strip()
+        try:
+            async with db.begin_nested():
+                category.name = normalized_name
+                await db.flush()
+        except IntegrityError as error:
+            if not _is_category_name_clash(error):
+                raise
+            return CategoryNameAlreadyExists(
+                name=await CategoryService._existing_name(db, normalized_name)
+            )
+        return CategoryRenamed(category=category)
+
+    @staticmethod
+    async def remove_category(db: AsyncSession, category_id: UUID) -> DeleteCategoryResult:
+        """Remove a category no machine belongs to.
+
+        A category in use is refused rather than detached from its machines. The row is locked
+        before its machines are counted, and assigning a category locks it in key-share mode
+        (`MachineService._category_exists`), so a machine being added to it either finishes first
+        and is counted, or waits and then finds the category gone.
+        """
+
+        category = await db.scalar(
+            select(Category).where(Category.id == category_id).with_for_update()
+        )
+        if category is None:
+            return CategoryNotFound(category_id=category_id)
+
+        machine_count = await db.scalar(
+            select(func.count()).select_from(Machine).where(Machine.category_id == category_id)
+        )
+        if machine_count:
+            return CategoryInUse(category_id=category_id, machine_count=machine_count)
+
+        await db.delete(category)
+        await db.flush()
+        return CategoryDeleted(category_id=category_id)
 
     @staticmethod
     async def list_categories(db: AsyncSession) -> tuple[Category, ...]:
@@ -333,3 +418,23 @@ class CategoryService:
 
         categories = (await db.scalars(select(Category).order_by(Category.name))).all()
         return tuple(categories)
+
+    @staticmethod
+    async def _existing_name(db: AsyncSession, name: str) -> str:
+        """How the floor spells the category `name` clashed with, for the refusal to quote."""
+
+        existing = await db.scalar(
+            select(Category.name).where(func.lower(Category.name) == func.lower(name))
+        )
+        # Deleted again since the clash: quote the request.
+        return existing or name
+
+
+def _is_category_name_clash(error: IntegrityError) -> bool:
+    """Whether the write broke the category name index, not some other constraint.
+
+    The driver's own error, the one wrapped by SQLAlchemy's, names the index it violated.
+    """
+
+    driver_error = error.orig.__cause__ if error.orig is not None else None
+    return getattr(driver_error, "constraint_name", None) == "uq_categories_lower_name"

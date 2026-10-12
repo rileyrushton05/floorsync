@@ -11,6 +11,7 @@ from floorsync_api.features.machines.schemas import (
     CapabilityUpsertRequest,
     CategoryCreateRequest,
     CategoryResponse,
+    CategoryUpdateRequest,
     MachineCreateRequest,
     MachineDetailResponse,
     MachineResponse,
@@ -25,8 +26,11 @@ from floorsync_common.machines.results import (
     CapabilityRemoved,
     CapabilitySet,
     CategoryCreated,
+    CategoryDeleted,
+    CategoryInUse,
     CategoryNameAlreadyExists,
     CategoryNotFound,
+    CategoryRenamed,
     MachineCreated,
     MachineDeleted,
     MachineFound,
@@ -336,7 +340,7 @@ async def remove_capability(
     response_model=CategoryResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Add a machine category",
-    responses={409: {"description": "A category already uses that name"}},
+    responses={409: {"description": "A category already uses that name, ignoring case"}},
 )
 async def create_category(
     command: CategoryCreateRequest,
@@ -355,15 +359,7 @@ async def create_category(
                 response.headers["Location"] = f"/api/v1/categories/{category.id}"
                 return CategoryResponse.model_validate(category)
             case CategoryNameAlreadyExists(name=name):
-                return problem_response(
-                    ProblemDetail(
-                        type="urn:floorsync:problem:category-name-conflict",
-                        title="Category name already in use",
-                        status=status.HTTP_409_CONFLICT,
-                        detail=f"A category named {name!r} already exists.",
-                        instance=request.url.path,
-                    )
-                )
+                return _category_name_conflict(request, name)
             case _:
                 assert_never(result)
 
@@ -382,6 +378,82 @@ async def list_categories(db: DbSession, _: Manager) -> list[CategoryResponse]:
     return [CategoryResponse.model_validate(category) for category in categories]
 
 
+@categories_router.patch(
+    "/{category_id}",
+    response_model=CategoryResponse,
+    summary="Rename a machine category",
+    responses={409: {"description": "Another category already uses that name, ignoring case"}},
+)
+async def rename_category(
+    category_id: UUID,
+    command: CategoryUpdateRequest,
+    request: Request,
+    db: DbSession,
+    _: Manager,
+) -> CategoryResponse | JSONResponse:
+    """Rename a category. Its machines keep it, under the new name."""
+
+    async with db.begin():
+        result = await CategoryService.rename_category(db, category_id, name=command.name)
+
+        match result:
+            case CategoryRenamed(category=category):
+                return CategoryResponse.model_validate(category)
+            case CategoryNotFound():
+                raise _category_not_found()
+            case CategoryNameAlreadyExists(name=name):
+                return _category_name_conflict(request, name)
+            case _:
+                assert_never(result)
+
+
+@categories_router.delete(
+    "/{category_id}",
+    # 204 on success and a problem body on 409, so the route returns a Response itself.
+    response_model=None,
+    summary="Remove a machine category",
+    responses={
+        204: {"description": "The category was removed"},
+        409: {"description": "Machines still belong to the category"},
+    },
+)
+async def delete_category(
+    category_id: UUID,
+    request: Request,
+    db: DbSession,
+    _: Manager,
+) -> Response | JSONResponse:
+    """Remove a category no machine belongs to.
+
+    A category in use is refused rather than detached from its machines: move them to another
+    category, or clear theirs, first.
+    """
+
+    async with db.begin():
+        result = await CategoryService.remove_category(db, category_id)
+
+        match result:
+            case CategoryDeleted():
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            case CategoryNotFound():
+                raise _category_not_found()
+            case CategoryInUse(machine_count=count):
+                return problem_response(
+                    ProblemDetail(
+                        type="urn:floorsync:problem:category-in-use",
+                        title="Category still has machines",
+                        status=status.HTTP_409_CONFLICT,
+                        detail=(
+                            f"{count} machine{'s are' if count != 1 else ' is'} still in this "
+                            "category. Move them to another category before removing it."
+                        ),
+                        instance=request.url.path,
+                    )
+                )
+            case _:
+                assert_never(result)
+
+
 def _machine_not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.")
 
@@ -393,6 +465,22 @@ def _machine_name_conflict(request: Request, name: str) -> JSONResponse:
             title="Machine name already in use",
             status=status.HTTP_409_CONFLICT,
             detail=f"A machine named {name!r} already exists.",
+            instance=request.url.path,
+        )
+    )
+
+
+def _category_not_found() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+
+
+def _category_name_conflict(request: Request, name: str) -> JSONResponse:
+    return problem_response(
+        ProblemDetail(
+            type="urn:floorsync:problem:category-name-conflict",
+            title="Category name already in use",
+            status=status.HTTP_409_CONFLICT,
+            detail=f"A category named {name!r} already exists.",
             instance=request.url.path,
         )
     )

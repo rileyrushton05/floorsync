@@ -112,8 +112,30 @@ class CategoryCreated:
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryRenamed:
+    category: Category
+
+
+@dataclass(frozen=True, slots=True)
+class CategoryDeleted:
+    category_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
 class CategoryNameAlreadyExists(ExpectedOutcome):
+    """Category names are unique ignoring case; `name` is the one already on the floor."""
+
     name: str
 
 
+@dataclass(frozen=True, slots=True)
+class CategoryInUse(ExpectedOutcome):
+    """Machines still belong to the category, so deleting it would silently uncategorise them."""
+
+    category_id: UUID
+    machine_count: int
+
+
 type CreateCategoryResult = CategoryCreated | CategoryNameAlreadyExists
+type RenameCategoryResult = CategoryRenamed | CategoryNotFound | CategoryNameAlreadyExists
+type DeleteCategoryResult = CategoryDeleted | CategoryNotFound | CategoryInUse

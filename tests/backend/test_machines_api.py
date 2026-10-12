@@ -22,8 +22,11 @@ from floorsync_common.machines.results import (
     CapabilityRemoved,
     CapabilitySet,
     CategoryCreated,
+    CategoryDeleted,
+    CategoryInUse,
     CategoryNameAlreadyExists,
     CategoryNotFound,
+    CategoryRenamed,
     MachineCreated,
     MachineFound,
     MachineNameAlreadyExists,
@@ -103,7 +106,7 @@ def stub(monkeypatch: pytest.MonkeyPatch, method: str, outcome: object) -> None:
         return outcome
 
     target: Callable[..., object] = machine_service.MachineService
-    if method.startswith("create_category") or method.startswith("list_categories"):
+    if method.endswith(("_category", "_categories")):
         target = machine_service.CategoryService
     monkeypatch.setattr(target, method, staticmethod(fake))
 
@@ -376,6 +379,78 @@ def test_create_category_rejects_a_duplicate_name(monkeypatch: pytest.MonkeyPatc
 
     assert response.status_code == 409
     assert response.json()["type"] == "urn:floorsync:problem:category-name-conflict"
+
+
+def test_rename_category_returns_the_renamed_category(monkeypatch: pytest.MonkeyPatch) -> None:
+    category = Category(id=uuid4(), name="Cutting", created_at=CREATED_AT, updated_at=CREATED_AT)
+    stub(monkeypatch, "rename_category", CategoryRenamed(category=category))
+
+    response = machine_client().patch(f"/api/v1/categories/{category.id}", json={"name": "Cutting"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Cutting"
+
+
+def test_rename_category_returns_404_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    category_id = uuid4()
+    stub(monkeypatch, "rename_category", CategoryNotFound(category_id=category_id))
+
+    response = machine_client().patch(f"/api/v1/categories/{category_id}", json={"name": "Saws"})
+
+    assert response.status_code == 404
+
+
+def test_rename_category_rejects_a_taken_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    stub(monkeypatch, "rename_category", CategoryNameAlreadyExists(name="Cutting"))
+
+    response = machine_client().patch(f"/api/v1/categories/{uuid4()}", json={"name": "cutting"})
+
+    assert response.status_code == 409
+    assert response.json()["type"] == "urn:floorsync:problem:category-name-conflict"
+    assert response.json()["detail"] == "A category named 'Cutting' already exists."
+
+
+def test_rename_category_rejects_a_blank_name() -> None:
+    response = machine_client().patch(f"/api/v1/categories/{uuid4()}", json={"name": "  "})
+
+    assert response.status_code == 422
+
+
+def test_delete_category_returns_204(monkeypatch: pytest.MonkeyPatch) -> None:
+    category_id = uuid4()
+    stub(monkeypatch, "remove_category", CategoryDeleted(category_id=category_id))
+
+    response = machine_client().delete(f"/api/v1/categories/{category_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_delete_category_returns_404_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    category_id = uuid4()
+    stub(monkeypatch, "remove_category", CategoryNotFound(category_id=category_id))
+
+    response = machine_client().delete(f"/api/v1/categories/{category_id}")
+
+    assert response.status_code == 404
+
+
+def test_delete_category_in_use_is_a_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+    category_id = uuid4()
+    stub(monkeypatch, "remove_category", CategoryInUse(category_id=category_id, machine_count=2))
+
+    response = machine_client().delete(f"/api/v1/categories/{category_id}")
+
+    assert response.status_code == 409
+    assert response.json()["type"] == "urn:floorsync:problem:category-in-use"
+    assert response.json()["detail"].startswith("2 machines are still in this category.")
+
+
+def test_category_changes_are_manager_only() -> None:
+    client = machine_client(role="operator")
+
+    assert client.patch(f"/api/v1/categories/{uuid4()}", json={"name": "Saws"}).status_code == 403
+    assert client.delete(f"/api/v1/categories/{uuid4()}").status_code == 403
 
 
 def test_machines_are_manager_only() -> None:
