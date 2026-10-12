@@ -198,6 +198,19 @@ export function categoryNames(categories: MachineCategory[]): ReadonlyMap<string
     return new Map(categories.map((category) => [category.id, category.name]));
 }
 
+/**
+ * Why a new category cannot be created under this name, or null when it can.
+ *
+ * The database only refuses exact duplicates, but "Cutting" beside "cutting"
+ * would be two filter entries nobody can tell apart, so case is ignored here.
+ */
+export function categoryNameProblem(name: string, categories: readonly MachineCategory[]): string | null {
+    const trimmed = name.trim();
+    if (trimmed === "") return "Give the category a name.";
+    const existing = categories.find((category) => category.name.toLowerCase() === trimmed.toLowerCase());
+    return existing ? `“${existing.name}” already exists.` : null;
+}
+
 export const STATUS_FILTERS = [
     { id: "all", label: "All machines" },
     { id: "active", label: "Active" },

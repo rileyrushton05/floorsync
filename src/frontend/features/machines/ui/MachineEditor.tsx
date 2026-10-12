@@ -17,6 +17,7 @@ import {
     type MachineUsage,
     type SaveGate,
 } from "../model/machine";
+import { NewCategoryPopover } from "./NewCategoryPopover";
 
 /** How many dependent jobs are listed before the rest are summarised. */
 const MAX_LISTED_JOBS = 6;
@@ -135,27 +136,36 @@ export function MachineEditor({
                     <Input placeholder="e.g. Assembly station 2" autoComplete="off" />
                 </TextField>
                 <div className="flex flex-col gap-4 sm:flex-row">
-                    <Select
-                        className="flex-1"
-                        value={draft.categoryId ?? NO_CATEGORY}
-                        onChange={(value) =>
-                            onDraftChange((current) => ({
-                                ...current,
-                                categoryId: value === NO_CATEGORY ? null : String(value),
-                            }))
-                        }
-                    >
-                        <Label>Category</Label>
-                        <SelectTrigger />
-                        <SelectContent>
-                            <SelectItem id={NO_CATEGORY} textValue="No category">No category</SelectItem>
-                            {categories.map((category) => (
-                                <SelectItem key={category.id} id={category.id} textValue={category.name}>
-                                    {category.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <div className="flex flex-1 items-end gap-2">
+                        <Select
+                            className="min-w-0 flex-1"
+                            value={draft.categoryId ?? NO_CATEGORY}
+                            onChange={(value) =>
+                                onDraftChange((current) => ({
+                                    ...current,
+                                    categoryId: value === NO_CATEGORY ? null : String(value),
+                                }))
+                            }
+                        >
+                            <Label>Category</Label>
+                            <SelectTrigger />
+                            <SelectContent>
+                                <SelectItem id={NO_CATEGORY} textValue="No category">No category</SelectItem>
+                                {categories.map((category) => (
+                                    <SelectItem key={category.id} id={category.id} textValue={category.name}>
+                                        {category.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <NewCategoryPopover
+                            categories={categories}
+                            isDisabled={saving}
+                            onCreated={(category) =>
+                                onDraftChange((current) => ({ ...current, categoryId: category.id }))
+                            }
+                        />
+                    </div>
                     <TextField
                         className="flex-1"
                         value={draft.salary}

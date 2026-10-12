@@ -35,6 +35,14 @@ export function fetchMachineCategories(token: string, signal?: AbortSignal): Pro
     return apiRequest<MachineCategory[]>("/api/v1/categories", token, { signal });
 }
 
+export function createMachineCategory(name: string, token: string): Promise<MachineCategory> {
+    return apiRequest<MachineCategory>("/api/v1/categories", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+    });
+}
+
 export function createMachine(input: MachineInput, token: string): Promise<MachineSummary> {
     return apiRequest<MachineSummary>("/api/v1/machines", token, {
         method: "POST",
