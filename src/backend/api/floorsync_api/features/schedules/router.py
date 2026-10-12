@@ -5,7 +5,6 @@ from celery.exceptions import OperationalError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import select
 
 from floorsync_api.dependencies.authentication import require_roles
 from floorsync_api.dependencies.database import DbSession
@@ -23,9 +22,6 @@ from floorsync_api.features.schedules.schemas import (
     StrategyLimitResponse,
 )
 from floorsync_api.problems import ProblemDetail, problem_response
-from floorsync_common.database.models.schedule import Schedule
-from floorsync_common.database.models.schedule_dependency import ScheduleDependency
-from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
 from floorsync_common.scheduling.contracts import SchedulingIssue
 from floorsync_common.scheduling.lifecycle import (
@@ -40,6 +36,7 @@ from floorsync_common.scheduling.lifecycle import (
     ScheduleRenamed,
     ScheduleSimulationStarted,
 )
+from floorsync_common.scheduling.reads import ScheduleFound, ScheduleReadService
 from floorsync_common.scheduling.task_names import (
     EXACT_SCHEDULE_GENERATION_TASK,
     SCHEDULE_GENERATION_TASK,
@@ -122,11 +119,7 @@ async def list_schedules(db: DbSession, _: Manager) -> list[ScheduleSummaryRespo
     """
 
     async with db.begin():
-        schedules = (
-            await db.scalars(
-                select(Schedule).order_by(Schedule.created_at.desc(), Schedule.id.desc())
-            )
-        ).all()
+        schedules = await ScheduleReadService.list_schedules(db)
     return [ScheduleSummaryResponse.model_validate(schedule) for schedule in schedules]
 
 
@@ -190,35 +183,40 @@ async def validate_schedule_input(
     summary="Get a generated schedule",
 )
 async def get_schedule(schedule_id: UUID, db: DbSession, _: Manager) -> ScheduleResponse:
-    """Fetch one immutable schedule version with its entries and dependency graph."""
+    """Fetch one immutable schedule version with its entries, dependency graph and job selection."""
 
     async with db.begin():
-        schedule = await db.get(Schedule, schedule_id)
-        if schedule is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
-        entries = list(
-            (
-                await db.scalars(
-                    select(ScheduleEntry)
-                    .where(ScheduleEntry.schedule_id == schedule_id)
-                    .order_by(ScheduleEntry.id)
-                )
-            ).all()
-        )
-        dependencies = list(
-            (
-                await db.scalars(
-                    select(ScheduleDependency)
-                    .join(
-                        ScheduleEntry,
-                        ScheduleDependency.schedule_entry_id == ScheduleEntry.id,
-                    )
-                    .where(ScheduleEntry.schedule_id == schedule_id)
-                    .order_by(ScheduleDependency.id)
-                )
-            ).all()
-        )
-        return schedule_response(schedule, entries, dependencies)
+        result = await ScheduleReadService.get_schedule(db, schedule_id)
+
+    match result:
+        case ScheduleFound(
+            schedule=schedule, entries=entries, dependencies=dependencies, job_ids=job_ids
+        ):
+            return ScheduleResponse(
+                id=schedule.id,
+                name=schedule.name,
+                status=schedule.status,
+                strategy=schedule.strategy,
+                starts_at=schedule.starts_at,
+                runtime_ms=schedule.runtime_ms,
+                input_operation_count=schedule.input_operation_count,
+                makespan=schedule.makespan,
+                total_energy=schedule.total_energy,
+                total_labour_cost=schedule.total_labour_cost,
+                created_at=schedule.created_at,
+                confirmed_by_user_id=schedule.confirmed_by_user_id,
+                confirmed_at=schedule.confirmed_at,
+                entries=[ScheduleEntryResponse.model_validate(entry) for entry in entries],
+                dependencies=[
+                    ScheduleDependencyResponse.model_validate(dependency)
+                    for dependency in dependencies
+                ],
+                job_ids=None if job_ids is None else list(job_ids),
+            )
+        case ScheduleNotFound():
+            raise _schedule_not_found()
+        case _:
+            assert_never(result)
 
 
 @router.patch(
@@ -422,34 +420,6 @@ async def delete_schedule(
                 )
             case _:
                 assert_never(result)
-
-
-def schedule_response(
-    schedule: Schedule,
-    entries: list[ScheduleEntry],
-    dependencies: list[ScheduleDependency],
-) -> ScheduleResponse:
-    """Map persisted schedule rows to the public resource representation."""
-
-    return ScheduleResponse(
-        id=schedule.id,
-        name=schedule.name,
-        status=schedule.status,
-        strategy=schedule.strategy,
-        starts_at=schedule.starts_at,
-        runtime_ms=schedule.runtime_ms,
-        input_operation_count=schedule.input_operation_count,
-        makespan=schedule.makespan,
-        total_energy=schedule.total_energy,
-        total_labour_cost=schedule.total_labour_cost,
-        created_at=schedule.created_at,
-        confirmed_by_user_id=schedule.confirmed_by_user_id,
-        confirmed_at=schedule.confirmed_at,
-        entries=[ScheduleEntryResponse.model_validate(entry) for entry in entries],
-        dependencies=[
-            ScheduleDependencyResponse.model_validate(dependency) for dependency in dependencies
-        ],
-    )
 
 
 def schedule_generation_status(

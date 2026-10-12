@@ -20,16 +20,22 @@ import asyncio
 import os
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import make_url, text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 import floorsync_common.database.models  # noqa: F401  (registers every table on the metadata)
+from floorsync_api.dependencies.authentication import get_current_user
+from floorsync_api.dependencies.database import get_db_session
+from floorsync_api.main import application
 from floorsync_common.database.base import Base
+from floorsync_common.database.models.user import User
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATABASE_URL = os.environ.get(
@@ -106,3 +112,29 @@ def database_url(migrated_database_url: str) -> Iterator[str]:
     """A migrated test database, emptied again once the test finishes."""
     yield migrated_database_url
     asyncio.run(_empty_every_table(migrated_database_url))
+
+
+@pytest.fixture
+def api(database_url: str) -> Iterator[TestClient]:
+    """The real app, its sessions bound to the test database and its caller a signed-in manager.
+
+    A test file needing more (the live-update tests also swap the publisher's sessions) defines
+    its own `api`, which pytest uses in place of this one for that file.
+    """
+    engine = create_async_engine(database_url, poolclass=NullPool)
+    sessions = async_sessionmaker(engine, expire_on_commit=False, autobegin=False)
+
+    async def db_session() -> AsyncIterator[AsyncSession]:
+        async with sessions() as session:
+            yield session
+
+    async def manager() -> User:
+        return User(id=uuid4(), name="Manager", role="manager")
+
+    application.dependency_overrides[get_db_session] = db_session
+    application.dependency_overrides[get_current_user] = manager
+    try:
+        yield TestClient(application)
+    finally:
+        application.dependency_overrides.clear()
+        asyncio.run(engine.dispose())
