@@ -1,28 +1,49 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { type Appearance, DEFAULT_THEME, THEME_COOKIE, type ThemeId, themeOption } from "./themes";
 
 /**
- * Intent UI components (notably <Toast />) read the active theme through
- * `useTheme`, so the app has to provide one.
+ * The active theme, and the way to change it.
  *
  * This used to wrap `next-themes`, but its provider renders an inline <script>
- * that React 19 refuses to execute on the client, so it's now a minimal
- * context with the same shape. The theme is always "light": FloorSync's
- * operations surfaces are designed light, and the navy palette is scoped to
- * the landing page via `.theme-navy` rather than to an OS setting. (`.dark`
- * is still defined in app/styles.css if dark mode is ever needed.)
+ * that React 19 refuses to execute on the client, so it is a small context
+ * instead. The choice lives in a cookie rather than localStorage: the root
+ * layout reads it and puts `data-theme` on <html> in the server render, so the
+ * page arrives in the right palette with no script and no flash of light.
+ *
+ * "system" needs no JavaScript either — app/styles.css switches it with a
+ * `prefers-color-scheme` media query.
+ *
+ * Intent UI components (notably <Toast />) read `appearance` to pick their
+ * light or dark styling.
  */
 
-type Theme = "light" | "dark" | "system";
+const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
-const ThemeContext = createContext<{ theme: Theme; setTheme: (theme: Theme) => void }>({
-    theme: "light",
+const ThemeContext = createContext<{
+    theme: ThemeId;
+    appearance: Appearance;
+    setTheme: (theme: ThemeId) => void;
+}>({
+    theme: DEFAULT_THEME,
+    appearance: "light",
     setTheme: () => {},
 });
 
-export function ThemeProvider({ children }: React.PropsWithChildren) {
-    const value = useMemo(() => ({ theme: "light" as Theme, setTheme: () => {} }), []);
+export function ThemeProvider({ initialTheme, children }: React.PropsWithChildren<{ initialTheme: ThemeId }>) {
+    const [theme, setThemeState] = useState<ThemeId>(initialTheme);
+
+    const setTheme = useCallback((next: ThemeId) => {
+        setThemeState(next);
+        document.documentElement.dataset.theme = next;
+        document.cookie = `${THEME_COOKIE}=${next}; path=/; max-age=${ONE_YEAR_SECONDS}; samesite=lax`;
+    }, []);
+
+    const value = useMemo(
+        () => ({ theme, appearance: themeOption(theme).appearance, setTheme }),
+        [theme, setTheme],
+    );
     return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

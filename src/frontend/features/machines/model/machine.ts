@@ -166,6 +166,7 @@ export interface MachineRow {
     categoryLabel: string;
     active: boolean;
     statusLabel: "Active" | "Inactive";
+    createdAt: string;
     /** Open jobs routed through this machine; null while the jobs are loading. */
     openJobCount: number | null;
 }
@@ -182,6 +183,7 @@ export function toMachineRow(
         categoryLabel: categoryLabel(machine.category_id, categoryNames),
         active: machine.active,
         statusLabel: machine.active ? "Active" : "Inactive",
+        createdAt: machine.created_at,
         openJobCount: usage === null
             ? null
             : (usage.get(machine.id) ?? NO_USAGE).jobs.filter((job) => job.backlogStatus === "open").length,
@@ -207,6 +209,7 @@ export const ANY_CATEGORY = "__any";
 export const NO_CATEGORY = "__none";
 
 export const SORT_OPTIONS = [
+    { id: "Created", label: "Newest first" },
     { id: "Name", label: "Name (A–Z)" },
     { id: "Category", label: "Category" },
     { id: "Usage", label: "Most open jobs" },
@@ -224,7 +227,7 @@ export const INITIAL_MACHINE_FILTERS: MachineFilters = {
     query: "",
     status: "all",
     categoryId: ANY_CATEGORY,
-    sort: "Name",
+    sort: "Created",
 };
 
 export function filtersActive(filters: MachineFilters): boolean {
@@ -249,6 +252,7 @@ export function filterMachineRows(rows: readonly MachineRow[], filters: MachineF
     });
     return matching.sort((left, right) => {
         const byName = left.name.localeCompare(right.name);
+        if (filters.sort === "Created") return right.createdAt.localeCompare(left.createdAt) || byName;
         if (filters.sort === "Category") return left.categoryLabel.localeCompare(right.categoryLabel) || byName;
         if (filters.sort === "Usage") return (right.openJobCount ?? 0) - (left.openJobCount ?? 0) || byName;
         if (filters.sort === "Status") return Number(right.active) - Number(left.active) || byName;

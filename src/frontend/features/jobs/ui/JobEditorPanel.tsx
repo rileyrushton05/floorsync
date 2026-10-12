@@ -241,7 +241,7 @@ export function JobEditorPanel({
                         onChange={onNameChange}
                     >
                         <Label>Job name</Label>
-                        <Input placeholder="e.g. Dryer not working" autoComplete="off" />
+                        <Input placeholder="e.g. Produce Glass" autoComplete="off" />
                     </TextField>
 
                     <Select

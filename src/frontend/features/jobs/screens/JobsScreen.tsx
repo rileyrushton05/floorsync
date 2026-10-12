@@ -5,6 +5,7 @@ import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import type { JobDef, OperationDef } from "@/domains/scheduling/types";
 import {
@@ -53,9 +54,7 @@ const INITIAL_FILTERS: JobFilters = {
     // The backlog is the work that is left, so the list opens on open jobs.
     // Archived ones are fetched all the same and are one filter change away.
     status: "Active",
-    priority: "All",
     machineId: "All",
-    duration: "All",
     sort: DEFAULT_SORT,
 };
 
@@ -637,57 +636,59 @@ function JobsPageInner() {
                 </Button>
             }
         >
-            <main className="grid flex-1 grid-cols-1 gap-3 p-3 sm:gap-5 sm:p-5 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2fr)]">
-                <JobBacklogPanel
-                    jobs={jobs}
-                    visibleJobs={visibleJobs}
-                    machines={machines}
-                    colors={colors}
-                    sequenceNumbers={sequenceNumbers}
-                    selectedJobId={draft.id}
-                    filters={filters}
-                    busy={saving}
-                    onFiltersChange={(update) => setFilters(update)}
-                    onSelect={editJob}
-                />
-
-                <JobEditorPanel
-                    draft={draft}
-                    sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
-                    machines={machines}
-                    activeMachines={activeMachines}
-                    loading={loading}
-                    saving={saving}
-                    hasLoadError={Boolean(loadError)}
-                    dirty={dirty}
-                    gate={gate}
-                    graphError={graphError}
-                    onRetryGraph={() => void dependencyQuery.refetch()}
-                    onDiscard={discardChanges}
-                    onCancelNew={cancelTarget === null ? undefined : cancelNewJob}
-                    notes={notes}
-                    onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
-                    onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
-                    onAddOperation={addOperation}
-                    onRemoveOperation={(index) => setPendingOperationRemoval(index)}
-                    onPatchOperation={patchOperation}
-                    onPatchRoute={patchRoute}
-                    onAddRoute={addRoute}
-                    onRemoveRoute={removeRoute}
-                    onDependenciesChange={setDependencies}
-                    selectedOperationId={selectedOperationId}
-                    focusOperationId={focusOperationId}
-                    onSelectOperation={(operationId) => {
-                        setSelectedOperationId(operationId);
-                        setFocusOperationId(null);
-                    }}
-                    onSave={saveDraft}
-                    canDuplicate={canDuplicate}
-                    onDuplicate={duplicateJob}
-                    onRequestDelete={() => setConfirmingDelete(true)}
-                    onRequestArchive={() => setConfirmingArchive(true)}
-                />
-            </main>
+            <SidePaneLayout className="gap-3 p-3 sm:gap-5 sm:p-5">
+                <SidePane id="jobs.backlog" side="left" label="Job backlog" grow={0.8} minWidth={240}>
+                    <JobBacklogPanel
+                        jobs={jobs}
+                        visibleJobs={visibleJobs}
+                        colors={colors}
+                        sequenceNumbers={sequenceNumbers}
+                        selectedJobId={draft.id}
+                        filters={filters}
+                        busy={saving}
+                        onFiltersChange={(update) => setFilters(update)}
+                        onSelect={editJob}
+                    />
+                </SidePane>
+                <SidePaneMain grow={2}>
+                    <JobEditorPanel
+                        draft={draft}
+                        sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
+                        machines={machines}
+                        activeMachines={activeMachines}
+                        loading={loading}
+                        saving={saving}
+                        hasLoadError={Boolean(loadError)}
+                        dirty={dirty}
+                        gate={gate}
+                        graphError={graphError}
+                        onRetryGraph={() => void dependencyQuery.refetch()}
+                        onDiscard={discardChanges}
+                        onCancelNew={cancelTarget === null ? undefined : cancelNewJob}
+                        notes={notes}
+                        onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
+                        onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
+                        onAddOperation={addOperation}
+                        onRemoveOperation={(index) => setPendingOperationRemoval(index)}
+                        onPatchOperation={patchOperation}
+                        onPatchRoute={patchRoute}
+                        onAddRoute={addRoute}
+                        onRemoveRoute={removeRoute}
+                        onDependenciesChange={setDependencies}
+                        selectedOperationId={selectedOperationId}
+                        focusOperationId={focusOperationId}
+                        onSelectOperation={(operationId) => {
+                            setSelectedOperationId(operationId);
+                            setFocusOperationId(null);
+                        }}
+                        onSave={saveDraft}
+                        canDuplicate={canDuplicate}
+                        onDuplicate={duplicateJob}
+                        onRequestDelete={() => setConfirmingDelete(true)}
+                        onRequestArchive={() => setConfirmingArchive(true)}
+                    />
+                </SidePaneMain>
+            </SidePaneLayout>
 
             {pendingOpen !== null && (
                 <ConfirmDialog

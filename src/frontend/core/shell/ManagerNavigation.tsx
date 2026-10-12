@@ -6,6 +6,7 @@ import {
     ChartBarSquareIcon,
     ChevronDownIcon,
     ClipboardDocumentListIcon,
+    Cog6ToothIcon,
     CpuChipIcon,
     PlayCircleIcon,
     Squares2X2Icon,
@@ -32,6 +33,10 @@ const NAV: (NavItem | NavGroup)[] = [
             { href: "/manager/planner", label: "Planner", icon: ChartBarSquareIcon },
             { href: "/manager/simulation", label: "Simulation", icon: PlayCircleIcon },
         ],
+    },
+    {
+        label: "Account",
+        items: [{ href: "/settings", label: "Settings", icon: Cog6ToothIcon }],
     },
 ];
 

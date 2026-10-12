@@ -45,6 +45,8 @@ from floorsync_common.machines.results import (
 from floorsync_common.operations.results import OperationNotFound
 from floorsync_common.pagination import decode_cursor, encode_cursor
 from floorsync_common.partial import UNSET, Unset, is_set
+from floorsync_common.users.operators import OperatorService
+from floorsync_common.users.service import UserService
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +68,14 @@ class MachineService:
         category_id: UUID | None = None,
         salary: Decimal | None = None,
         active: bool = True,
+        operator_password: str,
     ) -> CreateMachineResult:
-        """Add a machine, rejecting a duplicate name or an unknown category."""
+        """Add a machine together with its operator login, rejecting a duplicate name or an unknown
+        category.
+
+        Every machine has its own login, so the two are created in the same transaction: the
+        operator starts with `operator_password`, under a username derived from the machine's name.
+        """
 
         normalized_name = name.strip()
         if await MachineService._machine_name_taken(db, normalized_name):
@@ -83,6 +91,9 @@ class MachineService:
         )
         db.add(machine)
         await db.flush()
+        await OperatorService.create_for_machine(
+            db, machine, password_hash=UserService.hash_password(operator_password)
+        )
         return MachineCreated(machine=machine)
 
     @staticmethod
@@ -143,12 +154,15 @@ class MachineService:
         if machine is None:
             return MachineNotFound(machine_id=machine_id)
 
+        renamed_from: str | None = None
         if is_set(name):
             normalized_name = name.strip()
             if normalized_name != machine.name and await MachineService._machine_name_taken(
                 db, normalized_name
             ):
                 return MachineNameAlreadyExists(name=normalized_name)
+            if normalized_name != machine.name:
+                renamed_from = machine.name
             machine.name = normalized_name
 
         if is_set(category_id):
@@ -164,6 +178,11 @@ class MachineService:
         if is_set(active):
             machine.active = active
 
+        if renamed_from is not None:
+            await OperatorService.follow_machine_rename(
+                db, machine_id, previous_name=renamed_from, new_name=machine.name
+            )
+
         await db.flush()
         # `salary` is NUMERIC(10, 2): PostgreSQL rounds what it stores (12.555 becomes 12.56).
         # Reloading returns the stored value rather than echoing the unrounded request.
@@ -174,8 +193,8 @@ class MachineService:
     async def remove_machine(db: AsyncSession, machine_id: UUID) -> DeleteMachineResult:
         """Remove a machine that no operation is assigned to.
 
-        Compatibilities and unavailability windows cascade with the machine, and no operator login
-        may still point at it by the time it has no capabilities left. Operations do not: the
+        Compatibilities and unavailability windows cascade with the machine, and its operator login
+        is deleted with it, since an operator cannot exist without a machine. Operations do not: the
         route says which machines can run an operation, so a machine still named there is load
         bearing and the delete is refused with a reason instead of an integrity error.
 
@@ -196,6 +215,7 @@ class MachineService:
         if assigned_operations:
             return MachineHasOperations(machine_id=machine_id, operation_count=assigned_operations)
 
+        await OperatorService.remove_for_machine(db, machine_id)
         await db.delete(machine)
         await db.flush()
         return MachineDeleted(machine_id=machine_id)

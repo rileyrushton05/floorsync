@@ -96,6 +96,11 @@ def report(summary: SeedSummary) -> None:
             f"  removed {summary.removed_operator_logins} operator login(s) bound to the "
             "machines that were replaced"
         )
+    if summary.created_operator_logins:
+        print(
+            f"  created {summary.created_operator_logins} operator login(s), one per machine, "
+            "with the default operator password"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
