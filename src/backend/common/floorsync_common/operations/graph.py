@@ -7,7 +7,8 @@ of session and model imports, can depend on it without dragging the persistence 
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Hashable, Iterable, Sequence
 from uuid import UUID
 
 
@@ -45,4 +46,24 @@ def find_dependency_cycle(edges: Sequence[tuple[UUID, UUID]]) -> tuple[UUID, ...
     return tuple(sorted(operation for operation, count in incoming.items() if count > 0))
 
 
-__all__ = ["find_dependency_cycle"]
+def branching_operations[Operation: Hashable](
+    edges: Iterable[tuple[Operation, Operation]],
+) -> set[Operation]:
+    """Return every operation with more than one predecessor or more than one successor.
+
+    That is the line between a set of straight chains and a general precedence graph: fan-in (an
+    operation waiting on several) or fan-out (several waiting on one). ReSched takes only straight
+    chains, so this one definition is shared by its strategy limits and by the import preview's
+    warning, and the two cannot drift apart. Generic over the identifier, since an import plan
+    names operations before the database has given them ids.
+    """
+
+    edge_list = list(edges)
+    predecessors = Counter(after for _, after in edge_list)
+    successors = Counter(before for before, _ in edge_list)
+    return {operation for operation, count in predecessors.items() if count > 1} | {
+        operation for operation, count in successors.items() if count > 1
+    }
+
+
+__all__ = ["branching_operations", "find_dependency_cycle"]

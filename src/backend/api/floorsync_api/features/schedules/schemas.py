@@ -137,6 +137,13 @@ class ScheduleUpdateRequest(RequestSchema):
 
 
 class ScheduleResponse(ResponseSchema):
+    """One schedule with its entries, dependency graph, and the jobs it was asked to plan.
+
+    `job_ids` is the selection the generation request named, which can include a job that held no
+    schedulable work and so has no entries. It is null for a schedule made for the whole floor: a
+    seeded one, or one generated before runs took a selection (#231).
+    """
+
     id: UUID
     name: str | None
     status: Literal["draft", "confirmed", "discarded"]
@@ -152,6 +159,7 @@ class ScheduleResponse(ResponseSchema):
     confirmed_at: datetime | None
     entries: list[ScheduleEntryResponse]
     dependencies: list[ScheduleDependencyResponse]
+    job_ids: list[UUID] | None
 
 
 class StrategyLimitResponse(ResponseSchema):

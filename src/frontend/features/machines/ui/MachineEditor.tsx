@@ -10,6 +10,7 @@ import { InfoTooltip } from "@/components/ui/tooltip";
 import { useSaveShortcutLabel } from "@/core/keyboard/useSaveShortcut";
 import { ArrowUturnLeftIcon, CheckIcon } from "@heroicons/react/24/outline";
 import {
+    CATEGORIES_IN_USE_HINT,
     NO_CATEGORY,
     type MachineCategory,
     type MachineDraft,
@@ -17,6 +18,7 @@ import {
     type MachineUsage,
     type SaveGate,
 } from "../model/machine";
+import { NewCategoryPopover } from "./NewCategoryPopover";
 
 /** How many dependent jobs are listed before the rest are summarised. */
 const MAX_LISTED_JOBS = 6;
@@ -39,6 +41,7 @@ export function MachineEditor({
     draft,
     selected,
     categories,
+    allCategories,
     saving,
     dirty,
     gate,
@@ -53,7 +56,10 @@ export function MachineEditor({
 }: {
     draft: MachineDraft;
     selected: MachineSummary | null;
+    /** The categories the picker offers: those in use, plus the draft's own. */
     categories: MachineCategory[];
+    /** Every category, so "New" can reuse an unlisted one rather than duplicate it. */
+    allCategories: MachineCategory[];
     saving: boolean;
     /** Whether the draft differs from the machine as the API has it. */
     dirty: boolean;
@@ -135,27 +141,49 @@ export function MachineEditor({
                     <Input placeholder="e.g. Assembly station 2" autoComplete="off" />
                 </TextField>
                 <div className="flex flex-col gap-4 sm:flex-row">
-                    <Select
-                        className="flex-1"
-                        value={draft.categoryId ?? NO_CATEGORY}
-                        onChange={(value) =>
-                            onDraftChange((current) => ({
-                                ...current,
-                                categoryId: value === NO_CATEGORY ? null : String(value),
-                            }))
-                        }
-                    >
-                        <Label>Category</Label>
-                        <SelectTrigger />
-                        <SelectContent>
-                            <SelectItem id={NO_CATEGORY} textValue="No category">No category</SelectItem>
-                            {categories.map((category) => (
-                                <SelectItem key={category.id} id={category.id} textValue={category.name}>
-                                    {category.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    {/* The label sits outside the Select: inside it, the
+                        tooltip's button would be taken for the Select's own
+                        trigger and open the dropdown instead. */}
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                        <span className="flex items-center gap-1">
+                            <Label id="machine-category-label" className="font-medium">
+                                Category
+                            </Label>
+                            <InfoTooltip label="Which categories are listed">
+                                {CATEGORIES_IN_USE_HINT} Use New to add one, or to reuse one that is not listed.
+                            </InfoTooltip>
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <Select
+                                aria-labelledby="machine-category-label"
+                                className="min-w-0 flex-1"
+                                value={draft.categoryId ?? NO_CATEGORY}
+                                onChange={(value) =>
+                                    onDraftChange((current) => ({
+                                        ...current,
+                                        categoryId: value === NO_CATEGORY ? null : String(value),
+                                    }))
+                                }
+                            >
+                                <SelectTrigger />
+                                <SelectContent>
+                                    <SelectItem id={NO_CATEGORY} textValue="No category">No category</SelectItem>
+                                    {categories.map((category) => (
+                                        <SelectItem key={category.id} id={category.id} textValue={category.name}>
+                                            {category.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <NewCategoryPopover
+                                categories={allCategories}
+                                isDisabled={saving}
+                                onPicked={(category) =>
+                                    onDraftChange((current) => ({ ...current, categoryId: category.id }))
+                                }
+                            />
+                        </div>
+                    </div>
                     <TextField
                         className="flex-1"
                         value={draft.salary}

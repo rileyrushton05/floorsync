@@ -8,6 +8,7 @@ This folder should help teaching staff understand how the team worked, what deci
 
 - [Local setup and deployment](../deployment/README.md) — first run, configuration, troubleshooting
 - [Accounts and signing in](accounts.md) — creating and managing logins
+- [Importing production data](importing.md): the file format, the dry run, and every issue code
 
 ## Engineering conventions
 

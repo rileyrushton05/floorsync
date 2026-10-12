@@ -22,6 +22,7 @@ import {
     draftFromMachine,
     draftProblem,
     filterMachineRows,
+    categoriesInUse,
     machineInputFromDraft,
     machineUsage,
     saveGate,
@@ -91,6 +92,14 @@ function MachinesPageInner() {
         [categoryName, machines, usage],
     );
     const visibleRows = useMemo(() => filterMachineRows(rows, filters), [filters, rows]);
+    const filterCategories = useMemo(
+        () => categoriesInUse(categories, machines, filters.categoryId),
+        [categories, filters.categoryId, machines],
+    );
+    const draftCategories = useMemo(
+        () => categoriesInUse(categories, machines, draft.categoryId),
+        [categories, draft.categoryId, machines],
+    );
     const activeCount = useMemo(() => machines.filter((machine) => machine.active).length, [machines]);
 
     const selected = draft.id === null ? null : machines.find((machine) => machine.id === draft.id) ?? null;
@@ -318,7 +327,7 @@ function MachinesPageInner() {
                         total={machines.length}
                         activeCount={activeCount}
                         rows={visibleRows}
-                        categories={categories}
+                        categories={filterCategories}
                         selectedId={draft.id}
                         filters={filters}
                         busy={saving}
@@ -330,7 +339,8 @@ function MachinesPageInner() {
                     <MachineEditor
                         draft={draft}
                         selected={selected}
-                        categories={categories}
+                        categories={draftCategories}
+                        allCategories={categories}
                         saving={saving}
                         dirty={dirty}
                         gate={gate}

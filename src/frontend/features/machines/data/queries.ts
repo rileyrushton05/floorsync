@@ -4,10 +4,12 @@ import { useAuth } from "@/core/auth/AuthProvider";
 import { fetchEveryPage } from "@/core/query/pagination";
 import {
     createMachine,
+    createMachineCategory,
     deleteMachine,
     fetchMachineCategories,
     fetchMachines,
     updateMachine,
+    type MachineCategory,
     type MachineInput,
 } from "./api";
 import { jobKeys } from "@/features/jobs/data/keys";
@@ -44,6 +46,23 @@ export function useMachineCategories() {
         queryFn: ({ signal }) => fetchMachineCategories(requireToken(token), signal),
         staleTime: 5 * 60 * 1000,
         refetchOnMount: "always",
+    });
+}
+
+export function useCreateMachineCategory() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (name: string) => createMachineCategory(name, requireToken(token)),
+        onSuccess: async (category) => {
+            // Added straight away so the new category can be picked the
+            // moment it exists, before the refetch below comes back.
+            queryClient.setQueryData<MachineCategory[]>(machineKeys.categories, (current) => [
+                ...(current ?? []),
+                category,
+            ]);
+            await queryClient.invalidateQueries({ queryKey: machineKeys.categories, exact: true });
+        },
     });
 }
 

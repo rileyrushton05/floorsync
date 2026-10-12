@@ -84,13 +84,17 @@ export function Checkbox({ className, ...props }: CheckboxButtonProps) {
               >
                 {indicator}
               </span>
-              <Label
-                className="col-start-2 row-start-1"
-                data-slot="control-label"
-                elementType="span"
-              >
-                {children}
-              </Label>
+              {/* A bare checkbox (a grid-list row's selection box) has no
+                  label, and an empty one would still claim the column gap. */}
+              {children != null && children !== '' && (
+                <Label
+                  className="col-start-2 row-start-1"
+                  data-slot="control-label"
+                  elementType="span"
+                >
+                  {children}
+                </Label>
+              )}
             </div>
           )
         }
