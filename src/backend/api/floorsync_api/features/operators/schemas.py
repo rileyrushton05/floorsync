@@ -8,8 +8,13 @@ from floorsync_api.schemas import RequestSchema, ResponseSchema
 from floorsync_common.users import OperatorAccount
 
 type DisplayName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+# ASCII only: Python's and PostgreSQL's lower() disagree on some non-ASCII letters (such as 'İ'),
+# which would get past this lowercasing and then fail `username_is_lowercase` as a 500.
 type Username = Annotated[
-    str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=1)
+    str,
+    StringConstraints(
+        strip_whitespace=True, to_lower=True, min_length=1, pattern=r"^[A-Za-z0-9._-]+$"
+    ),
 ]
 # Passwords are taken exactly as typed: trimming one would silently change it.
 type Password = Annotated[str, StringConstraints(min_length=1)]
