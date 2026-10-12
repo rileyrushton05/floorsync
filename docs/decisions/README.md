@@ -27,6 +27,7 @@ Decision records help explain why the team made particular design, technical, sc
 | [0017](0017-live-update-outbox.md) | Accepted | Announce simulation changes through a transactional outbox with a versioned envelope |
 | [0018](0018-archived-jobs-are-read-only.md) | Accepted | A job that has left the backlog is read-only, and archiving is one way (supersedes 0015 point 7) |
 | [0019](0019-derived-backlog-status.md) | Accepted | A job's place in the backlog is derived from its schedules, never stored on it |
+| [0020](0020-file-import-into-the-floor.md) | Accepted | Import a file straight into the floor's own tables, all of it or none of it |
 
 ## Suggested Decision Record Format
 

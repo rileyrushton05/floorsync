@@ -1,0 +1,78 @@
+{
+  "format": "floorsync",
+  "version": 1,
+  "machines": [
+    { "name": "Cutting Table 1", "category": "Cutting", "salary": 38.5 },
+    { "name": "Cutting Table 2", "category": "Cutting", "salary": 38.5 },
+    { "name": "Edge Polisher", "category": "Polishing", "salary": 34 },
+    { "name": "Laminating Press", "category": "Laminating", "salary": 41.25 },
+    { "name": "Tempering Furnace", "category": "Tempering", "salary": 42 },
+    { "name": "Inspection Bench", "category": "Quality" }
+  ],
+  "jobs": [
+    {
+      "name": "Shower screen 1200x800",
+      "priority": "high",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            { "machine": "Cutting Table 1", "duration": 20, "energy": 3.5 },
+            { "machine": "Cutting Table 2", "duration": 25, "energy": 3.2 }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [{ "machine": "Edge Polisher", "duration": 35, "energy": 2.75 }]
+        },
+        {
+          "name": "Temper",
+          "routes": [{ "machine": "Tempering Furnace", "duration": 60, "energy": 18 }]
+        },
+        {
+          "name": "Inspect",
+          "routes": [{ "machine": "Inspection Bench", "duration": 10 }]
+        }
+      ]
+    },
+    {
+      "name": "Splashback 900x600",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [{ "machine": "Cutting Table 2", "duration": 15, "energy": 2.4 }]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [{ "machine": "Edge Polisher", "duration": 25, "energy": 2 }]
+        }
+      ]
+    },
+    {
+      "name": "Laminated door panel",
+      "priority": "low",
+      "operations": [
+        {
+          "name": "Cut outer pane",
+          "routes": [{ "machine": "Cutting Table 1", "duration": 18 }],
+          "after": []
+        },
+        {
+          "name": "Cut inner pane",
+          "routes": [{ "machine": "Cutting Table 2", "duration": 18 }],
+          "after": []
+        },
+        {
+          "name": "Laminate",
+          "routes": [{ "machine": "Laminating Press", "duration": 45, "energy": 12.5 }],
+          "after": ["Cut outer pane", "Cut inner pane"]
+        },
+        {
+          "name": "Inspect",
+          "routes": [{ "machine": "Inspection Bench", "duration": 10 }],
+          "after": ["Laminate"]
+        }
+      ]
+    }
+  ]
+}

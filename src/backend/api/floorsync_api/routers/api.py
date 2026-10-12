@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from floorsync_api.features.auth.router import router as authentication_router
+from floorsync_api.features.imports.router import router as imports_router
 from floorsync_api.features.jobs.definitions_router import (
     job_definition_router,
     job_definitions_router,
@@ -18,6 +19,7 @@ from floorsync_api.features.simulation.router import router as simulation_router
 router = APIRouter(prefix="/api/v1")
 router.include_router(authentication_router)
 router.include_router(categories_router)
+router.include_router(imports_router)
 router.include_router(job_definition_router)
 router.include_router(job_definitions_router)
 router.include_router(job_operations_router)

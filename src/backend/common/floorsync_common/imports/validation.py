@@ -1,0 +1,384 @@
+"""Every judgement of an import plan that needs no database, whatever format it came in.
+
+Sizes (a file asking for more than one import may add), storable text, values (a duration of zero,
+an energy figure the database column cannot hold), each job's precedence, and the plan against the
+machines the floor has once they have been read. Reading them is `persistence`'s job; deciding
+what they mean is this module's.
+
+An operation may only wait on operations listed before it. That makes a cycle impossible, and it
+lets an operation's position be its place in the list: the job builder chains a job's operations
+by position whenever it saves, so positions must never contradict the stated precedence.
+
+Nothing here touches the database.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from decimal import Decimal
+from itertools import pairwise
+
+from floorsync_common.imports.plan import (
+    FloorMachine,
+    ImportIssue,
+    ImportIssueCode,
+    ImportPlan,
+    PlannedJob,
+    PlannedMachine,
+    PlannedRoute,
+)
+from floorsync_common.operations.graph import branching_operations
+
+# The request size limit bounds what a file lists, but not what a classic benchmark declares: a few
+# bytes can say `"machines": 3000000`. These bound every format, far above any real floor (the
+# largest committed benchmark has 792 jobs, 48 machines and 9,748 routes).
+MAX_IMPORT_MACHINES = 1_000
+
+MAX_IMPORT_JOBS = 10_000
+
+MAX_IMPORT_ROWS = 100_000
+"""Every row one import may write, in all six tables together (see `rows_written`)."""
+
+MAX_DURATION_MINUTES = 2**31 - 1
+"""The largest value `compatibilities.duration`, a PostgreSQL `integer`, can hold."""
+
+MAX_AMOUNT = Decimal("99999999.99")
+"""The largest value `machines.salary` and `compatibilities.energy`, `numeric(10, 2)`, can hold."""
+
+
+class ImportValidationService:
+    """Pure checks of an import plan. Each returns the issues it finds, all at once."""
+
+    @staticmethod
+    def check_size(
+        *, machines: int, jobs: int, rows: int, machines_at: str, jobs_at: str
+    ) -> tuple[ImportIssue, ...]:
+        """Refuse a file that asks for more than one import may add. Takes counts, not a plan, so a
+        benchmark's declared counts can be checked before anything is built from them."""
+
+        issues: list[ImportIssue] = []
+        if machines > MAX_IMPORT_MACHINES:
+            issues.append(
+                ImportIssue(
+                    ImportIssueCode.TOO_LARGE,
+                    f"The file describes {machines:,} machines; one import can add at most "
+                    f"{MAX_IMPORT_MACHINES:,}.",
+                    machines_at,
+                )
+            )
+        if jobs > MAX_IMPORT_JOBS:
+            issues.append(
+                ImportIssue(
+                    ImportIssueCode.TOO_LARGE,
+                    f"The file describes {jobs:,} jobs; one import can add at most "
+                    f"{MAX_IMPORT_JOBS:,}.",
+                    jobs_at,
+                )
+            )
+        if not issues and rows > MAX_IMPORT_ROWS:
+            issues.append(
+                ImportIssue(
+                    ImportIssueCode.TOO_LARGE,
+                    f"The file would add up to {rows:,} rows (machines, categories, jobs, "
+                    f"operations, routes and dependencies); one import can add at most "
+                    f"{MAX_IMPORT_ROWS:,}.",
+                )
+            )
+        return tuple(issues)
+
+    @staticmethod
+    def rows_written(plan: ImportPlan) -> int:
+        """The most rows importing `plan` can write, counted table by table as they are written.
+
+        An upper bound: a machine or category the floor already has is reused, not written, but
+        which ones are only known once the floor has been read. Dependencies matter most: a job
+        whose operations each wait on every earlier one has n(n-1)/2 of them.
+        """
+
+        return (
+            len(plan.machines)
+            + len({machine.category for machine in plan.machines if machine.category is not None})
+            + len(plan.jobs)
+            + plan.operation_count
+            + plan.route_count
+            + sum(len(ImportValidationService.precedence_edges(job)) for job in plan.jobs)
+        )
+
+    @staticmethod
+    def check_text(plan: ImportPlan) -> tuple[ImportIssue, ...]:
+        """Every name in the plan that PostgreSQL cannot store, once each, whatever its format.
+
+        `text` columns refuse a NUL character, and the import queries the floor by name before it
+        writes anything, so a plan carrying one would fail on its first query. A FloorSync file is
+        refused earlier with a better location; this is the guarantee for every format, including
+        names a benchmark reader generates from its instance name.
+        """
+
+        texts: list[tuple[str, str]] = []
+        for machine in plan.machines:
+            texts.append((machine.name, f"{machine.location}.name"))
+            if machine.category is not None:
+                texts.append((machine.category, f"{machine.location}.category"))
+        for job in plan.jobs:
+            texts.append((job.name, f"{job.location}.name"))
+            for operation in job.operations:
+                texts.append((operation.name, f"{operation.location}.name"))
+                texts.extend(
+                    (route.machine, f"{route.location}.machine") for route in operation.routes
+                )
+                texts.extend(
+                    (name, f"{operation.location}.after[{index}]")
+                    for index, name in enumerate(operation.after or ())
+                )
+
+        issues: list[ImportIssue] = []
+        seen: set[str] = set()
+        for text, location in texts:
+            if "\x00" in text and text not in seen:
+                seen.add(text)
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.INVALID_VALUE,
+                        f"{text!r} contains a NUL character, which the database cannot store.",
+                        location,
+                    )
+                )
+        return tuple(issues)
+
+    @staticmethod
+    def check_plan(plan: ImportPlan) -> tuple[ImportIssue, ...]:
+        """Every problem with the plan's own values and precedence, all at once."""
+
+        issues: list[ImportIssue] = []
+
+        machine_names: set[str] = set()
+        for machine in plan.machines:
+            if machine.name in machine_names:
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.DUPLICATE_MACHINE,
+                        f"Machine {machine.name!r} is declared more than once.",
+                        machine.location,
+                    )
+                )
+            machine_names.add(machine.name)
+            if machine.salary is not None:
+                issues.extend(_check_amount(machine.salary, f"{machine.location}.salary", "Salary"))
+
+        for job in plan.jobs:
+            for operation in job.operations:
+                route_machines: set[str] = set()
+                for route in operation.routes:
+                    if route.machine in route_machines:
+                        issues.append(
+                            ImportIssue(
+                                ImportIssueCode.DUPLICATE_ROUTE,
+                                f"Machine {route.machine!r} is listed twice for this operation; an "
+                                "operation has one duration and energy figure per machine.",
+                                route.location,
+                            )
+                        )
+                    route_machines.add(route.machine)
+                    if not 1 <= route.duration <= MAX_DURATION_MINUTES:
+                        issues.append(
+                            ImportIssue(
+                                ImportIssueCode.INVALID_VALUE,
+                                "Duration must be a whole number of minutes from 1 to "
+                                f"{MAX_DURATION_MINUTES:,}.",
+                                f"{route.location}.duration",
+                            )
+                        )
+                    if route.energy is not None:
+                        issues.extend(
+                            _check_amount(route.energy, f"{route.location}.energy", "Energy")
+                        )
+            issues.extend(_check_precedence(job))
+
+        return tuple(issues)
+
+    @staticmethod
+    def plan_warnings(plan: ImportPlan) -> tuple[ImportIssue, ...]:
+        """What the file alone says is worth knowing but does not stop the import."""
+
+        return tuple(
+            ImportIssue(
+                ImportIssueCode.RESCHED_UNSUPPORTED,
+                f"Job {job.name!r} has an operation that waits on, or is waited on by, more than "
+                "one other. ReSched cannot schedule it; the exact solver can.",
+                job.location,
+            )
+            for job in plan.jobs
+            if branching_operations(ImportValidationService.precedence_edges(job))
+        )
+
+    @staticmethod
+    def precedence_edges(job: PlannedJob) -> list[tuple[int, int]]:
+        """A job's precedence as `(before, after)` pairs of indices into `job.operations`.
+
+        A job that states no precedence runs its operations in the order listed: a straight
+        chain, exactly what the job builder would derive from those positions. Otherwise only what
+        is stated. A name that does not match an earlier operation is left out; `check_plan`
+        reports it.
+        """
+
+        if not job.states_precedence:
+            return list(pairwise(range(len(job.operations))))
+
+        index_of = {operation.name: index for index, operation in enumerate(job.operations)}
+        edges: list[tuple[int, int]] = []
+        for index, operation in enumerate(job.operations):
+            for name in dict.fromkeys(operation.after or ()):
+                before = index_of.get(name)
+                if before is not None and before < index:
+                    edges.append((before, index))
+        return edges
+
+    @staticmethod
+    def route_machine_issues(
+        routes: Sequence[PlannedRoute],
+        declared: Mapping[str, PlannedMachine],
+        floor: Mapping[str, FloorMachine],
+    ) -> list[ImportIssue]:
+        """One issue per machine a route cannot use, at the first route that names it."""
+
+        uses: dict[str, list[PlannedRoute]] = {}
+        for route in routes:
+            uses.setdefault(route.machine, []).append(route)
+
+        issues: list[ImportIssue] = []
+        for name, named_by in uses.items():
+            machine = floor.get(name)
+            count = "1 route names it" if len(named_by) == 1 else f"{len(named_by)} routes name it"
+            if machine is None and name not in declared:
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.UNKNOWN_MACHINE,
+                        f"Machine {name!r} is not declared in the file and the floor has no "
+                        f"machine by that name ({count}).",
+                        named_by[0].location,
+                    )
+                )
+            elif machine is not None and not machine.active:
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.INACTIVE_MACHINE,
+                        f"Machine {name!r} is inactive on the floor, so no operation can be "
+                        f"routed to it. Reactivate it first ({count}).",
+                        named_by[0].location,
+                    )
+                )
+        return issues
+
+    @staticmethod
+    def floor_differences(
+        declared: Mapping[str, PlannedMachine], floor: Mapping[str, FloorMachine]
+    ) -> list[ImportIssue]:
+        """A warning for each reused machine the file describes differently. The floor's values win.
+
+        A machine this import created itself matches the file, so it never warns.
+        """
+
+        warnings: list[ImportIssue] = []
+        for name, planned in declared.items():
+            machine = floor.get(name)
+            if machine is None:
+                continue
+            differences: list[str] = []
+            if planned.category is not None and planned.category != machine.category:
+                differences.append(
+                    f"category {machine.category!r} (the file says {planned.category!r})"
+                )
+            if planned.salary is not None and planned.salary != machine.salary:
+                floor_salary = "none" if machine.salary is None else str(machine.salary)
+                differences.append(f"salary {floor_salary} (the file says {planned.salary})")
+            if differences:
+                warnings.append(
+                    ImportIssue(
+                        ImportIssueCode.MACHINE_DIFFERS,
+                        f"Machine {name!r} is already on the floor with "
+                        f"{' and '.join(differences)}. An import never changes an existing "
+                        "machine, so the floor's values are kept.",
+                        planned.location,
+                    )
+                )
+        return warnings
+
+
+def _check_amount(value: Decimal, location: str, label: str) -> list[ImportIssue]:
+    # Bounds first: quantizing a number with a huge exponent would itself fail.
+    if value < 0 or value > MAX_AMOUNT:
+        return [
+            ImportIssue(
+                ImportIssueCode.INVALID_VALUE, f"{label} must be from 0 to {MAX_AMOUNT}.", location
+            )
+        ]
+    if value != value.quantize(Decimal("0.01")):
+        return [
+            ImportIssue(
+                ImportIssueCode.INVALID_VALUE,
+                f"{label} can have at most two decimal places; it is stored to the cent.",
+                location,
+            )
+        ]
+    return []
+
+
+def _check_precedence(job: PlannedJob) -> list[ImportIssue]:
+    if not job.states_precedence:
+        return []
+
+    issues: list[ImportIssue] = []
+    index_of: dict[str, int] = {}
+    for index, operation in enumerate(job.operations):
+        if operation.name in index_of:
+            issues.append(
+                ImportIssue(
+                    ImportIssueCode.DUPLICATE_OPERATION_NAME,
+                    f"Operation {operation.name!r} appears twice in job {job.name!r}, so an "
+                    "'after' naming it would be ambiguous. Operation names must be unique within "
+                    "a job that states its precedence.",
+                    operation.location,
+                )
+            )
+        index_of.setdefault(operation.name, index)
+    if issues:
+        return issues
+
+    for index, operation in enumerate(job.operations):
+        stated: set[str] = set()
+        for position, name in enumerate(operation.after or ()):
+            location = f"{operation.location}.after[{position}]"
+            before = index_of.get(name)
+            if before is None:
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.UNKNOWN_PREDECESSOR,
+                        f"No operation in job {job.name!r} is called {name!r}.",
+                        location,
+                    )
+                )
+            elif name in stated:
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.DUPLICATE_DEPENDENCY, f"{name!r} is listed twice.", location
+                    )
+                )
+            elif before == index:
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.PREDECESSOR_NOT_EARLIER,
+                        f"Operation {name!r} cannot wait for itself.",
+                        location,
+                    )
+                )
+            elif before > index:
+                issues.append(
+                    ImportIssue(
+                        ImportIssueCode.PREDECESSOR_NOT_EARLIER,
+                        f"Operation {operation.name!r} waits for {name!r}, which is listed after "
+                        "it. List operations in an order they can run in.",
+                        location,
+                    )
+                )
+            stated.add(name)
+    return issues
