@@ -102,6 +102,13 @@ After that, a manager manages operator logins under **Settings → Operator acco
 - set a new password (no need to know the old one),
 - disable or re-enable the login.
 
+Usernames may contain ASCII letters (stored lowercase), digits, `.`, `_` and `-`; anything else is
+rejected.
+
+Setting a new password does **not** sign out a session already using the old one: its token stays
+valid until it expires, up to 30 minutes later. If a login has leaked, disable it, which takes effect
+on its next request, and re-enable it once the password is changed.
+
 **An operator's machine cannot be changed**, and two operators cannot swap machines. A login stays on
 the machine it was created for until that machine is removed.
 

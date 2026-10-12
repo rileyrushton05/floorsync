@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,9 +83,9 @@ class OperatorService:
         for machine_id, machine_name in machines:
             username = _first_free(operator_username_base(machine_name), taken)
             taken.add(username)
-            user = User(name=machine_name, role="operator", machine_id=machine_id)
+            # The id is set here rather than by a flush, so every row goes in with one flush.
+            user = User(id=uuid4(), name=machine_name, role="operator", machine_id=machine_id)
             db.add(user)
-            await db.flush()
             db.add(UserCredential(user_id=user.id, username=username, password_hash=password_hash))
         await db.flush()
         return len(machines)
@@ -175,8 +175,9 @@ class OperatorService:
         row = (
             (
                 await db.execute(
-                    select(User, UserCredential)
+                    select(User, UserCredential, Machine.name)
                     .join(UserCredential, UserCredential.user_id == User.id)
+                    .join(Machine, Machine.id == User.machine_id)
                     .where(User.id == user_id, User.role == "operator")
                 )
             )
@@ -185,7 +186,7 @@ class OperatorService:
         )
         if row is None:
             return OperatorNotFound(user_id=user_id)
-        user, credential = row
+        user, credential, machine_name = row
 
         normalized_username: str | None = None
         if is_set(username):
@@ -205,11 +206,8 @@ class OperatorService:
             credential.active = active
 
         await db.flush()
-        machine_name = await db.scalar(select(Machine.name).where(Machine.id == user.machine_id))
         return OperatorUpdated(
-            account=OperatorAccount(
-                user=user, credential=credential, machine_name=machine_name or ""
-            )
+            account=OperatorAccount(user=user, credential=credential, machine_name=machine_name)
         )
 
 
