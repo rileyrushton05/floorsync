@@ -85,7 +85,11 @@ async def import_file(
             return _import_invalid(request, issues, warnings=())
         case PlanRead(plan=plan):
             async with db.begin() as transaction:
-                result = await ImportService.import_plan(db, plan)
+                result = await ImportService.import_plan(
+                    db,
+                    plan,
+                    operator_password=request.app.state.settings.operator_default_password,
+                )
                 match result:
                     case ImportApplied(summary=summary, job_ids=job_ids, warnings=warnings):
                         if dry_run:

@@ -84,6 +84,7 @@ class FakeSession:
 class Calls:
     def __init__(self) -> None:
         self.plans: list[ImportPlan] = []
+        self.operator_passwords: list[str] = []
 
 
 @pytest.fixture
@@ -94,7 +95,9 @@ def session() -> FakeSession:
 def import_client(session: FakeSession, role: str = "manager") -> TestClient:
     from floorsync_api.main import create_application
 
-    application: FastAPI = create_application(Settings(environment="test"))
+    application: FastAPI = create_application(
+        Settings(environment="test", operator_default_password="from-settings")
+    )
     user = User(id=uuid4(), name="Ada Manager", role=role, machine_id=None)
 
     async def get_test_db_session() -> AsyncIterator[AsyncSession]:
@@ -111,8 +114,9 @@ def import_client(session: FakeSession, role: str = "manager") -> TestClient:
 def stub(monkeypatch: pytest.MonkeyPatch, outcome: ImportPlanResult) -> Calls:
     calls = Calls()
 
-    async def fake(_db: object, plan: ImportPlan) -> ImportPlanResult:
+    async def fake(_db: object, plan: ImportPlan, *, operator_password: str) -> ImportPlanResult:
         calls.plans.append(plan)
+        calls.operator_passwords.append(operator_password)
         return outcome
 
     monkeypatch.setattr(ImportService, "import_plan", staticmethod(fake))
@@ -145,6 +149,8 @@ def test_an_import_answers_201_with_the_new_jobs_and_commits(
     assert body["dry_run"] is False and body["importable"] is True
     assert body["format"] == "floorsync"
     assert body["job_ids"] == [str(job_id)]
+    # New machines get their operator login with the configured default, as through POST /machines.
+    assert calls.operator_passwords == ["from-settings"]
     assert body["summary"]["machines_created"] == ["Saw"]
     assert body["warnings"] == [
         {

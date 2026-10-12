@@ -35,6 +35,7 @@ from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.machine import Machine
 from floorsync_common.database.models.operation import Operation
 from floorsync_common.database.models.user import User
+from floorsync_common.database.models.user_credential import UserCredential
 from floorsync_common.imports.plan import ImportPlan
 from floorsync_common.imports.results import (
     ImportApplied,
@@ -53,7 +54,8 @@ from floorsync_common.machines.service import MachineService
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = (REPO / "docs" / "examples" / "import-example.json").read_bytes()
 SEED_DATA = REPO / "src" / "database" / "seed-data"
-TABLES = (Category, Machine, Job, Operation, Compatibility, Dependency)
+# Every table an import writes, operator logins included: a dry run must leave each as it was.
+TABLES = (Category, Machine, Job, Operation, Compatibility, Dependency, User, UserCredential)
 
 
 @pytest.fixture
@@ -406,14 +408,14 @@ def test_two_imports_creating_the_same_machine_both_succeed_and_share_it(
         async with sessions() as first, sessions() as second:
             await first.begin()
             first_result = await ImportService.import_plan(
-                first, a_file("First", category="Cutting", salary=50)
+                first, a_file("First", category="Cutting", salary=50), operator_password="pw"
             )
 
             async def second_import() -> ImportPlanResult:
                 await second.begin()
                 # Disagrees with the first file, but only learns of its machine once inserting.
                 result = await ImportService.import_plan(
-                    second, a_file("Second", category="Milling", salary=10)
+                    second, a_file("Second", category="Milling", salary=10), operator_password="pw"
                 )
                 await second.commit()
                 return result
@@ -446,6 +448,8 @@ def test_two_imports_creating_the_same_machine_both_succeed_and_share_it(
             shared = await db.scalar(select(Machine))
             assert shared is not None and shared.salary == Decimal("50.00")
             assert await db.scalar(select(func.count()).select_from(Machine)) == 1
+            # Only the import that inserted the machine gave it a login; the other reused both.
+            assert await db.scalar(select(func.count()).select_from(User)) == 1
             assert list(await db.scalars(select(Category.name))) == ["Cutting"]
             assert await db.scalar(select(Category.id)) == shared.category_id
             machines = await db.scalars(select(Compatibility.machine_id).distinct())
@@ -498,7 +502,9 @@ def test_deleting_a_machine_an_unfinished_import_uses_is_refused(database_url: s
     async def race(sessions: Sessions) -> tuple[ImportPlanResult, DeleteMachineResult]:
         async with sessions() as importing, sessions() as deleting:
             await importing.begin()
-            imported = await ImportService.import_plan(importing, a_job_on("Saw"))
+            imported = await ImportService.import_plan(
+                importing, a_job_on("Saw"), operator_password="pw"
+            )
 
             async def delete() -> DeleteMachineResult:
                 await deleting.begin()
@@ -530,7 +536,9 @@ def test_importing_onto_a_machine_an_unfinished_delete_removes_is_refused(
 
             async def import_it() -> ImportPlanResult:
                 await importing.begin()
-                result = await ImportService.import_plan(importing, a_job_on("Saw"))
+                result = await ImportService.import_plan(
+                    importing, a_job_on("Saw"), operator_password="pw"
+                )
                 await importing.rollback()
                 return result
 
@@ -543,3 +551,39 @@ def test_importing_onto_a_machine_an_unfinished_delete_removes_is_refused(
 
     assert isinstance(imported, ImportRejected)
     assert [issue.code for issue in imported.issues] == ["unknown_machine"]
+
+
+def test_every_machine_an_import_creates_gets_one_operator_login(
+    api: TestClient, database_url: str
+) -> None:
+    # Every machine has its own operator login (#312). One the floor already had keeps its own.
+    async def existing(sessions: Sessions) -> None:
+        async with transaction(sessions) as db:
+            await MachineService.create_machine(db, name="Edge Polisher", operator_password="pw")
+
+    run(database_url, existing)
+
+    assert upload(api, EXAMPLE).status_code == 201
+
+    async def logins(sessions: Sessions) -> dict[str, list[str]]:
+        async with transaction(sessions) as db:
+            rows = await db.execute(
+                select(Machine.name, UserCredential.username)
+                .outerjoin(User, User.machine_id == Machine.id)
+                .outerjoin(UserCredential, UserCredential.user_id == User.id)
+            )
+            by_machine: dict[str, list[str]] = {}
+            for machine, username in rows.tuples():
+                by_machine.setdefault(machine, []).extend([username] if username else [])
+            return by_machine
+
+    by_machine = run(database_url, logins)
+
+    assert by_machine == {
+        "Cutting Table 1": ["cutting-table-1"],
+        "Cutting Table 2": ["cutting-table-2"],
+        "Edge Polisher": ["edge-polisher"],
+        "Inspection Bench": ["inspection-bench"],
+        "Laminating Press": ["laminating-press"],
+        "Tempering Furnace": ["tempering-furnace"],
+    }

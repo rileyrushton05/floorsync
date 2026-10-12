@@ -42,8 +42,13 @@ class ImportService:
     Persistence = ImportPersistenceService
 
     @staticmethod
-    async def import_plan(db: AsyncSession, plan: ImportPlan) -> ImportPlanResult:
+    async def import_plan(
+        db: AsyncSession, plan: ImportPlan, *, operator_password: str
+    ) -> ImportPlanResult:
         """Check `plan` against itself and the floor, then write every row it describes.
+
+        Each machine the import creates gets its operator login, starting with
+        `operator_password`, as one created by hand does.
 
         Every problem is collected before anything is written, so a rejection lists them all.
         Machines a route names must be declared in the file or already on the floor, and active.
@@ -95,7 +100,9 @@ class ImportService:
             machines,
             created_machines,
             created_categories,
-        ) = await ImportService.Persistence.create_missing_machines(db, to_create, needed)
+        ) = await ImportService.Persistence.create_missing_machines(
+            db, to_create, needed, operator_password=operator_password
+        )
         # What this import actually inserted. Normally what was planned, but a machine another
         # import created a moment earlier was waited for and reused, so it is reported as reused.
         summary = replace(

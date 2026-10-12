@@ -39,7 +39,9 @@ UX of its own (#299).
 4. **Machines and categories are matched by exact name, reused, and never modified.** The floor's
    values win; a file that describes an existing machine differently gets a `machine_differs`
    warning, not an overwrite. A route may name a machine the file does not declare if the floor has
-   it. A route to an inactive machine is refused, as the builder refuses one.
+   it. A route to an inactive machine is refused, as the builder refuses one. A machine the import
+   creates gets its operator login with the default password, as every machine does (#312); one
+   reused from the floor keeps its own.
 5. **A job that states no precedence runs its operations in the order listed**, written as
    `builder_sequence` edges: exactly the chain the builder derives from positions, so the builder
    can edit and even reorder the job afterwards. Stated precedence (`after`) is written as
@@ -112,5 +114,6 @@ UX of its own (#299).
   which is how the builder treats any job; positions are chosen so that chain never contradicts the
   stated precedence.
 - Operators, machine downtime and schedules are not imported. Operator logins should not arrive in
-  a file, downtime has no API yet, and schedules are only seeded.
+  a file, so each new machine gets the default one; downtime has no API yet, and schedules are
+  only seeded.
 - Issue codes are part of the API contract and are listed in `docs/importing.md`.

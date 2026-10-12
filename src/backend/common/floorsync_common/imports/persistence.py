@@ -42,6 +42,8 @@ from floorsync_common.imports.plan import (
     PlannedMachine,
 )
 from floorsync_common.imports.validation import ImportValidationService
+from floorsync_common.users.operators import OperatorService
+from floorsync_common.users.service import UserService
 
 
 class _JobRow(TypedDict):
@@ -143,9 +145,18 @@ class ImportPersistenceService:
 
     @staticmethod
     async def create_missing_machines(
-        db: AsyncSession, to_create: Sequence[PlannedMachine], needed: Collection[str]
+        db: AsyncSession,
+        to_create: Sequence[PlannedMachine],
+        needed: Collection[str],
+        *,
+        operator_password: str,
     ) -> tuple[dict[str, FloorMachine], set[str], set[str]]:
-        """Insert the new machines and their categories, safe against a concurrent import.
+        """Insert the new machines, their categories and their operator logins, safe against a
+        concurrent import.
+
+        Every machine has its own operator login (#312), so each machine this call inserts gets
+        one, starting with `operator_password`. A machine another import created first is reused
+        and keeps the login it was created with.
 
         Returns every needed machine the floor now has, locked until the transaction ends (one
         deleted meanwhile is simply absent), and the machine and category names this call
@@ -161,19 +172,19 @@ class ImportPersistenceService:
         category_names = sorted({machine.category for machine in to_create if machine.category})
         created_categories: set[str] = set()
         if category_names:
-            inserted = await db.scalars(
+            inserted_categories = await db.scalars(
                 upsert(Category)
                 .on_conflict_do_nothing(index_elements=[Category.name])
                 .returning(Category.name),
                 [{"id": uuid4(), "name": name} for name in category_names],
             )
-            created_categories = set(inserted)
+            created_categories = set(inserted_categories)
         category_ids = await ImportPersistenceService.load_category_ids(db, category_names)
 
-        inserted = await db.scalars(
+        inserted_machines = await db.execute(
             upsert(Machine)
             .on_conflict_do_nothing(index_elements=[Machine.name])
-            .returning(Machine.name),
+            .returning(Machine.id, Machine.name),
             [
                 {
                     "id": uuid4(),
@@ -184,7 +195,13 @@ class ImportPersistenceService:
                 for machine in sorted(to_create, key=lambda machine: machine.name)
             ],
         )
-        created_machines = set(inserted)
+        created = sorted((machine_id, name) for machine_id, name in inserted_machines.tuples())
+        created_machines = {name for _, name in created}
+        if created:
+            # Hashed once for the batch: Argon2 is slow on purpose.
+            await OperatorService.create_for_machines(
+                db, created, password_hash=UserService.hash_password(operator_password)
+            )
 
         # A category inserted for a machine another import created first is left with no machine,
         # since that machine keeps its own category. Only rows this call inserted are removed.

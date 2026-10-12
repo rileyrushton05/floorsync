@@ -123,6 +123,11 @@ changed**: if the file gives it a different category or salary, the floor's valu
 import warns. A route may name a machine the file does not declare, as long as the floor has it. A
 route to an inactive machine is refused.
 
+Every machine the import creates gets its operator login, exactly as one created through
+`POST /machines` does: a username from the machine's name (`Cutting Table 1` becomes
+`cutting-table-1`) and the configured default password (`OPERATOR_DEFAULT_PASSWORD`). A reused
+machine keeps the login it already has. A dry run creates none.
+
 ## Benchmark files
 
 ScheduleOpt classic job-shop and flexible job-shop instances (the files in
@@ -167,7 +172,8 @@ Warnings never stop an import:
 
 ## Not imported
 
-- **Operators and logins**: passwords should not travel in a file.
+- **Operators and logins**: passwords should not travel in a file. New machines get their login
+  as described under Machines; a manager changes its password afterwards.
 - **Machine downtime**: `unavailabilities` has no API yet.
 - **Schedules**: only the seed loader writes a pre-solved schedule.
 - **Recognising a job imported before**: importing the same file twice adds its jobs twice. Check
