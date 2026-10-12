@@ -94,6 +94,21 @@
         "title": "Body_create_access_token_api_v1_auth_token_post",
         "type": "object"
       },
+      "Body_import_file_api_v1_imports_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "A FloorSync JSON file, or a ScheduleOpt job-shop or flexible job-shop instance.",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_file_api_v1_imports_post",
+        "type": "object"
+      },
       "BuilderName": {
         "minLength": 1,
         "type": "string"
@@ -562,6 +577,197 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImportFormat": {
+        "description": "What an upload is: our own JSON, or a ScheduleOpt classic or flexible job shop.",
+        "enum": [
+          "floorsync",
+          "jobshop",
+          "flexible-jobshop"
+        ],
+        "title": "ImportFormat",
+        "type": "string"
+      },
+      "ImportIssueCode": {
+        "description": "Every issue an import can report. Stable API values, listed in docs/importing.md.",
+        "enum": [
+          "empty_file",
+          "not_utf8",
+          "not_json",
+          "duplicate_key",
+          "too_deeply_nested",
+          "not_an_object",
+          "unknown_format",
+          "unsupported_version",
+          "invalid_benchmark",
+          "too_large",
+          "missing_field",
+          "unknown_field",
+          "wrong_type",
+          "invalid_value",
+          "duplicate_machine",
+          "duplicate_route",
+          "duplicate_operation_name",
+          "unknown_predecessor",
+          "predecessor_not_earlier",
+          "duplicate_dependency",
+          "unknown_machine",
+          "inactive_machine",
+          "machine_differs",
+          "similar_machine_name",
+          "resched_unsupported"
+        ],
+        "title": "ImportIssueCode",
+        "type": "string"
+      },
+      "ImportIssueResponse": {
+        "description": "One problem with a file, or a warning about it.\n\n`code` is stable and listed in docs/importing.md. `location` points into the file, such as\n`jobs[2].operations[0].routes[1].duration`, or is null for the file as a whole.",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ImportIssueCode"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "location"
+        ],
+        "title": "ImportIssueResponse",
+        "type": "object"
+      },
+      "ImportReportResponse": {
+        "description": "What an import did or, for a dry run, would do.\n\n`importable` is false when `issues` is not empty; a real import with issues is refused with a\n422 instead. `summary` is null when the file could not be read at all. `job_ids` lists the new\njobs in the file's order, and is empty for a dry run, which keeps nothing.",
+        "properties": {
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportFormat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "importable": {
+            "title": "Importable",
+            "type": "boolean"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ImportIssueResponse"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "job_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Job Ids",
+            "type": "array"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ImportIssueResponse"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "format",
+          "dry_run",
+          "importable",
+          "summary",
+          "job_ids",
+          "issues",
+          "warnings"
+        ],
+        "title": "ImportReportResponse",
+        "type": "object"
+      },
+      "ImportSummaryResponse": {
+        "description": "What the file adds to the floor: counts, and the machines it creates or reuses by name.",
+        "properties": {
+          "categories_created": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories Created",
+            "type": "array"
+          },
+          "dependencies": {
+            "title": "Dependencies",
+            "type": "integer"
+          },
+          "jobs": {
+            "title": "Jobs",
+            "type": "integer"
+          },
+          "machines_created": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Machines Created",
+            "type": "array"
+          },
+          "machines_reused": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Machines Reused",
+            "type": "array"
+          },
+          "operations": {
+            "title": "Operations",
+            "type": "integer"
+          },
+          "routes": {
+            "title": "Routes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "machines_created",
+          "machines_reused",
+          "categories_created",
+          "jobs",
+          "operations",
+          "routes",
+          "dependencies"
+        ],
+        "title": "ImportSummaryResponse",
         "type": "object"
       },
       "JobCreateRequest": {
@@ -1754,6 +1960,7 @@
         "type": "string"
       },
       "ScheduleResponse": {
+        "description": "One schedule with its entries, dependency graph, and the jobs it was asked to plan.\n\n`job_ids` is the selection the generation request named, which can include a job that held no\nschedulable work and so has no entries. It is null for a schedule made for the whole floor: a\nseeded one, or one generated before runs took a selection (#231).",
         "properties": {
           "confirmed_at": {
             "anyOf": [
@@ -1813,6 +2020,21 @@
               }
             ],
             "title": "Input Operation Count"
+          },
+          "job_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Ids"
           },
           "makespan": {
             "anyOf": [
@@ -1905,7 +2127,8 @@
           "confirmed_by_user_id",
           "confirmed_at",
           "entries",
-          "dependencies"
+          "dependencies",
+          "job_ids"
         ],
         "title": "ScheduleResponse",
         "type": "object"
@@ -2754,6 +2977,73 @@
         "summary": "Rename a machine category",
         "tags": [
           "machines"
+        ]
+      }
+    },
+    "/api/v1/imports": {
+      "post": {
+        "description": "Add every machine, job, operation, route and precedence edge a file describes, or none.\n\nEvery imported job is new and open in the backlog. Machines are matched by exact name, reused\nwhen the floor has them and never changed by an import. A file with any problem writes\nnothing, and the response lists every problem with where it is in the file. An import creates\nmany resources and none is the primary one, so a `201` carries no `Location`; the new jobs are\nin `job_ids`. A dry run answers `200` whatever it finds.",
+        "operationId": "import_file_api_v1_imports_post",
+        "parameters": [
+          {
+            "description": "Check the file and report what it would add, without keeping any of it.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Check the file and report what it would add, without keeping any of it.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_file_api_v1_imports_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReportResponse"
+                }
+              }
+            },
+            "description": "Dry run: what the import would add, with any problems"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "description": "The file is larger than the request size limit"
+          },
+          "422": {
+            "description": "The file has problems, so nothing was imported"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Import machines, jobs and operations from a file",
+        "tags": [
+          "imports"
         ]
       }
     },
@@ -4400,7 +4690,7 @@
         ]
       },
       "get": {
-        "description": "Fetch one immutable schedule version with its entries and dependency graph.",
+        "description": "Fetch one immutable schedule version with its entries, dependency graph and job selection.",
         "operationId": "get_schedule_api_v1_schedules__schedule_id__get",
         "parameters": [
           {

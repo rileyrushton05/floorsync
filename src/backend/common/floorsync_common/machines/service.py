@@ -204,9 +204,13 @@ class MachineService:
         is deleted with it, since an operator cannot exist without a machine. Operations do not: the
         route says which machines can run an operation, so a machine still named there is load
         bearing and the delete is refused with a reason instead of an integrity error.
+
+        The row is locked before routes are counted: a route another transaction is still writing
+        is invisible until it commits, so without the lock both would go ahead and the delete
+        would fail on the foreign key instead of being refused.
         """
 
-        machine = await db.get(Machine, machine_id)
+        machine = await db.scalar(select(Machine).where(Machine.id == machine_id).with_for_update())
         if machine is None:
             return MachineNotFound(machine_id=machine_id)
 

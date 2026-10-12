@@ -10,7 +10,6 @@ shows them.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -21,34 +20,8 @@ from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from floorsync_api.dependencies.authentication import get_current_user
-from floorsync_api.dependencies.database import get_db_session
-from floorsync_api.main import application
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.machine import Machine
-from floorsync_common.database.models.user import User
-
-
-@pytest.fixture
-def api(database_url: str) -> Iterator[TestClient]:
-    """The real app, its sessions bound to the test database and its caller a signed-in manager."""
-    engine = create_async_engine(database_url, poolclass=NullPool)
-    sessions = async_sessionmaker(engine, expire_on_commit=False, autobegin=False)
-
-    async def db_session() -> AsyncIterator[AsyncSession]:
-        async with sessions() as session:
-            yield session
-
-    async def manager() -> User:
-        return User(id=uuid4(), name="Manager", role="manager")
-
-    application.dependency_overrides[get_db_session] = db_session
-    application.dependency_overrides[get_current_user] = manager
-    try:
-        yield TestClient(application)
-    finally:
-        application.dependency_overrides.clear()
-        asyncio.run(engine.dispose())
 
 
 def _active_machine(database_url: str) -> str:
