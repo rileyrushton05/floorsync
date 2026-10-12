@@ -22,6 +22,8 @@ from floorsync_common.machines.results import (
     CapabilityRemoved,
     CapabilitySet,
     CategoryCreated,
+    CategoryDeleted,
+    CategoryInUse,
     CategoryNameAlreadyExists,
     CategoryNotFound,
     MachineCreated,
@@ -103,7 +105,7 @@ def stub(monkeypatch: pytest.MonkeyPatch, method: str, outcome: object) -> None:
         return outcome
 
     target: Callable[..., object] = machine_service.MachineService
-    if method.startswith("create_category") or method.startswith("list_categories"):
+    if method.endswith(("_category", "_categories")):
         target = machine_service.CategoryService
     monkeypatch.setattr(target, method, staticmethod(fake))
 
@@ -376,6 +378,42 @@ def test_create_category_rejects_a_duplicate_name(monkeypatch: pytest.MonkeyPatc
 
     assert response.status_code == 409
     assert response.json()["type"] == "urn:floorsync:problem:category-name-conflict"
+
+
+def test_delete_category_returns_204(monkeypatch: pytest.MonkeyPatch) -> None:
+    category_id = uuid4()
+    stub(monkeypatch, "remove_category", CategoryDeleted(category_id=category_id))
+
+    response = machine_client().delete(f"/api/v1/categories/{category_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_delete_category_returns_404_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    category_id = uuid4()
+    stub(monkeypatch, "remove_category", CategoryNotFound(category_id=category_id))
+
+    response = machine_client().delete(f"/api/v1/categories/{category_id}")
+
+    assert response.status_code == 404
+
+
+def test_delete_category_in_use_is_a_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+    category_id = uuid4()
+    stub(monkeypatch, "remove_category", CategoryInUse(category_id=category_id, machine_count=2))
+
+    response = machine_client().delete(f"/api/v1/categories/{category_id}")
+
+    assert response.status_code == 409
+    assert response.json()["type"] == "urn:floorsync:problem:category-in-use"
+    assert response.json()["detail"].startswith("2 machines are still in this category.")
+
+
+def test_deleting_a_category_is_manager_only() -> None:
+    response = machine_client(role="operator").delete(f"/api/v1/categories/{uuid4()}")
+
+    assert response.status_code == 403
 
 
 def test_machines_are_manager_only() -> None:

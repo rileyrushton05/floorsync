@@ -2829,7 +2829,7 @@
             "description": "Successful Response"
           },
           "409": {
-            "description": "A category already uses that name"
+            "description": "A category already uses that name, ignoring case"
           },
           "422": {
             "content": {
@@ -2848,6 +2848,59 @@
           }
         ],
         "summary": "Add a machine category",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/api/v1/categories/{category_id}": {
+      "delete": {
+        "description": "Remove a category no machine belongs to.\n\nA category in use is refused rather than detached from its machines: move them to another\ncategory, or clear theirs, first.",
+        "operationId": "delete_category_api_v1_categories__category_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Category Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The category was removed"
+          },
+          "409": {
+            "description": "Machines still belong to the category"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove a machine category",
         "tags": [
           "machines"
         ]

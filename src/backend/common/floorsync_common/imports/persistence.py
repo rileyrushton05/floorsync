@@ -1,8 +1,9 @@
 """Every database read and write an import makes, in the caller's transaction.
 
-Machines and categories are matched by exact name, reused when the floor has them and never
-modified; new ones are inserted so that concurrent imports share them. Jobs, operations, routes
-and dependencies are written in bulk. Nothing here commits or rolls back.
+Machines are matched by exact name and categories ignoring case, as `uq_categories_lower_name`
+does; both are reused when the floor has them and never modified, and new ones are inserted so that
+concurrent imports share them. Jobs, operations, routes and dependencies are written in bulk.
+Nothing here commits or rolls back.
 """
 
 from __future__ import annotations
@@ -105,11 +106,45 @@ class ImportPersistenceService:
         }
 
     @staticmethod
+    async def categories_to_create(db: AsyncSession, names: Sequence[str]) -> list[str]:
+        """The categories in `names` the floor lacks, ignoring case: one spelling for each, the
+        first in `names`.
+
+        Compared with PostgreSQL's `lower`, the function the unique index uses, so "Cutting" and
+        "cutting" in one file are one new category, and neither is new beside the floor's "CUTTING".
+        """
+
+        if not names:
+            return []
+        requested = (
+            func.unnest(literal(list(names), ARRAY(Text)))
+            .table_valued("name", with_ordinality="position")
+            .render_derived()
+        )
+        rows = await db.scalars(
+            select(requested.c.name)
+            .where(~exists().where(func.lower(Category.name) == func.lower(requested.c.name)))
+            .distinct(func.lower(requested.c.name))
+            .order_by(func.lower(requested.c.name), requested.c.position)
+        )
+        new = set(rows)
+        return [name for name in dict.fromkeys(names) if name in new]
+
+    @staticmethod
     async def load_category_ids(db: AsyncSession, names: Collection[str]) -> dict[str, UUID]:
+        """The id of the floor's category for each spelling in `names`, matched ignoring case.
+
+        Locked in key-share mode, as assigning a category by hand is, so none is deleted before
+        the machines naming it are inserted.
+        """
+
         if not names:
             return {}
+        requested = func.unnest(literal(list(names), ARRAY(Text))).table_valued("name")
         rows = await db.execute(
-            select(Category.name, Category.id).where(_named(Category.name, names))
+            select(requested.c.name, Category.id)
+            .join(Category, func.lower(Category.name) == func.lower(requested.c.name))
+            .with_for_update(read=True, key_share=True, of=Category)
         )
         return dict(rows.tuples().all())
 
@@ -169,17 +204,27 @@ class ImportPersistenceService:
         if not to_create:
             return await ImportPersistenceService.load_machines(db, needed, lock=True), set(), set()
 
-        category_names = sorted({machine.category for machine in to_create if machine.category})
+        # The floor's categories are locked before deciding which are new: one being deleted
+        # meanwhile is waited for, then found missing and created again, rather than looked up
+        # after it is gone.
+        category_names = [machine.category for machine in to_create if machine.category]
+        category_ids = await ImportPersistenceService.load_category_ids(db, category_names)
+        new_categories = await ImportPersistenceService.categories_to_create(
+            db, [name for name in category_names if name not in category_ids]
+        )
         created_categories: set[str] = set()
-        if category_names:
+        if new_categories:
             inserted_categories = await db.scalars(
                 upsert(Category)
-                .on_conflict_do_nothing(index_elements=[Category.name])
+                .on_conflict_do_nothing(index_elements=[func.lower(Category.name)])
                 .returning(Category.name),
-                [{"id": uuid4(), "name": name} for name in category_names],
+                [{"id": uuid4(), "name": name} for name in sorted(new_categories)],
             )
             created_categories = set(inserted_categories)
-        category_ids = await ImportPersistenceService.load_category_ids(db, category_names)
+            # Both spellings of a new name, and one another import inserted first.
+            category_ids |= await ImportPersistenceService.load_category_ids(
+                db, [name for name in category_names if name not in category_ids]
+            )
 
         inserted_machines = await db.execute(
             upsert(Machine)
