@@ -2,7 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import type { ShiftSegment, ShiftStatus } from "@/features/operator/model/operator-queue";
-import { BoltIcon, ExclamationTriangleIcon, FlagIcon, PauseCircleIcon } from "@heroicons/react/24/outline";
+import { BoltIcon, ClockIcon, ExclamationTriangleIcon, FlagIcon, PauseCircleIcon } from "@heroicons/react/24/outline";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const mins = (value: number) => formatDuration(Math.max(1, Math.round(value)));
@@ -12,6 +12,27 @@ const mins = (value: number) => formatDuration(Math.max(1, Math.round(value)));
  * continuous work lasts, and what comes after it.
  */
 export function ShiftStatusCard({ status }: { status: ShiftStatus }) {
+    if (status.kind === "not-started") {
+        return (
+            <Card className="border-info-subtle-fg/30 bg-info-subtle/60">
+                <CardContent className="flex flex-col gap-4 pt-6">
+                    <div className="flex items-center gap-2 font-bold text-info-subtle-fg text-xs uppercase tracking-[0.08em]">
+                        <ClockIcon className="size-5" aria-hidden />
+                        Not started yet
+                    </div>
+                    <div>
+                        <p className="font-bold text-4xl tabular-nums leading-tight tracking-tight">
+                            Starts at {formatOffset(status.startsAtMins)}
+                        </p>
+                        <p className="mt-2 text-lg text-muted-fg">
+                            Nothing to do for {mins(status.leftMins)}.
+                        </p>
+                    </div>
+                </CardContent>
+            </Card>
+        );
+    }
+
     if (status.kind === "break") {
         const finishedEarly = status.planned && status.leftMins > status.lengthMins;
         return (

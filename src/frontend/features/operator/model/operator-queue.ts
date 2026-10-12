@@ -143,6 +143,8 @@ export function upcomingSegments(queue: OperatorQueue): ShiftSegment[] {
 }
 
 export type ShiftStatus =
+    /** Before the machine's first operation is due: nothing has been planned yet, so it is not a break. */
+    | { kind: "not-started"; leftMins: number; startsAtMins: number }
     /**
      * Before the current operation is due. `planned` is false when the operator is
      * only ahead of the plan inside a stretch, rather than on a scheduled break.
@@ -171,7 +173,10 @@ export function shiftStatus(queue: OperatorQueue, nowMins: number | null): Shift
 
     if (nowMins < current.startMins) {
         const planned = stretch.operations[0] === current;
-        const breakStart = planned ? (queue.segments[index - 1]?.startMins ?? 0) : nowMins;
+        if (planned && index === 0) {
+            return { kind: "not-started", leftMins: current.startMins - nowMins, startsAtMins: current.startMins };
+        }
+        const breakStart = planned ? queue.segments[index - 1].startMins : nowMins;
         const lengthMins = current.startMins - breakStart;
         return {
             kind: "break",
