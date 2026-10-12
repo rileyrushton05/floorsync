@@ -5,7 +5,13 @@ import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
-import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
+import {
+    GridList,
+    GridListDescription,
+    GridListEmptyState,
+    GridListItem,
+    GridListLabel,
+} from "@/components/ui/grid-list";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
@@ -53,7 +59,7 @@ import {
 import { formatCreatedAt, shortScheduleId, strategyLabel } from "@/features/schedules/model/archive";
 import { PlanStartDateDialog } from "@/features/schedules/ui/PlanStartDateDialog";
 import { SavePlanPanel, type SavePanelState } from "@/features/schedules/ui/SavePlanPanel";
-import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, ArrowPathIcon, ExclamationCircleIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -65,17 +71,17 @@ import {
 } from "../data/api";
 
 const JOB_SORTS = [
-    { id: "newest", label: "Newest" },
-    { id: "oldest", label: "Oldest" },
-    { id: "name", label: "Name A–Z" },
+    { id: "newest", label: "Newest first" },
+    { id: "oldest", label: "Oldest first" },
+    { id: "name", label: "Name (A–Z)" },
 ] as const;
 
 type JobSort = (typeof JOB_SORTS)[number]["id"];
 
 const JOB_STATUS_FILTERS = [
-    { id: "all", label: "All" },
-    { id: "open", label: "Unplanned" },
-    { id: "planned", label: "Planned" },
+    { id: "all", label: "All jobs" },
+    { id: "open", label: "Unplanned jobs" },
+    { id: "planned", label: "Planned jobs" },
 ] as const;
 
 type JobStatusFilter = (typeof JOB_STATUS_FILTERS)[number]["id"];
@@ -630,6 +636,7 @@ function PlannerPageInner() {
     const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every((job) => selectedIds.has(job.id));
     const openJobCount = plannableJobs.filter((job) => job.backlogStatus === "open").length;
     const plannedJobCount = plannableJobs.length - openJobCount;
+    const jobFiltersActive = jobQuery.trim() !== "" || jobStatusFilter !== "all";
 
     const saveState: SavePanelState =
         generation.status !== "ready" || currentScheduleId === null
@@ -721,10 +728,9 @@ function PlannerPageInner() {
                         </CardHeader>
                         <CardContent>
                             {plannableJobs.length > 0 && (
-                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <>
                                     <TextField
                                         aria-label="Search jobs to plan"
-                                        className="min-w-40 flex-1"
                                         value={jobQuery}
                                         onChange={setJobQuery}
                                     >
@@ -733,75 +739,132 @@ function PlannerPageInner() {
                                             <Input placeholder="Search by job name…" autoComplete="off" />
                                         </InputGroup>
                                     </TextField>
-                                    <Select
-                                        aria-label="Sort jobs to plan"
-                                        className="w-32"
-                                        value={jobSort}
-                                        onChange={(value) => setJobSort(value as JobSort)}
-                                    >
-                                        <SelectTrigger />
-                                        <SelectContent>
-                                            {JOB_SORTS.map((option) => (
-                                                <SelectItem key={option.id} id={option.id} textValue={option.label}>
-                                                    {option.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <ToggleGroup
-                                        aria-label="Show jobs"
-                                        size="sm"
-                                        selectionMode="single"
-                                        disallowEmptySelection
-                                        selectedKeys={new Set([jobStatusFilter])}
-                                        onSelectionChange={(keys) => {
-                                            const [first] = Array.from(keys);
-                                            const filter = JOB_STATUS_FILTERS.find((option) => option.id === first);
-                                            if (filter) setJobStatusFilter(filter.id);
-                                        }}
-                                    >
-                                        {JOB_STATUS_FILTERS.map((option) => (
-                                            <ToggleGroupItem key={option.id} id={option.id}>
-                                                {option.label}
-                                            </ToggleGroupItem>
-                                        ))}
-                                    </ToggleGroup>
-                                </div>
-                            )}
-                            <CheckboxGroup
-                                aria-label="Jobs to schedule"
-                                value={selectedJobIds}
-                                isDisabled={busy}
-                                onChange={(values) => setSelectedJobIds([...values])}
-                            >
-                                {visibleJobs.map((job) => {
-                                    const issue = validationIssuesByJobId.get(job.id);
-                                    return (
-                                        <CheckboxField
-                                            key={job.id}
-                                            value={job.id}
-                                            className="rounded-lg p-2 transition-colors hover:bg-secondary"
+
+                                    <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+                                        <span className="font-semibold text-muted-fg text-xs uppercase tracking-[0.05em]">
+                                            Filter
+                                        </span>
+                                        {jobFiltersActive && (
+                                            <Button
+                                                intent="plain"
+                                                size="sm"
+                                                onPress={() => {
+                                                    setJobQuery("");
+                                                    setJobStatusFilter("all");
+                                                }}
+                                            >
+                                                <XMarkIcon /> Clear
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <Select
+                                            aria-label="Filter by plan status"
+                                            className="w-40"
+                                            value={jobStatusFilter}
+                                            onChange={(value) => setJobStatusFilter(value as JobStatusFilter)}
                                         >
-                                            <Checkbox>
+                                            <SelectTrigger />
+                                            <SelectContent>
+                                                {JOB_STATUS_FILTERS.map((option) => (
+                                                    <SelectItem key={option.id} id={option.id} textValue={option.label}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <Separator className="my-5" />
+
+                                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                                        <Select
+                                            aria-label="Sort jobs to plan"
+                                            className="w-44"
+                                            value={jobSort}
+                                            onChange={(value) => setJobSort(value as JobSort)}
+                                        >
+                                            <SelectTrigger />
+                                            <SelectContent>
+                                                {JOB_SORTS.map((option) => (
+                                                    <SelectItem key={option.id} id={option.id} textValue={option.label}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Badge intent="outline" className="ml-auto" role="status">
+                                            Showing {visibleJobs.length} of {plannableJobs.length}
+                                        </Badge>
+                                    </div>
+                                </>
+                            )}
+                            {plannableJobs.length > 0 && (
+                                <GridList
+                                    aria-label="Jobs to schedule"
+                                    selectionMode="multiple"
+                                    selectionBehavior="toggle"
+                                    items={visibleJobs}
+                                    disabledKeys={busy ? visibleJobs.map((job) => job.id) : []}
+                                    // Jobs hidden by the search or filter stay selected:
+                                    // narrowing the list is for finding jobs, not for
+                                    // dropping ones already picked.
+                                    selectedKeys={selectedIds}
+                                    onSelectionChange={(keys) => {
+                                        if (keys === "all") {
+                                            setSelectedJobIds([...new Set([...selectedJobIds, ...visibleJobs.map((job) => job.id)])]);
+                                            return;
+                                        }
+                                        setSelectedJobIds(Array.from(keys, String));
+                                    }}
+                                    renderEmptyState={() => (
+                                        <GridListEmptyState className="text-center text-muted-fg text-sm">
+                                            No jobs match your search or filters.
+                                        </GridListEmptyState>
+                                    )}
+                                >
+                                    {(job) => {
+                                        const issue = validationIssuesByJobId.get(job.id);
+                                        const planned = job.backlogStatus === "planned";
+                                        const scheduleCount = job.plannedByScheduleIds.length;
+                                        return (
+                                            <GridListItem
+                                                id={job.id}
+                                                textValue={`${job.name}${planned ? " (planned)" : ""}`}
+                                                // The grid list renders its selection box first;
+                                                // `order-last` moves it to the trailing edge,
+                                                // where the other lists keep their chevron, and
+                                                // it centres on the row however tall it grows.
+                                                className="*:data-[slot=control]:order-last *:data-[slot=control]:ms-auto"
+                                            >
+                                                {/* The dot stays with the name line rather than
+                                                    centring, so it marks the job, not the row. */}
+                                                <JobDot colors={colors} jobId={job.id} className="mt-1.5 self-start" />
                                                 <span className="flex min-w-0 flex-col gap-0.5">
-                                                    <span className="flex items-center gap-2">
-                                                        <JobDot colors={colors} jobId={job.id} />
-                                                        <span className="font-semibold text-sm">{job.name}</span>
-                                                        {job.backlogStatus === "planned" && (
-                                                            <Badge intent="secondary">Planned</Badge>
-                                                        )}
+                                                    <span className="flex h-6 min-w-0 items-center gap-2">
+                                                        <GridListLabel className="truncate text-sm">{job.name}</GridListLabel>
+                                                        {planned && <Badge intent="secondary">Planned</Badge>}
                                                     </span>
-                                                    {issue && (
-                                                        <span className="text-danger text-xs">
+                                                    {/* A blocking issue replaces the details: it is
+                                                        the one thing about the row worth reading. */}
+                                                    {issue ? (
+                                                        <GridListDescription className="text-danger text-xs">
                                                             {issue.message}
-                                                        </span>
+                                                        </GridListDescription>
+                                                    ) : (
+                                                        <GridListDescription className="text-xs">
+                                                            Added {formatCreatedAt(job.createdAt)}
+                                                            {planned && scheduleCount > 0 &&
+                                                                ` · in ${scheduleCount} ${scheduleCount === 1 ? "schedule" : "schedules"}`}
+                                                        </GridListDescription>
                                                     )}
                                                 </span>
-                                            </Checkbox>
-                                        </CheckboxField>
-                                    );
-                                })}
-                            </CheckboxGroup>
+                                            </GridListItem>
+                                        );
+                                    }}
+                                </GridList>
+                            )}
 
                             {validationFeedback.length > 0 && (
                                 <Note intent="warning" className="mt-3">
@@ -818,10 +881,6 @@ function PlannerPageInner() {
                                         ))}
                                     </ul>
                                 </Note>
-                            )}
-
-                            {plannableJobs.length > 0 && visibleJobs.length === 0 && (
-                                <p className="mt-3 text-muted-fg text-sm">No jobs match your search or filter.</p>
                             )}
 
                             {plannableJobs.length === 0 && (
