@@ -16,6 +16,8 @@ from floorsync_common.database.models.schedule import Schedule
 from floorsync_common.database.models.schedule_dependency import ScheduleDependency
 from floorsync_common.database.models.schedule_entry import ScheduleEntry
 from floorsync_common.database.models.user import User
+from floorsync_common.scheduling.lifecycle import ScheduleNotFound
+from floorsync_common.scheduling.reads import GetScheduleResult, ScheduleFound, ScheduleReadService
 from floorsync_common.scheduling.task_names import (
     EXACT_SCHEDULE_GENERATION_TASK,
     SCHEDULE_GENERATION_TASK,
@@ -45,27 +47,10 @@ class FakeScalars:
 
 
 class FakeScheduleSession:
-    def __init__(
-        self,
-        schedule: Schedule | None = None,
-        entries: list[ScheduleEntry] | None = None,
-        dependencies: list[ScheduleDependency] | None = None,
-    ) -> None:
-        self.schedule = schedule
-        self.entries = entries or []
-        self.dependencies = dependencies or []
-        self._scalar_calls = 0
+    """A session for routes whose service is stubbed: it only opens transactions."""
 
     def begin(self) -> FakeTransaction:
         return FakeTransaction()
-
-    async def get(self, _: type[Schedule], __: UUID) -> Schedule | None:
-        return self.schedule
-
-    async def scalars(self, _: object) -> FakeScalars:
-        self._scalar_calls += 1
-        values: list[object] = self.entries if self._scalar_calls == 1 else self.dependencies
-        return FakeScalars(values)
 
 
 class FakeQueuedTask:
@@ -416,28 +401,56 @@ def test_unavailable_generation_exposes_a_safe_api_detail(monkeypatch: Any) -> N
     }
 
 
-def test_manager_can_read_a_saved_schedule() -> None:
+def _stub_get_schedule(monkeypatch: Any, outcome: GetScheduleResult) -> None:
+    async def fake(_: object, __: UUID) -> GetScheduleResult:
+        return outcome
+
+    monkeypatch.setattr(ScheduleReadService, "get_schedule", staticmethod(fake))
+
+
+def test_manager_can_read_a_saved_schedule(monkeypatch: Any) -> None:
     schedule, entry, dependency = schedule_fixture()
+    _stub_get_schedule(
+        monkeypatch,
+        ScheduleFound(
+            schedule=schedule, entries=(entry,), dependencies=(dependency,), job_ids=(SELECTED_JOB,)
+        ),
+    )
     manager = User(id=uuid4(), name="Manager", role="manager")
 
-    response = TestClient(
-        schedule_application(
-            manager,
-            FakeScheduleSession(schedule, entries=[entry], dependencies=[dependency]),
-        )
-    ).get(f"/api/v1/schedules/{schedule.id}")
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/{schedule.id}"
+    )
 
     assert response.status_code == 200
     assert response.json()["id"] == str(schedule.id)
     assert response.json()["entries"][0]["duration"] == 15
     assert "starts_at" not in response.json()["entries"][0]
+    assert response.json()["job_ids"] == [str(SELECTED_JOB)]
 
 
-def test_reading_a_missing_schedule_returns_not_found() -> None:
+def test_a_schedule_made_for_the_whole_floor_has_no_job_selection(monkeypatch: Any) -> None:
+    schedule, _, _ = schedule_fixture()
+    _stub_get_schedule(
+        monkeypatch, ScheduleFound(schedule=schedule, entries=(), dependencies=(), job_ids=None)
+    )
     manager = User(id=uuid4(), name="Manager", role="manager")
 
     response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
-        f"/api/v1/schedules/{uuid4()}"
+        f"/api/v1/schedules/{schedule.id}"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["job_ids"] is None
+
+
+def test_reading_a_missing_schedule_returns_not_found(monkeypatch: Any) -> None:
+    schedule_id = uuid4()
+    _stub_get_schedule(monkeypatch, ScheduleNotFound(schedule_id=schedule_id))
+    manager = User(id=uuid4(), name="Manager", role="manager")
+
+    response = TestClient(schedule_application(manager, FakeScheduleSession())).get(
+        f"/api/v1/schedules/{schedule_id}"
     )
 
     assert response.status_code == 404

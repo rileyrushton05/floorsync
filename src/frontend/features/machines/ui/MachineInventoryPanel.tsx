@@ -14,10 +14,12 @@ import { Input, InputGroup } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
-import { ChevronRightIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
+import { InfoTooltip } from "@/components/ui/tooltip";
+import { ChevronRightIcon, MagnifyingGlassIcon, PlusIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
     ANY_CATEGORY,
+    CATEGORIES_IN_USE_HINT,
     INITIAL_MACHINE_FILTERS,
     NO_CATEGORY,
     SORT_OPTIONS,
@@ -137,6 +139,7 @@ export function MachineInventoryPanel({
                             ))}
                         </SelectContent>
                     </Select>
+                    <InfoTooltip label="Which categories are listed">{CATEGORIES_IN_USE_HINT}</InfoTooltip>
                 </div>
 
                 <Separator className="my-5" />
@@ -199,10 +202,21 @@ export function MachineInventoryPanel({
                                     <GridListLabel className="truncate text-sm">{row.name}</GridListLabel>
                                     {!row.active && <Badge intent="secondary">Inactive</Badge>}
                                 </span>
-                                <GridListDescription className="text-xs">
-                                    {row.categoryLabel}
+                                <GridListDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                    {/* A chip, so machines can be scanned by category at a
+                                        glance; an uncategorised one stays quiet text. */}
+                                    {row.categoryId !== null ? (
+                                        <Badge intent="info" isCircle={false}>
+                                            <TagIcon data-slot="icon" />
+                                            {row.categoryLabel}
+                                        </Badge>
+                                    ) : (
+                                        <span className="italic">{row.categoryLabel}</span>
+                                    )}
                                     {row.openJobCount !== null && (
-                                        <> · {row.openJobCount} open {row.openJobCount === 1 ? "job" : "jobs"}</>
+                                        <span>
+                                            {row.openJobCount} open {row.openJobCount === 1 ? "job" : "jobs"}
+                                        </span>
                                     )}
                                 </GridListDescription>
                             </span>

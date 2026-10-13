@@ -5,10 +5,10 @@ import { twJoin } from 'cn'
 import { useTheme } from '@/components/theme-provider'
 
 export function Toast(props: ToasterProps) {
-  const { theme = 'system' } = useTheme()
+  const { appearance } = useTheme()
   return (
     <ToasterPrimitive
-      theme={theme as ToasterProps['theme']}
+      theme={appearance}
       className="toaster group"
       richColors
       closeButton

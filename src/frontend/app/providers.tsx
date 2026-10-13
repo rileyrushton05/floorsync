@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import type { ThemeId } from "@/components/themes";
 import { TransitionProgress } from "@/components/transition-progress";
 import { Toast } from "@/components/ui/toast";
 import { AuthProvider } from "@/core/auth/AuthProvider";
@@ -20,10 +21,12 @@ import { ClearQueryCacheOnAuthChange, QueryProvider } from "@/core/query/QueryPr
  * `AuthProvider` sits inside it, so signing in and out can navigate, and wraps
  * everything else because the login page needs the same auth state the guarded
  * routes do.
+ *
+ * `theme` is the saved choice the root layout read from its cookie.
  */
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ theme, children }: { theme: ThemeId; children: React.ReactNode }) {
     return (
-        <ThemeProvider>
+        <ThemeProvider initialTheme={theme}>
             <TransitionProgress />
             <NavigationGuardProvider>
                 <QueryProvider>

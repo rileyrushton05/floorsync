@@ -1,9 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { PageMessage } from "@/core/feedback/PageMessage";
-import { PlusIcon } from "@heroicons/react/24/outline";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
@@ -13,12 +10,14 @@ import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { useJobDefinitions } from "@/features/jobs/data/queries";
 import { useDeleteMachine, useMachineCategories, useMachines, useSaveMachine } from "@/features/machines/data/queries";
 import {
     EMPTY_MACHINE_DRAFT,
     INITIAL_MACHINE_FILTERS,
     NO_USAGE,
+    categoriesInUse,
     categoryNames,
     draftFingerprint,
     draftFromMachine,
@@ -35,6 +34,7 @@ import {
 import { DeleteMachineDialog } from "@/features/machines/ui/DeleteMachineDialog";
 import { MachineEditor } from "@/features/machines/ui/MachineEditor";
 import { MachineInventoryPanel } from "@/features/machines/ui/MachineInventoryPanel";
+import { PlusIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -92,6 +92,14 @@ function MachinesPageInner() {
         [categoryName, machines, usage],
     );
     const visibleRows = useMemo(() => filterMachineRows(rows, filters), [filters, rows]);
+    const filterCategories = useMemo(
+        () => categoriesInUse(categories, machines, filters.categoryId),
+        [categories, filters.categoryId, machines],
+    );
+    const draftCategories = useMemo(
+        () => categoriesInUse(categories, machines, draft.categoryId),
+        [categories, draft.categoryId, machines],
+    );
     const activeCount = useMemo(() => machines.filter((machine) => machine.active).length, [machines]);
 
     const selected = draft.id === null ? null : machines.find((machine) => machine.id === draft.id) ?? null;
@@ -195,7 +203,10 @@ function MachinesPageInner() {
                     : { id: draft.id, values: { ...machineInputFromDraft(draft), active: undefined } },
             );
             openMachine(saved);
-            toast.success(wasExisting ? `“${saved.name}” updated.` : `“${saved.name}” added to the floor.`);
+            if (wasExisting) toast.success(`“${saved.name}” updated.`);
+            else toast.success(`“${saved.name}” added to the floor.`, {
+                description: "Its operator login was created with the default password. Manage it in Settings.",
+            });
         } catch (error) {
             reportMutationError(error);
         }
@@ -308,14 +319,14 @@ function MachinesPageInner() {
     const openJobsOnSelected = selectedUsage?.jobs.filter((job) => job.backlogStatus === "open").length ?? 0;
 
     return (
-        <ManagerShell>
-            <main className="grid flex-1 grid-cols-1 gap-5 p-5 xl:min-h-0 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
-                <div className="flex min-h-0 min-w-0 flex-col xl:row-span-full">
+        <ManagerShell actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
+            <SidePaneLayout>
+                <SidePane id="machines.inventory" side="left" label="Machines" grow={0.8} minWidth={280}>
                     <MachineInventoryPanel
                         total={machines.length}
                         activeCount={activeCount}
                         rows={visibleRows}
-                        categories={categories}
+                        categories={filterCategories}
                         selectedId={draft.id}
                         filters={filters}
                         busy={saving}
@@ -323,48 +334,27 @@ function MachinesPageInner() {
                         onFiltersChange={(update) => setFilters(update)}
                         onSelect={selectMachine}
                     />
-                </div>
-                {/* Sticky so the editor stays in view while the inventory
-                    scrolls beside it. */}
-                <div className="flex min-h-0 min-w-0 flex-col xl:sticky xl:top-5 xl:h-[calc(100dvh-2.5rem)] xl:overflow-y-auto">
-                    {draft.id === null && !isCreating ? (
-                        // Inline card rather than ManagerPageState, which would
-                        // nest a second ManagerShell (and a second topbar) in
-                        // the grid.
-                        <Card className="min-h-full min-w-0">
-                            <CardContent className="flex h-full flex-col items-center justify-center gap-4 rounded-lg border-dashed">
-                                <PageMessage title="No machine selected" tone="info">
-                                    <p>
-                                        {machines.length === 0
-                                            ? "The floor has no machines yet. Add one to get started."
-                                            : "Select a machine to view its details."}
-                                    </p>
-                                </PageMessage>
-                                <Button onPress={startNewMachine} isDisabled={saving}>
-                                    <PlusIcon /> Add machine
-                                </Button>
-                            </CardContent>
-                        </Card>
-                    ) : (
-                        <MachineEditor
-                            draft={draft}
-                            selected={selected}
-                            categories={categories}
-                            saving={saving}
-                            dirty={dirty}
-                            gate={gate}
-                            usage={selectedUsage}
-                            notes={notes}
-                            onDraftChange={(update) => setDraft(update)}
-                            onSave={() => void save()}
-                            onDiscard={() => setDraft(baselineDraft)}
-                            onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
-                            onToggleActive={requestToggleActive}
-                            onRemove={() => setConfirmRemove(true)}
-                        />
-                    )}
-                </div>
-            </main>
+                </SidePane>
+                <SidePaneMain grow={2}>
+                    <MachineEditor
+                        draft={draft}
+                        selected={selected}
+                        categories={draftCategories}
+                        allCategories={categories}
+                        saving={saving}
+                        dirty={dirty}
+                        gate={gate}
+                        usage={selectedUsage}
+                        notes={notes}
+                        onDraftChange={(update) => setDraft(update)}
+                        onSave={() => void save()}
+                        onDiscard={() => setDraft(baselineDraft)}
+                        onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
+                        onToggleActive={requestToggleActive}
+                        onRemove={() => setConfirmRemove(true)}
+                    />
+                </SidePaneMain>
+            </SidePaneLayout>
 
             {pendingOpen !== null && (
                 <ConfirmDialog

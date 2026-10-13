@@ -4,13 +4,16 @@ import { useAuth } from "@/core/auth/AuthProvider";
 import { fetchEveryPage } from "@/core/query/pagination";
 import {
     createMachine,
+    createMachineCategory,
     deleteMachine,
     fetchMachineCategories,
     fetchMachines,
     updateMachine,
+    type MachineCategory,
     type MachineInput,
 } from "./api";
 import { jobKeys } from "@/features/jobs/data/keys";
+import { operatorKeys } from "@/features/operators/data/keys";
 import { scheduleKeys } from "@/features/schedules/data/keys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { machineKeys } from "./keys";
@@ -46,6 +49,23 @@ export function useMachineCategories() {
     });
 }
 
+export function useCreateMachineCategory() {
+    const { token } = useAuth();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (name: string) => createMachineCategory(name, requireToken(token)),
+        onSuccess: async (category) => {
+            // Added straight away so the new category can be picked the
+            // moment it exists, before the refetch below comes back.
+            queryClient.setQueryData<MachineCategory[]>(machineKeys.categories, (current) => [
+                ...(current ?? []),
+                category,
+            ]);
+            await queryClient.invalidateQueries({ queryKey: machineKeys.categories, exact: true });
+        },
+    });
+}
+
 export function useDeleteMachine() {
     const { token } = useAuth();
     const queryClient = useQueryClient();
@@ -56,6 +76,9 @@ export function useDeleteMachine() {
                 queryClient.invalidateQueries({ queryKey: machineKeys.all, exact: true }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                // Creating, renaming or removing a machine does the same
+                // to its operator login.
+                queryClient.invalidateQueries({ queryKey: operatorKeys.all }),
             ]);
         },
     });
@@ -76,6 +99,9 @@ export function useSaveMachine() {
                 queryClient.invalidateQueries({ queryKey: machineKeys.all, exact: true }),
                 queryClient.invalidateQueries({ queryKey: jobKeys.definitions }),
                 queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+                // Creating, renaming or removing a machine does the same
+                // to its operator login.
+                queryClient.invalidateQueries({ queryKey: operatorKeys.all }),
             ]);
         },
     });

@@ -9,16 +9,14 @@ in `tests/backend` fake the session and cannot observe any of it.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import assert_never
 from uuid import UUID, uuid4
 
+from database_support import Sessions, run, transaction
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from floorsync_common.database.models.job import Job
 from floorsync_common.database.models.live_update_outbox import LiveUpdateOutbox
@@ -46,27 +44,6 @@ from floorsync_common.simulation.results import (
 from floorsync_common.simulation.service import SimulationService
 
 T0 = datetime(2026, 9, 25, 8, tzinfo=UTC)
-
-type Sessions = async_sessionmaker[AsyncSession]
-
-
-def run[T](database_url: str, test: Callable[[Sessions], Awaitable[T]]) -> T:
-    """Run one test body with a session factory bound to the test database."""
-
-    async def body() -> T:
-        engine = create_async_engine(database_url, poolclass=NullPool)
-        try:
-            return await test(async_sessionmaker(engine, expire_on_commit=False, autobegin=False))
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(body())
-
-
-@asynccontextmanager
-async def transaction(sessions: Sessions) -> AsyncIterator[AsyncSession]:
-    async with sessions() as db, db.begin():
-        yield db
 
 
 async def a_confirmed_schedule_with_a_simulation(sessions: Sessions) -> UUID:

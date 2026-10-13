@@ -3,11 +3,17 @@
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox, CheckboxField, CheckboxGroup } from "@/components/ui/checkbox";
+import {
+    GridList,
+    GridListDescription,
+    GridListEmptyState,
+    GridListItem,
+    GridListLabel,
+} from "@/components/ui/grid-list";
 import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
 import { Link } from "@/components/ui/link";
-import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
+import { useCollapsedRows } from "@/components/ui/list-pager";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -32,6 +38,7 @@ import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { reportingDateStartsAt } from "@/core/shell/ReportingDate";
+import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -53,7 +60,7 @@ import {
 import { formatCreatedAt, shortScheduleId, strategyLabel } from "@/features/schedules/model/archive";
 import { PlanStartDateDialog } from "@/features/schedules/ui/PlanStartDateDialog";
 import { SavePlanPanel, type SavePanelState } from "@/features/schedules/ui/SavePlanPanel";
-import { ArrowLeftIcon, ArrowPathIcon, ClockIcon, ExclamationCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, ArrowPathIcon, ClockIcon, ExclamationCircleIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -65,17 +72,17 @@ import {
 } from "../data/api";
 
 const JOB_SORTS = [
-    { id: "newest", label: "Newest" },
-    { id: "oldest", label: "Oldest" },
-    { id: "name", label: "Name A–Z" },
+    { id: "newest", label: "Newest first" },
+    { id: "oldest", label: "Oldest first" },
+    { id: "name", label: "Name (A–Z)" },
 ] as const;
 
 type JobSort = (typeof JOB_SORTS)[number]["id"];
 
 const JOB_STATUS_FILTERS = [
-    { id: "all", label: "All" },
-    { id: "open", label: "Unplanned" },
-    { id: "planned", label: "Planned" },
+    { id: "all", label: "All jobs" },
+    { id: "open", label: "Unplanned jobs" },
+    { id: "planned", label: "Planned jobs" },
 ] as const;
 
 type JobStatusFilter = (typeof JOB_STATUS_FILTERS)[number]["id"];
@@ -794,6 +801,7 @@ function PlannerPageInner() {
     const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every((job) => selectedIds.has(job.id));
     const openJobCount = plannableJobs.filter((job) => job.backlogStatus === "open").length;
     const plannedJobCount = plannableJobs.length - openJobCount;
+    const jobFiltersActive = jobQuery.trim() !== "" || jobStatusFilter !== "all";
 
     const saveState: SavePanelState =
         generation.status !== "ready" || currentScheduleId === null
@@ -845,337 +853,387 @@ function PlannerPageInner() {
             </Button>
         </>}>
 
-            <main className="grid flex-1 gap-5 p-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,2.2fr)_minmax(260px,0.9fr)]">
+            <SidePaneLayout>
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <span className="whitespace-nowrap">
-                                Jobs to plan
-                                <HeaderCount label={`${selectedJobIds.length} of ${plannableJobs.length} jobs selected`}>
-                                    {selectedJobIds.length}/{plannableJobs.length}
-                                </HeaderCount>
-                            </span>
-                            <InfoTooltip label="About job selection">
-                                Select the jobs to include in this plan. Open jobs and jobs a confirmed
-                                schedule already plans can be selected; completed and archived jobs
-                                cannot.
-                            </InfoTooltip>
-                        </CardTitle>
-                        {visibleJobs.length > 0 && (
-                            <CardAction>
-                                <Button
-                                    intent="plain"
-                                    size="sm"
-                                    isDisabled={busy}
-                                    onPress={() => {
-                                        const visibleIds = new Set(visibleJobs.map((job) => job.id));
-                                        setSelectedJobIds(
-                                            allVisibleSelected
-                                                ? selectedJobIds.filter((id) => !visibleIds.has(id))
-                                                : [...new Set([...selectedJobIds, ...visibleIds])],
-                                        );
-                                    }}
-                                >
-                                    {allVisibleSelected ? "Clear" : "Select all"}
-                                </Button>
-                            </CardAction>
-                        )}
-                    </CardHeader>
-                    <CardContent>
-                        {plannableJobs.length > 0 && (
-                            <div className="mb-2 flex flex-wrap items-center gap-2">
-                                <TextField
-                                    aria-label="Search jobs to plan"
-                                    className="min-w-40 flex-1"
-                                    value={jobQuery}
-                                    onChange={setJobQuery}
-                                >
-                                    <InputGroup>
-                                        <MagnifyingGlassIcon data-slot="icon" />
-                                        <Input placeholder="Search by job name…" autoComplete="off" />
-                                    </InputGroup>
-                                </TextField>
-                                <Select
-                                    aria-label="Sort jobs to plan"
-                                    className="w-32"
-                                    value={jobSort}
-                                    onChange={(value) => setJobSort(value as JobSort)}
-                                >
-                                    <SelectTrigger />
-                                    <SelectContent>
-                                        {JOB_SORTS.map((option) => (
-                                            <SelectItem key={option.id} id={option.id} textValue={option.label}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <ToggleGroup
-                                    aria-label="Show jobs"
-                                    size="sm"
-                                    selectionMode="single"
-                                    disallowEmptySelection
-                                    selectedKeys={new Set([jobStatusFilter])}
-                                    onSelectionChange={(keys) => {
-                                        const [first] = Array.from(keys);
-                                        const filter = JOB_STATUS_FILTERS.find((option) => option.id === first);
-                                        if (filter) setJobStatusFilter(filter.id);
-                                    }}
-                                >
-                                    {JOB_STATUS_FILTERS.map((option) => (
-                                        <ToggleGroupItem key={option.id} id={option.id}>
-                                            {option.label}
-                                        </ToggleGroupItem>
-                                    ))}
-                                </ToggleGroup>
-                            </div>
-                        )}
-                        <CheckboxGroup
-                            aria-label="Jobs to schedule"
-                            value={selectedJobIds}
-                            isDisabled={busy}
-                            onChange={(values) => setSelectedJobIds([...values])}
-                        >
-                            {jobPager.shown.map((job) => {
-                                const issue = validationIssuesByJobId.get(job.id);
-                                return (
-                                    <CheckboxField
-                                        key={job.id}
-                                        value={job.id}
-                                        className="rounded-lg p-2 transition-colors hover:bg-secondary"
-                                    >
-                                        <Checkbox>
-                                            <span className="flex min-w-0 flex-col gap-0.5">
-                                                <span className="flex items-center gap-2">
-                                                    <JobDot colors={colors} jobId={job.id} />
-                                                    <span className="font-semibold text-sm">{job.name}</span>
-                                                    {job.backlogStatus === "planned" && (
-                                                        <Badge intent="secondary">Planned</Badge>
-                                                    )}
-                                                </span>
-                                                {issue && (
-                                                    <span className="text-danger text-xs">
-                                                        {issue.message}
-                                                    </span>
-                                                )}
-                                            </span>
-                                        </Checkbox>
-                                    </CheckboxField>
-                                );
-                            })}
-                        </CheckboxGroup>
-
-                        <ListPager
-                            hiddenCount={jobPager.hiddenCount}
-                            expanded={jobPager.expanded}
-                            highlighted={jobPager.selectedIsHidden}
-                            onToggle={jobPager.toggle}
-                            noun="jobs"
-                        />
-
-                        {validationFeedback.length > 0 && (
-                            <Note intent="warning" className="mt-3">
-                                <strong>
-                                    {validationQuery.data?.schedulable[strategy] === false
-                                        ? `${strategy === "resched" ? "ReSched" : "Exact"} cannot schedule this selection.`
-                                        : "This selection needs attention before it can be scheduled."}
-                                </strong>
-                                <ul className="mt-1 list-disc space-y-1 ps-5 text-sm">
-                                    {validationFeedback.map((issue, index) => (
-                                        <li key={`${issue.code}-${issue.job_id ?? index}`}>
-                                            {issue.message}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </Note>
-                        )}
-
-                        {plannableJobs.length > 0 && visibleJobs.length === 0 && (
-                            <p className="mt-3 text-muted-fg text-sm">No jobs match your search or filter.</p>
-                        )}
-
-                        {plannableJobs.length === 0 && (
-                            <p className="mt-3 text-muted-fg text-sm">
-                                No jobs are available to plan. {jobs.length === 0 && "Add a job first. "}
-                                <Link href="/manager/jobs" className="text-primary">
-                                    Open the backlog →
-                                </Link>
-                            </p>
-                        )}
-
-                        <Separator className="my-3" />
-                        <div className="text-muted-fg text-sm">
-                            {openJobCount} open · {plannedJobCount} planned ·{" "}
-                            {activeMachines.length} of {machines.length} machines active
-                        </div>
-                        {activeMachines.length === 0 && machines.length > 0 && (
-                            <p className="mt-1 text-danger text-xs">
-                                Every machine is inactive, so no operation can be routed. A run will
-                                be refused.
-                            </p>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* ===== PLAN ===== */}
-                <Card className="min-w-0">
-                    <CardHeader className="gap-1">
-                        <CardTitle className="flex flex-wrap items-center gap-2.5">
-                            {generation.status === "ready" && currentSummary?.name ? currentSummary.name : "Plan"}
-                            {generation.status === "ready" && currentIsDraft && (
-                                <Badge intent="warning">Unsaved draft</Badge>
-                            )}
-                        </CardTitle>
-                        {generation.status === "ready" && schedule && (
-                            <span className="text-muted-fg text-xs">
-                                {currentSummary ? `${strategyLabel(currentSummary.strategy)} · ` : ""}
-                                makespan {formatDuration(schedule.makespanMins)} · {schedule.ops.length} operations ·{" "}
-                                {generation.createdAt === null ? "generated just now" : `generated ${formatCreatedAt(generation.createdAt)}`}
-                            </span>
-                        )}
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {showPlan && schedule ? (
-                            <GanttChart
-                                machines={showPlan.machines}
-                                jobs={showPlan.jobs}
-                                schedule={schedule}
-                                colors={colors}
-                                mode="plan"
-                                selectedJobId={highlightedJobId}
-                                onSelectJob={toggleHighlight}
-                                zoom={timelineZoom}
-                            />
-                        ) : (
-                            <GenerationState
-                                generation={generation}
-                                progress={progress}
-                                complete={completing}
-                            />
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* ===== SAVE + SUMMARY ===== */}
-                <div className="flex min-w-0 flex-col gap-5">
-                    <SavePlanPanel
-                        state={saveState}
-                        name={name}
-                        saving={updateSchedule.isPending}
-                        discarding={deleteSchedule.isPending}
-                        onNameChange={setName}
-                        onSave={() => void save(true)}
-                        onSaveDraft={() => void save(false)}
-                        onDiscard={() => setConfirmDiscard(true)}
-                    />
-
+                <SidePane id="planner.jobs" side="left" label="Jobs to plan" grow={0.8} minWidth={260}>
                     <Card>
                         <CardHeader>
-                            <CardTitle>Plan summary</CardTitle>
+                            <CardTitle className="flex items-center gap-2">
+                                <span className="whitespace-nowrap">
+                                    Jobs to plan
+                                    <HeaderCount label={`${selectedJobIds.length} of ${plannableJobs.length} jobs selected`}>
+                                        {selectedJobIds.length}/{plannableJobs.length}
+                                    </HeaderCount>
+                                </span>
+                                <InfoTooltip label="About job selection">
+                                    Select the jobs to include in this plan. Open jobs and jobs a confirmed
+                                    schedule already plans can be selected; completed and archived jobs
+                                    cannot.
+                                </InfoTooltip>
+                            </CardTitle>
+                            {visibleJobs.length > 0 && (
+                                <CardAction>
+                                    <Button
+                                        intent="plain"
+                                        size="sm"
+                                        isDisabled={busy}
+                                        onPress={() => {
+                                            const visibleIds = new Set(visibleJobs.map((job) => job.id));
+                                            setSelectedJobIds(
+                                                allVisibleSelected
+                                                    ? selectedJobIds.filter((id) => !visibleIds.has(id))
+                                                    : [...new Set([...selectedJobIds, ...visibleIds])],
+                                            );
+                                        }}
+                                    >
+                                        {allVisibleSelected ? "Clear" : "Select all"}
+                                    </Button>
+                                </CardAction>
+                            )}
                         </CardHeader>
                         <CardContent>
-                            {showPlan && schedule ? (
+                            {plannableJobs.length > 0 && (
                                 <>
-                                    <div className="grid grid-cols-2 gap-2.5">
-                                        <div className="rounded-lg border bg-muted p-3">
-                                            <div className="font-bold text-xl tabular-nums">
-                                                {formatDuration(schedule.makespanMins)}
-                                            </div>
-                                            <div className="text-muted-fg text-xs">Makespan</div>
-                                        </div>
-                                        <div className="rounded-lg border bg-muted p-3">
-                                            <div className="font-bold text-xl tabular-nums">
-                                                {schedule.order.length}
-                                            </div>
-                                            <div className="text-muted-fg text-xs">Jobs</div>
-                                        </div>
+                                    <TextField
+                                        aria-label="Search jobs to plan"
+                                        value={jobQuery}
+                                        onChange={setJobQuery}
+                                    >
+                                        <InputGroup>
+                                            <MagnifyingGlassIcon data-slot="icon" />
+                                            <Input placeholder="Search by job name…" autoComplete="off" />
+                                        </InputGroup>
+                                    </TextField>
+
+                                    <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+                                        <span className="font-semibold text-muted-fg text-xs uppercase tracking-[0.05em]">
+                                            Filter
+                                        </span>
+                                        {jobFiltersActive && (
+                                            <Button
+                                                intent="plain"
+                                                size="sm"
+                                                onPress={() => {
+                                                    setJobQuery("");
+                                                    setJobStatusFilter("all");
+                                                }}
+                                            >
+                                                <XMarkIcon /> Clear
+                                            </Button>
+                                        )}
                                     </div>
 
-                                    <h3 className="mt-5 font-semibold text-sm">Machine load</h3>
-                                    <ul className="mt-2 space-y-2">
-                                        {schedule.machineLoad
-                                            .filter((load) => load.busyMins > 0)
-                                            .map((load) => (
-                                                <li key={load.machineId} className="flex items-center gap-2.5">
-                                                    <span className="w-24 shrink-0 truncate text-sm">
-                                                        {machineName(load.machineId)}
-                                                    </span>
-                                                    <ProgressBar
-                                                        aria-label={`${machineName(load.machineId)} utilisation`}
-                                                        value={load.utilisationPct}
-                                                        className="flex-1"
-                                                    >
-                                                        <ProgressBarTrack className="min-w-0" />
-                                                    </ProgressBar>
-                                                    <span className="w-9 shrink-0 text-right text-muted-fg text-xs tabular-nums">
-                                                        {load.utilisationPct}%
-                                                    </span>
-                                                </li>
-                                            ))}
-                                    </ul>
-
-                                    {/* Every job's placement in text, so the plan is readable
-                                        without relying on the colour channel. */}
-                                    <h3 className="mt-5 font-semibold text-sm">Job placement</h3>
-                                    <p className="mt-1 text-muted-fg text-xs">
-                                        When each job opens and closes, in the lane order the engine
-                                        itself reports. Click a row to trace it on the grid.
-                                    </p>
-                                    {/* The column is narrow at xl, so the table scrolls
-                                        sideways rather than clipping its last column. */}
-                                    <div className="mt-2 overflow-x-auto">
-                                        <Table
-                                            aria-label="Job placement"
-                                            selectionMode="single"
-                                            selectionBehavior="replace"
-                                            selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
-                                            onSelectionChange={(keys) => {
-                                                if (keys === "all") return;
-                                                const [first] = Array.from(keys);
-                                                setHighlightedJobId(typeof first === "string" ? first : null);
-                                            }}
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <Select
+                                            aria-label="Filter by plan status"
+                                            className="w-40"
+                                            value={jobStatusFilter}
+                                            onChange={(value) => setJobStatusFilter(value as JobStatusFilter)}
                                         >
-                                            <TableHeader>
-                                                <TableColumn className="w-0">#</TableColumn>
-                                                <TableColumn isRowHeader>Job</TableColumn>
-                                                <TableColumn>Starts</TableColumn>
-                                                <TableColumn>Finishes</TableColumn>
-                                            </TableHeader>
-                                            <TableBody items={schedule.order.map((id, index) => ({ id, index }))}>
-                                                {({ id, index }) => (
-                                                    <TableRow id={id}>
-                                                        <TableCell className="tabular-nums">{index + 1}</TableCell>
-                                                        <TableCell>
-                                                            <span className="flex items-center gap-2">
-                                                                <JobDot colors={colors} jobId={id} />
-                                                                <span>
-                                                                    {showPlan.jobs.find((job) => job.id === id)?.name ?? id}
-                                                                </span>
-                                                            </span>
-                                                        </TableCell>
-                                                        <TableCell className="tabular-nums">
-                                                            {formatOffset(schedule.jobStart[id] ?? 0)}
-                                                        </TableCell>
-                                                        <TableCell className="tabular-nums">
-                                                            {formatOffset(schedule.jobFinish[id] ?? 0)}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                )}
-                                            </TableBody>
-                                        </Table>
+                                            <SelectTrigger />
+                                            <SelectContent>
+                                                {JOB_STATUS_FILTERS.map((option) => (
+                                                    <SelectItem key={option.id} id={option.id} textValue={option.label}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <Separator className="my-5" />
+
+                                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                                        <Select
+                                            aria-label="Sort jobs to plan"
+                                            className="w-44"
+                                            value={jobSort}
+                                            onChange={(value) => setJobSort(value as JobSort)}
+                                        >
+                                            <SelectTrigger />
+                                            <SelectContent>
+                                                {JOB_SORTS.map((option) => (
+                                                    <SelectItem key={option.id} id={option.id} textValue={option.label}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Badge intent="outline" className="ml-auto" role="status">
+                                            Showing {visibleJobs.length} of {plannableJobs.length}
+                                        </Badge>
                                     </div>
                                 </>
-                            ) : (
-                                <p className="text-muted-fg text-sm">
-                                    Generate a plan to see its makespan, machine load and job
-                                    placement.
+                            )}
+                            {plannableJobs.length > 0 && (
+                                <GridList
+                                    aria-label="Jobs to schedule"
+                                    selectionMode="multiple"
+                                    selectionBehavior="toggle"
+                                    items={visibleJobs}
+                                    disabledKeys={busy ? visibleJobs.map((job) => job.id) : []}
+                                    // Jobs hidden by the search or filter stay selected:
+                                    // narrowing the list is for finding jobs, not for
+                                    // dropping ones already picked.
+                                    selectedKeys={selectedIds}
+                                    onSelectionChange={(keys) => {
+                                        if (keys === "all") {
+                                            setSelectedJobIds([...new Set([...selectedJobIds, ...visibleJobs.map((job) => job.id)])]);
+                                            return;
+                                        }
+                                        setSelectedJobIds(Array.from(keys, String));
+                                    }}
+                                    renderEmptyState={() => (
+                                        <GridListEmptyState className="text-center text-muted-fg text-sm">
+                                            No jobs match your search or filters.
+                                        </GridListEmptyState>
+                                    )}
+                                >
+                                    {(job) => {
+                                        const issue = validationIssuesByJobId.get(job.id);
+                                        const planned = job.backlogStatus === "planned";
+                                        const scheduleCount = job.plannedByScheduleIds.length;
+                                        return (
+                                            <GridListItem
+                                                id={job.id}
+                                                textValue={`${job.name}${planned ? " (planned)" : ""}`}
+                                                // The grid list renders its selection box first;
+                                                // `order-last` moves it to the trailing edge,
+                                                // where the other lists keep their chevron, and
+                                                // it centres on the row however tall it grows.
+                                                className="*:data-[slot=control]:order-last *:data-[slot=control]:ms-auto"
+                                            >
+                                                {/* The dot stays with the name line rather than
+                                                    centring, so it marks the job, not the row. */}
+                                                <JobDot colors={colors} jobId={job.id} className="mt-1.5 self-start" />
+                                                <span className="flex min-w-0 flex-col gap-0.5">
+                                                    <span className="flex h-6 min-w-0 items-center gap-2">
+                                                        <GridListLabel className="truncate text-sm">{job.name}</GridListLabel>
+                                                        {planned && <Badge intent="secondary">Planned</Badge>}
+                                                    </span>
+                                                    {/* A blocking issue replaces the details: it is
+                                                        the one thing about the row worth reading. */}
+                                                    {issue ? (
+                                                        <GridListDescription className="text-danger text-xs">
+                                                            {issue.message}
+                                                        </GridListDescription>
+                                                    ) : (
+                                                        <GridListDescription className="text-xs">
+                                                            Added {formatCreatedAt(job.createdAt)}
+                                                            {planned && scheduleCount > 0 &&
+                                                                ` · in ${scheduleCount} ${scheduleCount === 1 ? "schedule" : "schedules"}`}
+                                                        </GridListDescription>
+                                                    )}
+                                                </span>
+                                            </GridListItem>
+                                        );
+                                    }}
+                                </GridList>
+                            )}
+
+                            {validationFeedback.length > 0 && (
+                                <Note intent="warning" className="mt-3">
+                                    <strong>
+                                        {validationQuery.data?.schedulable[strategy] === false
+                                            ? `${strategy === "resched" ? "ReSched" : "Exact"} cannot schedule this selection.`
+                                            : "This selection needs attention before it can be scheduled."}
+                                    </strong>
+                                    <ul className="mt-1 list-disc space-y-1 ps-5 text-sm">
+                                        {validationFeedback.map((issue, index) => (
+                                            <li key={`${issue.code}-${issue.job_id ?? index}`}>
+                                                {issue.message}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </Note>
+                            )}
+
+                            {plannableJobs.length === 0 && (
+                                <p className="mt-3 text-muted-fg text-sm">
+                                    No jobs are available to plan. {jobs.length === 0 && "Add a job first. "}
+                                    <Link href="/manager/jobs" className="text-primary">
+                                        Open the backlog →
+                                    </Link>
+                                </p>
+                            )}
+
+                            <Separator className="my-3" />
+                            <div className="text-muted-fg text-sm">
+                                {openJobCount} open · {plannedJobCount} planned ·{" "}
+                                {activeMachines.length} of {machines.length} machines active
+                            </div>
+                            {activeMachines.length === 0 && machines.length > 0 && (
+                                <p className="mt-1 text-danger text-xs">
+                                    Every machine is inactive, so no operation can be routed. A run will
+                                    be refused.
                                 </p>
                             )}
                         </CardContent>
                     </Card>
-                </div>
-            </main>
+                </SidePane>
+
+                {/* ===== PLAN ===== */}
+                <SidePaneMain grow={2.2}>
+                    <Card className="min-w-0">
+                        <CardHeader className="gap-1">
+                            <CardTitle className="flex flex-wrap items-center gap-2.5">
+                                {generation.status === "ready" && currentSummary?.name ? currentSummary.name : "Plan"}
+                                {generation.status === "ready" && currentIsDraft && (
+                                    <Badge intent="warning">Unsaved draft</Badge>
+                                )}
+                            </CardTitle>
+                            {generation.status === "ready" && schedule && (
+                                <span className="text-muted-fg text-xs">
+                                    {currentSummary ? `${strategyLabel(currentSummary.strategy)} · ` : ""}
+                                    makespan {formatDuration(schedule.makespanMins)} · {schedule.ops.length} operations ·{" "}
+                                    {generation.createdAt === null ? "generated just now" : `generated ${formatCreatedAt(generation.createdAt)}`}
+                                </span>
+                            )}
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {plan && schedule ? (
+                                <GanttChart
+                                    machines={plan.machines}
+                                    jobs={plan.jobs}
+                                    schedule={schedule}
+                                    colors={colors}
+                                    mode="plan"
+                                    selectedJobId={highlightedJobId}
+                                    onSelectJob={toggleHighlight}
+                                    zoom={timelineZoom}
+                                />
+                            ) : (
+                                <GenerationState
+                                    generation={generation}
+                                    progress={progress}
+                                    complete={completing}
+                                />
+                            )}
+                        </CardContent>
+                    </Card>
+                </SidePaneMain>
+
+                {/* ===== SAVE + SUMMARY ===== */}
+                <SidePane id="planner.summary" side="right" label="Save and summary" grow={0.9} minWidth={260}>
+                    <div className="flex min-w-0 flex-col gap-5">
+                        <SavePlanPanel
+                            state={saveState}
+                            name={name}
+                            saving={updateSchedule.isPending}
+                            discarding={deleteSchedule.isPending}
+                            onNameChange={setName}
+                            onSave={() => void save(true)}
+                            onSaveDraft={() => void save(false)}
+                            onDiscard={() => setConfirmDiscard(true)}
+                        />
+
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Plan summary</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {plan && schedule ? (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-2.5">
+                                            <div className="rounded-lg border bg-muted p-3">
+                                                <div className="font-bold text-xl tabular-nums">
+                                                    {formatDuration(schedule.makespanMins)}
+                                                </div>
+                                                <div className="text-muted-fg text-xs">Makespan</div>
+                                            </div>
+                                            <div className="rounded-lg border bg-muted p-3">
+                                                <div className="font-bold text-xl tabular-nums">
+                                                    {schedule.order.length}
+                                                </div>
+                                                <div className="text-muted-fg text-xs">Jobs</div>
+                                            </div>
+                                        </div>
+
+                                        <h3 className="mt-5 font-semibold text-sm">Machine load</h3>
+                                        <ul className="mt-2 space-y-2">
+                                            {schedule.machineLoad
+                                                .filter((load) => load.busyMins > 0)
+                                                .map((load) => (
+                                                    <li key={load.machineId} className="flex items-center gap-2.5">
+                                                        <span className="w-24 shrink-0 truncate text-sm">
+                                                            {machineName(load.machineId)}
+                                                        </span>
+                                                        <ProgressBar
+                                                            aria-label={`${machineName(load.machineId)} utilisation`}
+                                                            value={load.utilisationPct}
+                                                            className="flex-1"
+                                                        >
+                                                            <ProgressBarTrack className="min-w-0" />
+                                                        </ProgressBar>
+                                                        <span className="w-9 shrink-0 text-right text-muted-fg text-xs tabular-nums">
+                                                            {load.utilisationPct}%
+                                                        </span>
+                                                    </li>
+                                                ))}
+                                        </ul>
+
+                                        {/* Every job's placement in text, so the plan is readable
+                                            without relying on the colour channel. */}
+                                        <h3 className="mt-5 font-semibold text-sm">Job placement</h3>
+                                        <p className="mt-1 text-muted-fg text-xs">
+                                            When each job opens and closes, in the lane order the engine
+                                            itself reports. Click a row to trace it on the grid.
+                                        </p>
+                                        {/* The column is narrow at xl, so the table scrolls
+                                            sideways rather than clipping its last column. */}
+                                        <div className="mt-2 overflow-x-auto">
+                                            <Table
+                                                aria-label="Job placement"
+                                                selectionMode="single"
+                                                selectionBehavior="replace"
+                                                selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
+                                                onSelectionChange={(keys) => {
+                                                    if (keys === "all") return;
+                                                    const [first] = Array.from(keys);
+                                                    setHighlightedJobId(typeof first === "string" ? first : null);
+                                                }}
+                                            >
+                                                <TableHeader>
+                                                    <TableColumn className="w-0">#</TableColumn>
+                                                    <TableColumn isRowHeader>Job</TableColumn>
+                                                    <TableColumn>Starts</TableColumn>
+                                                    <TableColumn>Finishes</TableColumn>
+                                                </TableHeader>
+                                                <TableBody items={schedule.order.map((id, index) => ({ id, index }))}>
+                                                    {({ id, index }) => (
+                                                        <TableRow id={id}>
+                                                            <TableCell className="tabular-nums">{index + 1}</TableCell>
+                                                            <TableCell>
+                                                                <span className="flex items-center gap-2">
+                                                                    <JobDot colors={colors} jobId={id} />
+                                                                    <span>
+                                                                        {plan.jobs.find((job) => job.id === id)?.name ?? id}
+                                                                    </span>
+                                                                </span>
+                                                            </TableCell>
+                                                            <TableCell className="tabular-nums">
+                                                                {formatOffset(schedule.jobStart[id] ?? 0)}
+                                                            </TableCell>
+                                                            <TableCell className="tabular-nums">
+                                                                {formatOffset(schedule.jobFinish[id] ?? 0)}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    )}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p className="text-muted-fg text-sm">
+                                        Generate a plan to see its makespan, machine load and job
+                                        placement.
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
+                </SidePane>
+            </SidePaneLayout>
 
             {pickingStartDate && (
                 <PlanStartDateDialog

@@ -1,13 +1,17 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
-import { errorMessage } from "@/core/http/errors";
+import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
+import { errorMessage } from "@/core/http/errors";
+import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
+import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
 import { ManagerShell } from "@/core/shell/ManagerShell";
+import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import type { JobDef, OperationDef } from "@/domains/scheduling/types";
+import { scheduleReferences, type ScheduleReferences } from "@/features/jobs/data/api";
 import {
     JobGraphWriteError,
     useArchiveJob,
@@ -17,21 +21,7 @@ import {
     useJobDependencies,
     useUpdateJobDefinition,
 } from "@/features/jobs/data/queries";
-import { scheduleReferences, type ScheduleReferences } from "@/features/jobs/data/api";
-import { useDeleteSchedule } from "@/features/schedules/data/queries";
-import { useMachines } from "@/features/machines/data/queries";
-import { PlusIcon } from "@heroicons/react/24/outline";
-import { PageMessage } from "@/core/feedback/PageMessage";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
-import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
-import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
 import { edgesForSavedOperations } from "@/features/jobs/model/dependencies";
-import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
-import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
-import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import {
     DEFAULT_SORT,
     EMPTY_JOB_DRAFT,
@@ -46,6 +36,15 @@ import {
     type JobDraft,
     type JobFilters,
 } from "@/features/jobs/model/editor";
+import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
+import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
+import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
+import { useMachines } from "@/features/machines/data/queries";
+import { useDeleteSchedule } from "@/features/schedules/data/queries";
+import { PlusIcon } from "@heroicons/react/24/outline";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 /** How long the zoom-out runs before the dialog unmounts, in ms. */
 const CLOSE_MS = 150;
@@ -624,9 +623,15 @@ function JobsPageInner() {
     );
 
     return (
-        <ManagerShell>
-            <main className="grid flex-1 grid-cols-1 gap-3 p-3 sm:gap-5 sm:p-5 xl:min-h-0 xl:grid-cols-[minmax(240px,0.8fr)_minmax(0,2fr)]">
-                <div className="flex min-h-0 min-w-0 flex-col">
+        <ManagerShell
+            actions={
+                <Button onPress={startNewJob} isDisabled={loading || saving}>
+                    <PlusIcon /> New job
+                </Button>
+            }
+        >
+            <SidePaneLayout className="gap-3 p-3 sm:gap-5 sm:p-5">
+                <SidePane id="jobs.backlog" side="left" label="Job backlog" grow={0.8} minWidth={240}>
                     <JobBacklogPanel
                         jobs={jobs}
                         visibleJobs={visibleJobs}
@@ -639,69 +644,46 @@ function JobsPageInner() {
                         onFiltersChange={(update) => setFilters(update)}
                         onSelect={editJob}
                     />
-                </div>
-
-                {/* Sticky so the editor stays in view while the backlog
-                    scrolls beside it. */}
-                <div className="flex min-h-0 min-w-0 flex-col xl:sticky xl:top-5 xl:h-[calc(100dvh-2.5rem)] xl:overflow-y-auto">
-                    {draft.id === null && !isCreating && !dirty ? (
-                        // Inline card rather than ManagerPageState, which would
-                        // nest a second ManagerShell (and a second topbar) in
-                        // the grid.
-                        <Card className="min-h-full min-w-0">
-                            <CardContent className="flex h-full flex-col items-center justify-center gap-4 rounded-lg border-dashed">
-                                <PageMessage title="No job selected" tone="info">
-                                    <p>
-                                        {jobs.length === 0
-                                            ? "The backlog is empty. Create a job to get started."
-                                            : "Select a job to edit it."}
-                                    </p>
-                                </PageMessage>
-                                <Button onPress={startNewJob} isDisabled={loading || saving}>
-                                    <PlusIcon /> New job
-                                </Button>
-                            </CardContent>
-                        </Card>
-                    ) : (
-                        <JobEditorPanel
-                    draft={draft}
-                    sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
-                    machines={machines}
-                    activeMachines={activeMachines}
-                    loading={loading}
-                    saving={saving}
-                    hasLoadError={Boolean(loadError)}
-                    dirty={dirty}
-                    gate={gate}
-                    graphError={graphError}
-                    onRetryGraph={() => void dependencyQuery.refetch()}
-                    onDiscard={discardChanges}
-                    onCancelNew={cancelTarget === null ? undefined : cancelNewJob}
-                    notes={notes}
-                    onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
-                    onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
-                    onAddOperation={addOperation}
-                    onRemoveOperation={(index) => setPendingOperationRemoval(index)}
-                    onPatchOperation={patchOperation}
-                    onPatchRoute={patchRoute}
-                    onAddRoute={addRoute}
-                    onRemoveRoute={removeRoute}
-                    onDependenciesChange={setDependencies}
-                    selectedOperationId={selectedOperationId}
-                    focusOperationId={focusOperationId}
-                    onSelectOperation={(operationId) => {
-                        setSelectedOperationId(operationId);
-                        setFocusOperationId(null);
-                    }}
-                            onSave={saveDraft}
-                            canDuplicate={canDuplicate}
-                            onDuplicate={duplicateJob}
-                            onRequestDelete={() => setConfirmingDelete(true)}
-                            onRequestArchive={() => setConfirmingArchive(true)}
-                        />
-                    )}
-                </div>
-            </main>
+                </SidePane>
+                <SidePaneMain grow={2}>
+                    <JobEditorPanel
+                        draft={draft}
+                        sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
+                        machines={machines}
+                        activeMachines={activeMachines}
+                        loading={loading}
+                        saving={saving}
+                        hasLoadError={Boolean(loadError)}
+                        dirty={dirty}
+                        gate={gate}
+                        graphError={graphError}
+                        onRetryGraph={() => void dependencyQuery.refetch()}
+                        onDiscard={discardChanges}
+                        onCancelNew={cancelTarget === null ? undefined : cancelNewJob}
+                        notes={notes}
+                        onNameChange={(name) => setDraft((previous) => ({ ...previous, name }))}
+                        onPriorityChange={(priority) => setDraft((previous) => ({ ...previous, priority }))}
+                        onAddOperation={addOperation}
+                        onRemoveOperation={(index) => setPendingOperationRemoval(index)}
+                        onPatchOperation={patchOperation}
+                        onPatchRoute={patchRoute}
+                        onAddRoute={addRoute}
+                        onRemoveRoute={removeRoute}
+                        onDependenciesChange={setDependencies}
+                        selectedOperationId={selectedOperationId}
+                        focusOperationId={focusOperationId}
+                        onSelectOperation={(operationId) => {
+                            setSelectedOperationId(operationId);
+                            setFocusOperationId(null);
+                        }}
+                        onSave={saveDraft}
+                        canDuplicate={canDuplicate}
+                        onDuplicate={duplicateJob}
+                        onRequestDelete={() => setConfirmingDelete(true)}
+                        onRequestArchive={() => setConfirmingArchive(true)}
+                    />
+                </SidePaneMain>
+            </SidePaneLayout>
 
             {pendingOpen !== null && (
                 <ConfirmDialog

@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from typing import Literal
 from uuid import UUID
 
-from floorsync_common.operations.graph import find_dependency_cycle
+from floorsync_common.operations.graph import branching_operations, find_dependency_cycle
 from floorsync_common.scheduling.contracts import (
     SchedulingInput,
     SchedulingInputInvalid,
@@ -171,14 +171,10 @@ def resched_strategy_limits(problem: SchedulingInput) -> tuple[SchedulingIssue, 
             )
         )
 
-    predecessors: dict[UUID, int] = defaultdict(int)
-    successors: dict[UUID, int] = defaultdict(int)
-    for edge in problem.dependencies:
-        predecessors[edge.after_operation_id] += 1
-        successors[edge.before_operation_id] += 1
     shape_offenders = sorted(
-        {operation_id for operation_id, count in predecessors.items() if count > 1}
-        | {operation_id for operation_id, count in successors.items() if count > 1},
+        branching_operations(
+            (edge.before_operation_id, edge.after_operation_id) for edge in problem.dependencies
+        ),
         key=str,
     )
     issues.extend(
