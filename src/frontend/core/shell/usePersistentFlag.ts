@@ -48,12 +48,3 @@ export function usePersistentFlag(key: string): [boolean, (value: boolean) => vo
     const set = useCallback((next: boolean) => setRaw(next ? "1" : null), [setRaw]);
     return [raw === "1", set];
 }
-
-/** A number remembered in this browser under `key`; null until set, and
-    setting null forgets it. */
-export function usePersistentNumber(key: string): [number | null, (value: number | null) => void] {
-    const [raw, setRaw] = usePersistentString(key);
-    const set = useCallback((next: number | null) => setRaw(next === null ? null : String(next)), [setRaw]);
-    const parsed = raw === null ? NaN : Number(raw);
-    return [Number.isFinite(parsed) ? parsed : null, set];
-}
