@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     GridList,
     GridListDescription,
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
 import { InfoTooltip } from "@/components/ui/tooltip";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { ChevronRightIcon, MagnifyingGlassIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
     ANY_CATEGORY,
@@ -69,6 +70,9 @@ export function MachineInventoryPanel({
                         {activeCount}
                     </HeaderCount>
                 </CardTitle>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent>
                 <TextField

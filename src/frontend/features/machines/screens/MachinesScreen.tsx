@@ -9,8 +9,10 @@ import { errorMessage } from "@/core/http/errors";
 import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
+import { row } from "@/core/panels/layout";
+import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
+import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { useJobDefinitions } from "@/features/jobs/data/queries";
 import { useDeleteMachine, useMachineCategories, useMachines, useSaveMachine } from "@/features/machines/data/queries";
 import {
@@ -39,6 +41,15 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+const MACHINES_WORKSPACE = defineWorkspace({
+    id: "machines",
+    panels: {
+        inventory: { title: "Machine inventory", minWidth: 280 },
+        editor: { title: "Machine editor", minWidth: 360 },
+    },
+    layout: row(["inventory", 28], ["editor", 72]),
+});
+
 /** How long the remove dialog's zoom-out runs before it unmounts, in ms. */
 const CLOSE_MS = 150;
 
@@ -57,6 +68,7 @@ export default function MachinesPage() {
 }
 
 function MachinesPageInner() {
+    const workspace = usePanelWorkspace(MACHINES_WORKSPACE);
     const machineQuery = useMachines();
     const categoryQuery = useMachineCategories();
     const jobDefinitionsQuery = useJobDefinitions();
@@ -320,9 +332,9 @@ function MachinesPageInner() {
     const openJobsOnSelected = selectedUsage?.jobs.filter((job) => job.backlogStatus === "open").length ?? 0;
 
     return (
-        <ManagerShell actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
-            <SidePaneLayout>
-                <SidePane id="machines.inventory" side="left" label="Machines" grow={0.8} minWidth={280}>
+        <ManagerShell workspace={workspace} actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
+            <PanelWorkspace workspace={workspace}>
+                <WorkspacePanel id="inventory">
                     <MachineInventoryPanel
                         total={machines.length}
                         activeCount={activeCount}
@@ -334,8 +346,8 @@ function MachinesPageInner() {
                         onFiltersChange={(update) => setFilters(update)}
                         onSelect={selectMachine}
                     />
-                </SidePane>
-                <SidePaneMain grow={2}>
+                </WorkspacePanel>
+                <WorkspacePanel id="editor">
                     <MachineEditor
                         draft={draft}
                         selected={selected}
@@ -353,8 +365,8 @@ function MachinesPageInner() {
                         onToggleActive={requestToggleActive}
                         onRemove={() => setConfirmRemove(true)}
                     />
-                </SidePaneMain>
-            </SidePaneLayout>
+                </WorkspacePanel>
+            </PanelWorkspace>
 
             {pendingOpen !== null && (
                 <ConfirmDialog

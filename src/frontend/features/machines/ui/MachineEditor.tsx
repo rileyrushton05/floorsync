@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { TextField } from "@/components/ui/text-field";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { useSaveShortcutLabel } from "@/core/keyboard/useSaveShortcut";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { ArrowUturnLeftIcon, CheckIcon } from "@heroicons/react/24/outline";
 import {
     CATEGORIES_IN_USE_HINT,
@@ -111,11 +112,11 @@ export function MachineEditor({
                         </Badge>
                     )}
                 </CardTitle>
-                {editing && (
-                    <CardAction>
-                        {/* Activate reads green (a restore action); deactivate
-                            reads red, but much lighter than the remove button's
-                            solid danger so retiring never reads as removing. */}
+                <CardAction className="flex items-center gap-2">
+                    {editing && (
+                        // Activate reads green (a restore action); deactivate
+                        // reads red, but much lighter than the remove button's
+                        // solid danger so retiring never reads as removing.
                         <Button
                             intent="plain"
                             size="sm"
@@ -127,8 +128,9 @@ export function MachineEditor({
                         >
                             {machineActive ? "Deactivate" : "Activate"}
                         </Button>
-                    </CardAction>
-                )}
+                    )}
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-5">
                 {notes}
