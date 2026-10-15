@@ -222,7 +222,7 @@ export function ScheduleInventoryPanel({
                     noun="schedules"
                 />
             </CardContent>
-            <div className="mt-auto -mb-3 flex justify-end px-3 pt-3">
+            <div className="-my-1.5 flex justify-end px-3">
                 <Link href="/manager/planner" className={buttonStyles({ size: "xl" })}>
                     <PlusIcon /> New Schedule
                 </Link>

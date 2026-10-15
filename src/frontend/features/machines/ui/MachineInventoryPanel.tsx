@@ -242,7 +242,7 @@ export function MachineInventoryPanel({
                     noun="machines"
                 />
             </CardContent>
-            <div className="mt-auto -mb-3 flex justify-end px-3 pt-3">
+            <div className="-my-1.5 flex justify-end px-3">
                 <Button size="xl" onPress={onAddMachine} isDisabled={busy}>
                     <PlusIcon /> New Machine
                 </Button>
