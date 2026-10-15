@@ -38,6 +38,7 @@ src/frontend/
 │   ├── http/                    # apiRequest, ApiError and wire-level helpers
 │   ├── query/                   # QueryClient policy and pagination
 │   ├── feedback/                # reusable state messages
+│   ├── panels/                  # movable panel workspace for manager screens
 │   ├── presentation/            # generic UI mappings, e.g. badge intent
 │   └── shell/                   # reusable navigation and page shells
 ├── domains/
@@ -152,6 +153,27 @@ The UI must distinguish a reusable shell from a feature panel. A manager page
 gets the manager navigation from `ManagerShell`; a machine editor is owned by
 the machines feature. Keep Tailwind classes close to the component they style
 and prefer the design tokens in `app/styles.css` over new literal colours.
+
+### Panel workspaces
+
+Every manager screen except Settings lays out its cards as a panel workspace
+(`core/panels`). From `xl` up the panels fill the viewport and scroll inside
+themselves; people drag a panel's grip onto another panel's edge to split it or
+onto its middle to swap them (the layout previews the drop while they drag),
+resize the gaps, maximise or hide panels, and bring hidden ones back or reset
+from the topbar's **Panels** menu. Below
+`xl` the panels stack in layout order and do not move. Each screen's
+arrangement is remembered in this browser under `floorsync.workspace.<id>`.
+
+A screen declares its panels and default arrangement once with
+`defineWorkspace`, calls `usePanelWorkspace`, passes the result to both
+`ManagerShell` (`workspace`) and `PanelWorkspace`, and wraps each card in a
+`WorkspacePanel`. A panel is one `Card`: put `PanelControls` at the end of its
+header (inside its `CardAction`) and anything the panel says about itself
+inside the card, not beside it. Render a `WorkspacePanel` only while it has
+something to show; it leaves the layout until then and comes back to the same
+place. Adding, removing or renaming a panel id resets that screen's remembered
+arrangement to the new default.
 
 ## Fixtures and prototype routes
 
