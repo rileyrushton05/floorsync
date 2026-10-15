@@ -31,6 +31,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -404,16 +405,17 @@ function GenerationState({
 
         default:
             return (
-                <div className="rounded-lg border border-dashed p-8 text-center">
-                    <h3 className="font-semibold text-lg">No plan yet</h3>
-                    <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
-                        Tick the jobs to include, choose an engine, then press{" "}
-                        <strong className="text-fg">Generate plan</strong>. The scheduling engine
-                        assigns the selected jobs&apos; operations to compatible machines and places
-                        them on the earliest slots that respect their dependencies. When it looks
-                        right, name it and save it.
-                    </p>
-                </div>
+                <EmptyState title="No plan yet" className="max-w-none">
+                    <ol className="mx-auto inline-flex list-inside list-decimal flex-col gap-1 text-left">
+                        <li>Tick the jobs to include from the list.</li>
+                        <li>Choose a scheduling engine.</li>
+                        <li>
+                            Press <strong className="text-fg">Generate plan</strong> to place each
+                            operation on the earliest compatible machine slot.
+                        </li>
+                        <li>When it looks right, name it and save it.</li>
+                    </ol>
+                </EmptyState>
             );
     }
 }

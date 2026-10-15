@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
-import { PageMessage } from "@/core/feedback/PageMessage";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -343,17 +343,19 @@ function MachinesPageInner() {
                         // screen opens with nothing selected, and the editor
                         // only appears once a machine is picked or added.
                         <Card className="min-h-full min-w-0">
-                            <CardContent className="flex h-full flex-col items-center justify-center gap-4">
-                                <PageMessage title={machines.length === 0 ? "No machines yet" : "No machine selected"} tone="info">
-                                    <p>
-                                        {machines.length === 0
-                                            ? "Add a machine to the floor inventory to get started."
-                                            : "Pick a machine in the inventory to view or edit it, or add a new one."}
-                                    </p>
-                                </PageMessage>
-                                <Button onPress={startNewMachine} isDisabled={saving}>
-                                    <PlusIcon /> New Machine
-                                </Button>
+                            <CardContent className="flex h-full flex-col items-center justify-center">
+                                <EmptyState
+                                    title={machines.length === 0 ? "No machines yet" : "No machine selected"}
+                                    action={
+                                        <Button onPress={startNewMachine} isDisabled={saving}>
+                                            <PlusIcon /> New Machine
+                                        </Button>
+                                    }
+                                >
+                                    {machines.length === 0
+                                        ? "Add a machine to the floor inventory to get started."
+                                        : "Pick a machine in the inventory to view or edit it, or add a new one."}
+                                </EmptyState>
                             </CardContent>
                         </Card>
                     ) : (

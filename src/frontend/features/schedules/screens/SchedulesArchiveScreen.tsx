@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { useAuth } from "@/core/auth/AuthProvider";
-import { PageMessage } from "@/core/feedback/PageMessage";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -251,17 +251,17 @@ function SchedulesPageInner() {
                             // Inline card rather than ManagerPageState, which would nest a
                             // second ManagerShell (and so a second topbar) inside the grid.
                             <Card className="min-h-full min-w-0">
-                                <CardContent className="flex h-full flex-col items-center justify-center gap-4">
-                                    <PageMessage title={rows.length === 0 ? "No schedules yet" : "No schedule selected"} tone="info">
-                                        <p>
-                                            {rows.length === 0
-                                                ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
-                                                : "No schedules match these filters. Clear them to see every schedule."}
-                                        </p>
-                                    </PageMessage>
-                                    {rows.length === 0 ? newScheduleLink : (
-                                        <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
-                                    )}
+                                <CardContent className="flex h-full flex-col items-center justify-center">
+                                    <EmptyState
+                                        title={rows.length === 0 ? "No schedules yet" : "No schedule selected"}
+                                        action={rows.length === 0 ? newScheduleLink : (
+                                            <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
+                                        )}
+                                    >
+                                        {rows.length === 0
+                                            ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
+                                            : "No schedules match these filters. Clear them to see every schedule."}
+                                    </EmptyState>
                                 </CardContent>
                             </Card>
                         )}
