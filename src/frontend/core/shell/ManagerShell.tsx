@@ -26,6 +26,7 @@ export function ManagerShell({
     children,
     reportingDateProvider = true,
     showDatePicker = false,
+    paneScroll = false,
 }: {
     /** Static nodes, or a render function — a function is evaluated inside
         the reporting-date provider, so header actions may call
@@ -37,6 +38,9 @@ export function ManagerShell({
     /** Show the reporting-date picker in the header. Only pages that read
         `useReportingDate()` turn it on; elsewhere picking a day would do nothing. */
     showDatePicker?: boolean;
+    /** Lock the page to the viewport from `xl` up so its side panes scroll
+        individually (see `SidePaneLayout`) instead of the whole page scrolling. */
+    paneScroll?: boolean;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = usePersistentFlag("floorsync.sidebar.collapsed");
@@ -51,7 +55,15 @@ export function ManagerShell({
     }, [menuOpen]);
 
     const shell = (
-        <div className="flex min-h-dvh bg-bg text-fg">
+        <div
+            className={`flex bg-bg text-fg ${
+                paneScroll
+                    ? // From `xl` up the page is exactly the viewport, so each
+                      // pane scrolls inside itself rather than the page doing it.
+                      "min-h-dvh xl:h-dvh xl:overflow-hidden"
+                    : "min-h-dvh"
+            }`}
+        >
             {menuOpen && (
                 <div
                     aria-hidden
@@ -99,7 +111,9 @@ export function ManagerShell({
                     <UserMenu />
                 </div>
             </aside>
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div
+                className={`flex min-w-0 flex-1 flex-col ${paneScroll ? "xl:min-h-0" : ""}`}
+            >
                 <ManagerTopbar
                     onOpenMenu={() => setMenuOpen(true)}
                     sidebarCollapsed={sidebarCollapsed}

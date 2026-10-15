@@ -1,8 +1,10 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { PageMessage } from "@/core/feedback/PageMessage";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -319,9 +321,9 @@ function MachinesPageInner() {
     const openJobsOnSelected = selectedUsage?.jobs.filter((job) => job.backlogStatus === "open").length ?? 0;
 
     return (
-        <ManagerShell actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
-            <SidePaneLayout>
-                <SidePane id="machines.inventory" side="left" label="Machines" grow={0.8} minWidth={280}>
+        <ManagerShell paneScroll>
+            <SidePaneLayout paneScroll>
+                <SidePane id="machines.inventory" side="left" label="Machines" grow={0.8} minWidth={280} paneScroll>
                     <MachineInventoryPanel
                         total={machines.length}
                         activeCount={activeCount}
@@ -335,8 +337,27 @@ function MachinesPageInner() {
                         onSelect={selectMachine}
                     />
                 </SidePane>
-                <SidePaneMain grow={2}>
-                    <MachineEditor
+                <SidePaneMain grow={2} paneScroll>
+                    {selected === null && !isCreating ? (
+                        // Same neutral empty pane the Schedules page shows: the
+                        // screen opens with nothing selected, and the editor
+                        // only appears once a machine is picked or added.
+                        <Card className="min-h-full min-w-0">
+                            <CardContent className="flex h-full flex-col items-center justify-center gap-4">
+                                <PageMessage title={machines.length === 0 ? "No machines yet" : "No machine selected"} tone="info">
+                                    <p>
+                                        {machines.length === 0
+                                            ? "Add a machine to the floor inventory to get started."
+                                            : "Pick a machine in the inventory to view or edit it, or add a new one."}
+                                    </p>
+                                </PageMessage>
+                                <Button onPress={startNewMachine} isDisabled={saving}>
+                                    <PlusIcon /> Add machine
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <MachineEditor
                         draft={draft}
                         selected={selected}
                         categories={draftCategories}
@@ -352,7 +373,8 @@ function MachinesPageInner() {
                         onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
                         onToggleActive={requestToggleActive}
                         onRemove={() => setConfirmRemove(true)}
-                    />
+                        />
+                    )}
                 </SidePaneMain>
             </SidePaneLayout>
 

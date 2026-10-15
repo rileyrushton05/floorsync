@@ -1,8 +1,10 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { PageMessage } from "@/core/feedback/PageMessage";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { errorMessage } from "@/core/http/errors";
 import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
@@ -41,8 +43,8 @@ import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
 import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
 import { useMachines } from "@/features/machines/data/queries";
 import { useDeleteSchedule } from "@/features/schedules/data/queries";
-import { PlusIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "next/navigation";
+import { PlusIcon } from "@heroicons/react/24/outline";
 import { Suspense, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -623,15 +625,9 @@ function JobsPageInner() {
     );
 
     return (
-        <ManagerShell
-            actions={
-                <Button onPress={startNewJob} isDisabled={loading || saving}>
-                    <PlusIcon /> New job
-                </Button>
-            }
-        >
-            <SidePaneLayout className="gap-3 p-3 sm:gap-5 sm:p-5">
-                <SidePane id="jobs.backlog" side="left" label="Job backlog" grow={0.8} minWidth={240}>
+        <ManagerShell paneScroll>
+            <SidePaneLayout className="gap-3 p-3 sm:gap-5 sm:p-5" paneScroll>
+                <SidePane id="jobs.backlog" side="left" label="Job backlog" grow={0.8} minWidth={240} paneScroll>
                     <JobBacklogPanel
                         jobs={jobs}
                         visibleJobs={visibleJobs}
@@ -645,7 +641,26 @@ function JobsPageInner() {
                         onSelect={editJob}
                     />
                 </SidePane>
-                <SidePaneMain grow={2}>
+                <SidePaneMain grow={2} paneScroll>
+                    {draft.id === null && !isCreating ? (
+                        // Same neutral empty pane as the Machines and Schedules
+                        // pages: nothing is open until a job is picked, linked
+                        // to, or created.
+                        <Card className="min-h-full min-w-0">
+                            <CardContent className="flex h-full flex-col items-center justify-center gap-4">
+                                <PageMessage title={jobs.length === 0 ? "No jobs yet" : "No job selected"} tone="info">
+                                    <p>
+                                        {jobs.length === 0
+                                            ? "Create a job in the backlog to get started."
+                                            : "Pick a job in the backlog to view or edit it, or start a new one."}
+                                    </p>
+                                </PageMessage>
+                                <Button onPress={startNewJob} isDisabled={loading || saving}>
+                                    <PlusIcon /> New job
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ) : (
                     <JobEditorPanel
                         draft={draft}
                         sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
@@ -682,6 +697,7 @@ function JobsPageInner() {
                         onRequestDelete={() => setConfirmingDelete(true)}
                         onRequestArchive={() => setConfirmingArchive(true)}
                     />
+                    )}
                 </SidePaneMain>
             </SidePaneLayout>
 

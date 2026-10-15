@@ -56,8 +56,11 @@ const STRATEGY_LABELS: Record<string, string> = { resched: "ReSched", exact: "Ex
 const JOBS_SHOWN_LIMIT = 6;
 
 export default function OverviewScreen() {
+    // `paneScroll` locks the dashboard to the viewport from `xl` up: the
+    // primary dashboard must always fit one page so its cards stay comparable,
+    // and any overflow scrolls inside the body, not the document.
     return (
-        <ManagerShell>
+        <ManagerShell paneScroll>
             <OverviewBody />
         </ManagerShell>
     );
@@ -105,7 +108,7 @@ function OverviewBody() {
         : 0;
 
     return (
-        <main className="flex flex-1 flex-col gap-5 p-5">
+        <main className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5 xl:scroll-rail">
             {error && (
                 <div role="alert" className="rounded-lg border border-danger/30 bg-danger-subtle px-4 py-3 text-danger-subtle-fg text-sm">
                     Some overview data could not be loaded: {errorMessage(error)}
@@ -320,6 +323,9 @@ function ScheduleJobs({ jobs }: { jobs: JobProgress[] }) {
                     <CardDescription>Select a job to see where it is now</CardDescription>
                 </CardHeader>
                 <CardContent>
+                    {/* Expanded, the whole list scrolls inside the card: the
+                        dashboard itself must keep fitting one page. */}
+                    <div className={isExpanded ? "max-h-96 overflow-y-auto scroll-rail" : undefined}>
                     <Table
                         aria-label="Jobs in this schedule"
                         selectionMode="single"
@@ -367,6 +373,7 @@ function ScheduleJobs({ jobs }: { jobs: JobProgress[] }) {
                             )}
                         </TableBody>
                     </Table>
+                    </div>
 
                     {(hiddenCount > 0 || isExpanded) && (
                         <div className="mt-3">

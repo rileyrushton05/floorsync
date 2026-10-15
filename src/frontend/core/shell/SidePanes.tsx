@@ -18,18 +18,43 @@ const KEY_STEP = 16;
  * `minmax(min, Nfr)` grid columns) until someone drags them to a width; below
  * that everything stacks.
  */
-export function SidePaneLayout({ className, children }: { className?: string; children: React.ReactNode }) {
-    return <main className={cn("flex flex-1 flex-col gap-5 p-5 xl:flex-row", className)}>{children}</main>;
+export function SidePaneLayout({ className, paneScroll, children }: { className?: string; paneScroll?: boolean; children: React.ReactNode }) {
+    return (
+        <main
+            className={cn(
+                "flex flex-1 flex-col gap-5 p-5 xl:flex-row",
+                // With `paneScroll` the layout fills the viewport exactly from
+                // `xl` up and each pane clips to it: scrolling then scrolls
+                // whichever pane the pointer is over, not the whole page.
+                paneScroll && "xl:min-h-0 xl:overflow-hidden",
+                className,
+            )}
+        >
+            {children}
+        </main>
+    );
 }
 
 /** The main column of a `SidePaneLayout`; it takes the space panes leave. */
-export function SidePaneMain({ grow, children }: { grow: number; children: React.ReactNode }) {
+export function SidePaneMain({ grow, paneScroll, children }: { grow: number; paneScroll?: boolean; children: React.ReactNode }) {
     return (
         <div
-            className="flex min-w-0 flex-col *:flex-1 xl:flex-[var(--pane-grow)_1_0%]"
+            className={cn(
+                "flex min-w-0 flex-col *:flex-1 xl:flex-[var(--pane-grow)_1_0%]",
+                paneScroll && "xl:min-h-0",
+            )}
             style={{ "--pane-grow": grow } as React.CSSProperties}
         >
-            {children}
+            {paneScroll ? (
+                // Same reason as `SidePane`: the pane cannot scroll itself (the
+                // resize handle hangs outside it), so an inner wrapper does.
+                // `*:flex-1` keeps the old stretch: children still fill the
+                // wrapper's height, so a short card (e.g. the schedules empty
+                // state) grows to the pane instead of hugging the top.
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col *:flex-1 xl:overflow-y-auto scroll-rail">{children}</div>
+            ) : (
+                children
+            )}
         </div>
     );
 }
@@ -47,6 +72,7 @@ export function SidePane({
     label,
     grow,
     minWidth,
+    paneScroll,
     children,
 }: {
     id: string;
@@ -57,6 +83,8 @@ export function SidePane({
     grow: number;
     /** Narrowest the pane gets beside the main column, in px. */
     minWidth: number;
+    /** Clip this pane to the viewport from `xl` up and let it scroll on its own. */
+    paneScroll?: boolean;
     children: React.ReactNode;
 }) {
     const [savedWidth, setSavedWidth] = usePersistentNumber(`floorsync.pane.${id}.width`);
@@ -121,6 +149,7 @@ export function SidePane({
             className={cn(
                 "relative flex min-w-0 flex-col *:flex-1 xl:min-w-(--pane-min)",
                 width === null ? "xl:flex-[var(--pane-grow)_1_0%]" : "xl:flex-[0_1_var(--pane-width)]",
+                paneScroll && "xl:min-h-0",
             )}
             style={
                 {
@@ -130,7 +159,14 @@ export function SidePane({
                 } as React.CSSProperties
             }
         >
-            {children}
+            {/* The pane itself must not scroll: its resize handle hangs outside
+                its edge, and an overflow here would clip the handle away. With
+                `paneScroll` an inner wrapper is the scroll container instead. */}
+            {paneScroll ? (
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col xl:overflow-y-auto scroll-rail">{children}</div>
+            ) : (
+                children
+            )}
             {/* Sits in the gap beside the pane: a faint rule the full height of
                 the pane, with a grip that stays in view while the page scrolls,
                 so it reads as something to drag. Double-click or Enter resets. */}

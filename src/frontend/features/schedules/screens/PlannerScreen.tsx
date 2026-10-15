@@ -13,7 +13,7 @@ import {
 import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
 import { Link } from "@/components/ui/link";
-import { useCollapsedRows } from "@/components/ui/list-pager";
+import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -813,7 +813,7 @@ function PlannerPageInner() {
                     : { kind: "empty" };
 
     return (
-        <ManagerShell actions={<>
+        <ManagerShell paneScroll actions={<>
             <Link href="/manager/schedules" className={buttonStyles({ intent: "plain", size: "sm" })}>
                 <ArrowLeftIcon /> Schedules
             </Link>
@@ -853,9 +853,9 @@ function PlannerPageInner() {
             </Button>
         </>}>
 
-            <SidePaneLayout>
+            <SidePaneLayout paneScroll>
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
-                <SidePane id="planner.jobs" side="left" label="Jobs to plan" grow={0.8} minWidth={260}>
+                <SidePane id="planner.jobs" side="left" label="Jobs to plan" grow={0.8} minWidth={260} paneScroll>
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
@@ -960,7 +960,7 @@ function PlannerPageInner() {
                                             </SelectContent>
                                         </Select>
                                         <Badge intent="outline" className="ml-auto" role="status">
-                                            Showing {visibleJobs.length} of {plannableJobs.length}
+                                            Showing {jobPager.shown.length} of {visibleJobs.length}
                                         </Badge>
                                     </div>
                                 </>
@@ -970,7 +970,7 @@ function PlannerPageInner() {
                                     aria-label="Jobs to schedule"
                                     selectionMode="multiple"
                                     selectionBehavior="toggle"
-                                    items={visibleJobs}
+                                    items={jobPager.shown}
                                     disabledKeys={busy ? visibleJobs.map((job) => job.id) : []}
                                     // Jobs hidden by the search or filter stay selected:
                                     // narrowing the list is for finding jobs, not for
@@ -1031,6 +1031,19 @@ function PlannerPageInner() {
                                 </GridList>
                             )}
 
+                            {/* Same collapse/expand footer as the Machines, Jobs
+                                and Schedules lists: a long selection folds away
+                                behind one toggle instead of running off screen. */}
+                            {plannableJobs.length > 0 && (
+                                <ListPager
+                                    hiddenCount={jobPager.hiddenCount}
+                                    expanded={jobPager.expanded}
+                                    highlighted={jobPager.selectedIsHidden}
+                                    onToggle={jobPager.toggle}
+                                    noun="jobs"
+                                />
+                            )}
+
                             {validationFeedback.length > 0 && (
                                 <Note intent="warning" className="mt-3">
                                     <strong>
@@ -1073,7 +1086,7 @@ function PlannerPageInner() {
                 </SidePane>
 
                 {/* ===== PLAN ===== */}
-                <SidePaneMain grow={2.2}>
+                <SidePaneMain grow={2.2} paneScroll>
                     <Card className="min-w-0">
                         <CardHeader className="gap-1">
                             <CardTitle className="flex flex-wrap items-center gap-2.5">
@@ -1114,7 +1127,7 @@ function PlannerPageInner() {
                 </SidePaneMain>
 
                 {/* ===== SAVE + SUMMARY ===== */}
-                <SidePane id="planner.summary" side="right" label="Save and summary" grow={0.9} minWidth={260}>
+                <SidePane id="planner.summary" side="right" label="Save and summary" grow={0.9} minWidth={260} paneScroll>
                     <div className="flex min-w-0 flex-col gap-5">
                         <SavePlanPanel
                             state={saveState}

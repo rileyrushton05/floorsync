@@ -205,9 +205,9 @@ function SchedulesPageInner() {
     }
 
     return (
-        <ManagerShell actions={newScheduleLink}>
-            <SidePaneLayout>
-                <SidePane id="schedules.inventory" side="left" label="Schedules" grow={0.8} minWidth={280}>
+        <ManagerShell actions={newScheduleLink} paneScroll>
+            <SidePaneLayout paneScroll>
+                <SidePane id="schedules.inventory" side="left" label="Schedules" grow={0.8} minWidth={280} paneScroll>
                     <ScheduleInventoryPanel
                         total={schedules.length}
                         rows={filteredRows}
@@ -225,7 +225,7 @@ function SchedulesPageInner() {
                         onSelect={setUserSelectedId}
                     />
                 </SidePane>
-                <SidePaneMain grow={2}>
+                <SidePaneMain grow={2} paneScroll>
                     <div className="flex min-w-0 flex-col gap-3">
                         {schedulesQuery.error && (
                             <Note intent="warning" role="status">
