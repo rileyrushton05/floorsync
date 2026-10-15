@@ -65,6 +65,12 @@ function normaliseSalary(salary: string | null | undefined): string | null {
  */
 const SALARY_PATTERN = /^\d{1,8}(\.\d{1,2})?$/;
 
+/** What stands in the way of a save, and which field to fix it in. */
+export interface DraftProblem {
+    field: "name" | "salary";
+    message: string;
+}
+
 /**
  * Why this draft cannot be saved yet, or null when it can.
  *
@@ -72,16 +78,19 @@ const SALARY_PATTERN = /^\d{1,8}(\.\d{1,2})?$/;
  * asking, where a round trip could only come back with a refusal the manager
  * already had the information to avoid.
  */
-export function draftProblem(draft: MachineDraft, machines: readonly MachineSummary[]): string | null {
+export function draftProblem(draft: MachineDraft, machines: readonly MachineSummary[]): DraftProblem | null {
     const name = draft.name.trim();
-    if (name === "") return "Give the machine a name before saving.";
+    if (name === "") return { field: "name", message: "Give the machine a name before saving." };
     // Names are unique on the floor (and compared exactly, as the database does).
     if (machines.some((machine) => machine.id !== draft.id && machine.name === name)) {
-        return `Another machine is already called “${name}”.`;
+        return { field: "name", message: `Another machine is already called “${name}”. Rename it before saving.` };
     }
     const salary = draft.salary.trim();
     if (salary !== "" && !SALARY_PATTERN.test(salary)) {
-        return "Hourly salary must be a positive amount with at most two decimal places.";
+        return {
+            field: "salary",
+            message: "Hourly salary must be a positive amount with at most two decimal places.",
+        };
     }
     return null;
 }
@@ -93,15 +102,22 @@ export interface SaveGate {
     reason: string | null;
     /** True when there is work to write but something is standing in the way. */
     held: boolean;
+    /**
+     * The field the manager has to change before a save, when the draft itself
+     * is what is wrong. The reason is shown as a warning then, not a footnote.
+     */
+    invalidField: DraftProblem["field"] | null;
 }
 
 /** The one answer to "can this be saved yet", shared by the button and Ctrl+S. */
-export function saveGate(input: { isNew: boolean; dirty: boolean; problem: string | null }): SaveGate {
+export function saveGate(input: { isNew: boolean; dirty: boolean; problem: DraftProblem | null }): SaveGate {
     // A pristine new form has nothing in it to complain about yet.
-    if (input.isNew && !input.dirty) return { canSave: false, reason: null, held: false };
-    if (input.problem !== null) return { canSave: false, reason: input.problem, held: true };
-    if (!input.dirty) return { canSave: false, reason: "No unsaved changes.", held: false };
-    return { canSave: true, reason: null, held: false };
+    if (input.isNew && !input.dirty) return { canSave: false, reason: null, held: false, invalidField: null };
+    if (input.problem !== null) {
+        return { canSave: false, reason: input.problem.message, held: true, invalidField: input.problem.field };
+    }
+    if (!input.dirty) return { canSave: false, reason: "No unsaved changes.", held: false, invalidField: null };
+    return { canSave: true, reason: null, held: false, invalidField: null };
 }
 
 /** A job that routes at least one of its operations through a machine. */

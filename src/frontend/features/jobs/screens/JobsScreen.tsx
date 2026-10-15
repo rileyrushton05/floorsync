@@ -42,6 +42,7 @@ import {
     filterJobs,
     jobSequenceNumbers,
     saveGate,
+    UNASSIGNED_MACHINE,
     type JobDraft,
     type JobFilters,
 } from "@/features/jobs/model/editor";
@@ -359,15 +360,13 @@ function JobsPageInner() {
                         id,
                         name: "",
                         dependsOn: after ? [after.id] : [],
-                        routes: activeMachines[0]
-                            ? [{ machineId: activeMachines[0].id, durationMins: 30, energy: null }]
-                            : [],
+                        routes: [{ machineId: UNASSIGNED_MACHINE, durationMins: 30, energy: null }],
                     },
                 ],
             };
         });
         // Open it immediately: a step added from the graph is added in order to
-        // be filled in, and it lands unnamed with a default route. Only a step
+        // be filled in, and it lands unnamed with an empty machine row. Only a step
         // added this way takes the cursor — selecting an existing one in the
         // graph must leave focus where the manager put it.
         setSelectedOperationId(id);
@@ -398,19 +397,18 @@ function JobsPageInner() {
         }));
     }
 
+    /** Add an empty machine row to a step, for the manager to assign. */
     function addRoute(operationIndex: number) {
         setDraft((previous) => ({
             ...previous,
             operations: previous.operations.map((operation, index) => {
                 if (index !== operationIndex) return operation;
-                const routes = operation.routes;
-                const machine = activeMachines.find(
-                    (candidate) => !routes.some((route) => route.machineId === candidate.id),
-                );
-                if (!machine) return operation;
+                // One empty row at a time: a second would only be another
+                // thing standing between the manager and a save.
+                if (operation.routes.some((route) => route.machineId === UNASSIGNED_MACHINE)) return operation;
                 return {
                     ...operation,
-                    routes: [...routes, { machineId: machine.id, durationMins: 30, energy: null }],
+                    routes: [...operation.routes, { machineId: UNASSIGNED_MACHINE, durationMins: 30, energy: null }],
                 };
             }),
         }));
