@@ -78,7 +78,11 @@ const MenuItem = ({ className, intent, children, ...props }: MenuItemProps) => {
             children
           )}
           {values.hasSubmenu && (
-            <ChevronRightIcon data-slot="chevron" className="absolute inset-e-2 top-1/2 size-4 -translate-y-1/2" />
+            // Wrapped so the item's icon rules (which pin an icon after a
+            // label to the top) leave it centred.
+            <span data-slot="chevron" className="absolute inset-y-0 inset-e-2 flex items-center">
+              <ChevronRightIcon className="size-4" />
+            </span>
           )}
         </>
       )}
