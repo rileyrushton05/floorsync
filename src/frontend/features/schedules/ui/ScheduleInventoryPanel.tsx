@@ -222,8 +222,8 @@ export function ScheduleInventoryPanel({
                     noun="schedules"
                 />
             </CardContent>
-            <div className="-my-1.5 flex justify-end px-3">
-                <Link href="/manager/planner" className={buttonStyles({ size: "xl" })}>
+            <div className="mt-auto border-t p-3">
+                <Link href="/manager/planner" className={buttonStyles({ className: "w-full" })}>
                     <PlusIcon /> New Schedule
                 </Link>
             </div>

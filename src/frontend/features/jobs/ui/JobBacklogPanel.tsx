@@ -245,8 +245,8 @@ export function JobBacklogPanel({
                     noun="jobs"
                 />
             </CardContent>
-            <div className="-my-1.5 flex justify-end px-3">
-                <Button size="xl" onPress={onNewJob} isDisabled={busy}>
+            <div className="mt-auto border-t p-3">
+                <Button className="w-full" onPress={onNewJob} isDisabled={busy}>
                     <PlusIcon /> New Job
                 </Button>
             </div>
