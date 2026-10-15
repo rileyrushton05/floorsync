@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     GridList,
@@ -11,12 +11,13 @@ import {
 } from "@/components/ui/grid-list";
 import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
+import { Link } from "@/components/ui/link";
 import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
 import { formatDuration } from "@/domains/scheduling/format";
-import { ChevronRightIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ChevronRightIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
     formatCreatedAt,
     scheduleDisplayName,
@@ -221,6 +222,11 @@ export function ScheduleInventoryPanel({
                     noun="schedules"
                 />
             </CardContent>
+            <div className="mt-auto -mb-3 flex justify-end px-3 pt-3">
+                <Link href="/manager/planner" className={buttonStyles({ size: "xl" })}>
+                    <PlusIcon /> New Schedule
+                </Link>
+            </div>
         </Card>
     );
 }

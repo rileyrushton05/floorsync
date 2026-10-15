@@ -72,7 +72,7 @@ function MachinesPageInner() {
     const [baselineDraft, setBaselineDraft] = useState<MachineDraft>(EMPTY_MACHINE_DRAFT);
     const [isCreating, setIsCreating] = useState(false);
     const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
-    // The machine that was open when "Add machine" was pressed, so cancelling
+    // The machine that was open when "New Machine" was pressed, so cancelling
     // the new one goes back to it.
     const [returnId, setReturnId] = useState<string | null>(null);
     const [filters, setFilters] = useState<MachineFilters>(INITIAL_MACHINE_FILTERS);
@@ -111,7 +111,7 @@ function MachinesPageInner() {
     const gate = saveGate({ isNew: draft.id === null, dirty, problem: draftProblem(draft, machines) });
 
     // The screen opens with nothing selected: the right pane shows a neutral
-    // empty state until a machine is picked in the list, or "Add machine" is
+    // empty state until a machine is picked in the list, or "New Machine" is
     // pressed. Only a ?machine=<id> link or user action opens the editor.
 
     // The machine on screen was removed elsewhere (or in another tab): drop
@@ -352,7 +352,7 @@ function MachinesPageInner() {
                                     </p>
                                 </PageMessage>
                                 <Button onPress={startNewMachine} isDisabled={saving}>
-                                    <PlusIcon /> Add machine
+                                    <PlusIcon /> New Machine
                                 </Button>
                             </CardContent>
                         </Card>

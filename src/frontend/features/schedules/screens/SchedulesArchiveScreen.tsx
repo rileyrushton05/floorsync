@@ -42,7 +42,7 @@ const CLOSE_MS = 150;
 /**
  * Every schedule, and where each one is in its life.
  *
- * Schedules are made on the Planner ("New schedule" goes there), so this page
+ * Schedules are made on the Planner ("New Schedule" goes there), so this page
  * browses them: rename, confirm, withdraw, restore, delete a draft, and jump
  * into the simulation or back into the Planner from here.
  *
@@ -172,7 +172,7 @@ function SchedulesPageInner() {
 
     const newScheduleLink = (
         <Link href="/manager/planner" className={buttonStyles()}>
-            <PlusIcon /> New schedule
+            <PlusIcon /> New Schedule
         </Link>
     );
 
@@ -205,7 +205,7 @@ function SchedulesPageInner() {
     }
 
     return (
-        <ManagerShell actions={newScheduleLink} paneScroll>
+        <ManagerShell paneScroll>
             <SidePaneLayout paneScroll>
                 <SidePane id="schedules.inventory" side="left" label="Schedules" grow={0.8} minWidth={280} paneScroll>
                     <ScheduleInventoryPanel

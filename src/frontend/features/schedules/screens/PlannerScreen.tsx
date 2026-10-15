@@ -90,7 +90,7 @@ type JobStatusFilter = (typeof JOB_STATUS_FILTERS)[number]["id"];
 /**
  * Planner: where a schedule is made.
  *
- * The flow is Schedules → "New schedule" → here: pick the open jobs, choose an
+ * The flow is Schedules → "New Schedule" → here: pick the open jobs, choose an
  * engine, generate, then name the plan and save it. Saving confirms it (so it
  * can be run in the simulation) and returns to the Schedules page with it
  * selected. "Open in planner" on an unsaved draft lands here too, via

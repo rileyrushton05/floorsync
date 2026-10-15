@@ -102,7 +102,7 @@ function JobsPageInner() {
     const searchParams = useSearchParams();
     // The screen opens with nothing selected — the right pane shows the
     // neutral empty state, exactly like the Machines page. A draft is only
-    // loaded by picking a job in the backlog, a ?job=<id> link, or "New job".
+    // loaded by picking a job in the backlog, a ?job=<id> link, or "New Job".
     const [draft, setDraft] = useState<JobDraft>(EMPTY_JOB_DRAFT);
     // The job as the API has it. Anything the draft says differently is unsaved
     // work, which is what the leave warnings key off.
@@ -156,7 +156,7 @@ function JobsPageInner() {
     const [blockingDrafts, setBlockingDrafts] = useState<ScheduleReferences | null>(null);
 
     // The screen opens with nothing selected: the right pane shows a neutral
-    // empty state until a job is picked in the backlog, or "New job" is
+    // empty state until a job is picked in the backlog, or "New Job" is
     // pressed. Only a ?job=<id> link or user action opens the editor.
 
     function dismissDelete() {
@@ -654,7 +654,7 @@ function JobsPageInner() {
                                     </p>
                                 </PageMessage>
                                 <Button onPress={startNewJob} isDisabled={loading || saving}>
-                                    <PlusIcon /> New job
+                                    <PlusIcon /> New Job
                                 </Button>
                             </CardContent>
                         </Card>
