@@ -2,7 +2,10 @@
 
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/core/auth/UserMenu";
+import { PanelsMenu } from "@/core/panels/PanelsMenu";
+import type { Workspace } from "@/core/panels/workspace";
 import { ChevronDoubleLeftIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { cn } from "cn";
 import { useEffect, useState } from "react";
 import { Wordmark } from "./Logo";
 import { ManagerNavigation } from "./ManagerNavigation";
@@ -20,12 +23,17 @@ import { usePersistentFlag } from "./usePersistentFlag";
  * slides in over the page from the header's menu button, and closes on Escape,
  * on the backdrop, or when a link changes page (each screen mounts its own
  * shell).
+ *
+ * A screen laid out as a `PanelWorkspace` passes its `workspace`: from `xl` up
+ * the content then fills the viewport exactly (the panels scroll, not the
+ * page), and the header gains the Panels menu.
  */
 export function ManagerShell({
     actions,
     children,
     reportingDateProvider = true,
     showDatePicker = false,
+    workspace,
 }: {
     /** Static nodes, or a render function — a function is evaluated inside
         the reporting-date provider, so header actions may call
@@ -37,6 +45,7 @@ export function ManagerShell({
     /** Show the reporting-date picker in the header. Only pages that read
         `useReportingDate()` turn it on; elsewhere picking a day would do nothing. */
     showDatePicker?: boolean;
+    workspace?: Workspace;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = usePersistentFlag("floorsync.sidebar.collapsed");
@@ -99,13 +108,14 @@ export function ManagerShell({
                     <UserMenu />
                 </div>
             </aside>
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className={cn("flex min-w-0 flex-1 flex-col", workspace && "xl:h-dvh")}>
                 <ManagerTopbar
                     onOpenMenu={() => setMenuOpen(true)}
                     sidebarCollapsed={sidebarCollapsed}
                     onExpandSidebar={() => setSidebarCollapsed(false)}
                     showDatePicker={showDatePicker}
                 >
+                    {workspace && <PanelsMenu workspace={workspace} />}
                     {typeof actions === "function" ? actions() : actions}
                 </ManagerTopbar>
                 {children}

@@ -32,9 +32,11 @@ function write(key: string, value: string | null) {
     listeners.forEach((listener) => listener());
 }
 
-/* The server render (and the first client render) always see null, so a
-   remembered value applies straight after hydration without a mismatch. */
-function usePersistentString(key: string): [string | null, (value: string | null) => void] {
+/** A string remembered in this browser under `key`; null until set, and
+    setting null forgets it. The server render (and the first client render)
+    always see null, so a remembered value applies straight after hydration
+    without a mismatch. */
+export function usePersistentString(key: string): [string | null, (value: string | null) => void] {
     const value = useSyncExternalStore(subscribe, () => read(key), () => null);
     const set = useCallback((next: string | null) => write(key, next), [key]);
     return [value, set];
