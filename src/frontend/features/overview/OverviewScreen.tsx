@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/components/ui/link";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import {
@@ -13,6 +13,10 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { errorMessage } from "@/core/http/errors";
+import { column, row } from "@/core/panels/layout";
+import { PanelControls } from "@/core/panels/PanelChrome";
+import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
+import { defineWorkspace, usePanelWorkspace, type Workspace } from "@/core/panels/workspace";
 import { statusIntent } from "@/core/presentation/badge-intent";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
@@ -47,15 +51,39 @@ const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var
 const STRATEGY_COLORS: Record<string, string> = { resched: "var(--chart-1)", exact: "var(--chart-2)" };
 const STRATEGY_LABELS: Record<string, string> = { resched: "ReSched", exact: "Exact" };
 
+const STAT_PANEL = { minWidth: 180, minHeight: 180 };
+const CHART_PANEL = { minWidth: 260, minHeight: 200 };
+
+const OVERVIEW_WORKSPACE = defineWorkspace({
+    id: "overview",
+    panels: {
+        "open-jobs": { title: "Open jobs", ...STAT_PANEL },
+        "machines-busy": { title: "Machines busy", ...STAT_PANEL },
+        "schedule-progress": { title: "Schedule progress", ...STAT_PANEL },
+        "active-machines": { title: "Active machines", ...STAT_PANEL },
+        backlog: { title: "Job backlog", ...CHART_PANEL },
+        utilisation: { title: "Machine utilisation", ...CHART_PANEL },
+        recent: { title: "Recent schedules", ...CHART_PANEL },
+        jobs: { title: "Jobs in this schedule", minWidth: 420, minHeight: 200 },
+        detail: { title: "Job detail", minWidth: 280, minHeight: 200 },
+    },
+    layout: column(
+        [row(["open-jobs", 25], ["machines-busy", 25], ["schedule-progress", 25], ["active-machines", 25]), 16],
+        [row(["backlog", 34], ["utilisation", 33], ["recent", 33]), 38],
+        [row(["jobs", 62], ["detail", 38]), 46],
+    ),
+});
+
 export default function OverviewScreen() {
+    const workspace = usePanelWorkspace(OVERVIEW_WORKSPACE);
     return (
-        <ManagerShell>
-            <OverviewBody />
+        <ManagerShell workspace={workspace}>
+            <OverviewBody workspace={workspace} />
         </ManagerShell>
     );
 }
 
-function OverviewBody() {
+function OverviewBody({ workspace }: { workspace: Workspace }) {
     const jobsQuery = useJobSummaries();
     const machinesQuery = useMachines();
     const schedulesQuery = useScheduleSummaries();
@@ -96,21 +124,33 @@ function OverviewBody() {
         ? Math.round((nowMins / timeline.makespan) * 100)
         : 0;
 
+    // The schedule's job table and the chosen job's detail are separate
+    // panels, so the choice lives here. Until someone picks, it follows the
+    // job in progress.
+    const [selectedKey, setSelectedKey] = useState<string | null>(null);
+    const selectedJob = jobs.find((job) => job.key === selectedKey)
+        ?? jobs.find((job) => job.state === "In progress")
+        ?? jobs[0]
+        ?? null;
+
     return (
-        <main className="flex flex-1 flex-col gap-5 p-5">
-            {error && (
+        <PanelWorkspace
+            workspace={workspace}
+            notice={error && (
                 <div role="alert" className="rounded-lg border border-danger/30 bg-danger-subtle px-4 py-3 text-danger-subtle-fg text-sm">
                     Some overview data could not be loaded: {errorMessage(error)}
                 </div>
             )}
-
-            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        >
+            <WorkspacePanel id="open-jobs">
                 <StatCard
                     icon={ClipboardDocumentListIcon}
                     label="Open jobs"
                     value={backlog.open + backlog.planned}
                     caption={`${backlog.open} open · ${backlog.planned} planned`}
                 />
+            </WorkspacePanel>
+            <WorkspacePanel id="machines-busy">
                 <StatCard
                     icon={CpuChipIcon}
                     label="Machines busy"
@@ -118,6 +158,8 @@ function OverviewBody() {
                     suffix={timeline ? `/ ${loads.length}` : undefined}
                     caption={!timeline ? "No schedule running" : started ? "Working right now" : "Simulation not started"}
                 />
+            </WorkspacePanel>
+            <WorkspacePanel id="schedule-progress">
                 <StatCard
                     icon={PlayCircleIcon}
                     label="Schedule progress"
@@ -136,6 +178,8 @@ function OverviewBody() {
                         </ProgressBar>
                     )}
                 </StatCard>
+            </WorkspacePanel>
+            <WorkspacePanel id="active-machines">
                 <StatCard
                     icon={Cog6ToothIcon}
                     label="Active machines"
@@ -143,11 +187,15 @@ function OverviewBody() {
                     suffix={`/ ${machines.length}`}
                     caption={`${machines.length - activeMachines} inactive`}
                 />
-            </div>
+            </WorkspacePanel>
 
-            <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
+            <WorkspacePanel id="backlog">
                 <Card>
-                    <CardHeader title="Job backlog" description="Every job by where it sits in the backlog" />
+                    <CardHeader title="Job backlog" description="Every job by where it sits in the backlog">
+                        <CardAction>
+                            <PanelControls />
+                        </CardAction>
+                    </CardHeader>
                     <CardContent>
                         <DonutChart
                             ariaLabel={`Job backlog: ${BACKLOG_ORDER.map((status) => `${backlog[status]} ${BACKLOG_LABELS[status].toLowerCase()}`).join(", ")}`}
@@ -161,9 +209,15 @@ function OverviewBody() {
                         />
                     </CardContent>
                 </Card>
+            </WorkspacePanel>
 
+            <WorkspacePanel id="utilisation">
                 <Card>
-                    <CardHeader title="Machine utilisation" description="Share of the schedule each machine spends working" />
+                    <CardHeader title="Machine utilisation" description="Share of the schedule each machine spends working">
+                        <CardAction>
+                            <PanelControls />
+                        </CardAction>
+                    </CardHeader>
                     <CardContent>
                         {timeline && loads.length > 0 ? (
                             <BarChart
@@ -183,9 +237,15 @@ function OverviewBody() {
                         )}
                     </CardContent>
                 </Card>
+            </WorkspacePanel>
 
-                <Card className="lg:col-span-2 2xl:col-span-1">
-                    <CardHeader title="Recent schedules" description="Makespan of the latest generated schedules" />
+            <WorkspacePanel id="recent">
+                <Card>
+                    <CardHeader title="Recent schedules" description="Makespan of the latest generated schedules">
+                        <CardAction>
+                            <PanelControls />
+                        </CardAction>
+                    </CardHeader>
                     <CardContent>
                         {makespans.length > 0 ? (
                             <>
@@ -214,23 +274,37 @@ function OverviewBody() {
                         )}
                     </CardContent>
                 </Card>
-            </div>
+            </WorkspacePanel>
 
-            {timeline ? (
-                <ScheduleJobs jobs={jobs} />
-            ) : (
-                <Card>
-                    <CardContent className="flex flex-col items-center gap-2 py-6 text-center">
-                        <ClockIcon className="size-8 text-muted-fg" />
-                        <p className="font-semibold">No schedule on the floor yet</p>
-                        <p className="text-muted-fg text-sm">
-                            Generate and confirm a schedule in the planner to see job progress here.
-                        </p>
-                        <Link href="/manager/planner" className="text-primary text-sm">Open the planner →</Link>
-                    </CardContent>
-                </Card>
+            {/* With nothing on the floor this panel keeps its place to say so;
+                the job detail beside it leaves until there is a job to show. */}
+            <WorkspacePanel id="jobs">
+                {timeline ? (
+                    <ScheduleJobs jobs={jobs} selected={selectedJob} onSelect={setSelectedKey} />
+                ) : (
+                    <Card>
+                        <CardHeader title="Jobs in this schedule">
+                            <CardAction>
+                                <PanelControls />
+                            </CardAction>
+                        </CardHeader>
+                        <CardContent className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+                            <ClockIcon className="size-8 text-muted-fg" />
+                            <p className="font-semibold">No schedule on the floor yet</p>
+                            <p className="text-muted-fg text-sm">
+                                Generate and confirm a schedule in the planner to see job progress here.
+                            </p>
+                            <Link href="/manager/planner" className="text-primary text-sm">Open the planner →</Link>
+                        </CardContent>
+                    </Card>
+                )}
+            </WorkspacePanel>
+            {timeline && selectedJob && (
+                <WorkspacePanel id="detail">
+                    <JobDetail job={selectedJob} />
+                </WorkspacePanel>
             )}
-        </main>
+        </PanelWorkspace>
     );
 }
 
@@ -253,10 +327,11 @@ function StatCard({
         <Card>
             <CardContent>
                 <div className="flex items-center gap-2.5 font-medium text-muted-fg text-sm">
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         <Icon className="size-4.5" />
                     </span>
                     {label}
+                    <PanelControls className="ml-auto" />
                 </div>
                 <div className="mt-3 font-bold text-3xl tabular-nums">
                     {value}
@@ -277,82 +352,86 @@ function EmptyChart({ children }: { children: React.ReactNode }) {
     );
 }
 
-function ScheduleJobs({ jobs }: { jobs: JobProgress[] }) {
-    const [selectedKey, setSelectedKey] = useState<string | null>(null);
-    const selected = jobs.find((job) => job.key === selectedKey)
-        ?? jobs.find((job) => job.state === "In progress")
-        ?? jobs[0]
-        ?? null;
-
+function ScheduleJobs({
+    jobs,
+    selected,
+    onSelect,
+}: {
+    jobs: JobProgress[];
+    selected: JobProgress | null;
+    onSelect: (key: string) => void;
+}) {
     return (
-        <div className="grid gap-5 xl:grid-cols-[1.6fr_1fr]">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Jobs in this schedule</CardTitle>
-                    <CardDescription>Select a job to see where it is now</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Table
-                        aria-label="Jobs in this schedule"
-                        selectionMode="single"
-                        selectionBehavior="replace"
-                        selectedKeys={selected ? new Set([selected.key]) : new Set()}
-                        onSelectionChange={(keys) => {
-                            if (keys === "all") return;
-                            const [first] = Array.from(keys);
-                            if (typeof first === "string") setSelectedKey(first);
-                        }}
-                    >
-                        <TableHeader>
-                            <TableColumn isRowHeader>Job</TableColumn>
-                            <TableColumn>Progress</TableColumn>
-                            <TableColumn>Status</TableColumn>
-                            <TableColumn>Current machine</TableColumn>
-                            <TableColumn />
-                        </TableHeader>
-                        <TableBody items={jobs}>
-                            {(job) => (
-                                <TableRow id={job.key}>
-                                    <TableCell className="font-semibold">{job.label}</TableCell>
-                                    <TableCell>
-                                        <div className="flex items-center gap-2">
-                                            <ProgressBar aria-label={`${job.label} progress`} value={job.progressPct} className="w-24">
-                                                <ProgressBarTrack className="min-w-0" />
-                                            </ProgressBar>
-                                            <span className="text-xs tabular-nums">{job.doneCount}/{job.totalCount}</span>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        <Badge intent={statusIntent(job.state)}>{job.state}</Badge>
-                                    </TableCell>
-                                    <TableCell>{job.current?.machineLabel ?? "–"}</TableCell>
-                                    <TableCell className="text-right">
-                                        <Link
-                                            href={`/manager/jobs?job=${encodeURIComponent(job.key)}`}
-                                            aria-label={`Open ${job.label} in the job backlog`}
-                                            className="inline-flex items-center text-muted-fg transition hover:text-primary"
-                                        >
-                                            <ChevronRightIcon className="size-4" />
-                                        </Link>
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </CardContent>
-            </Card>
-
-            {selected && <JobDetail job={selected} />}
-        </div>
+        <Card>
+            <CardHeader>
+                <CardTitle>Jobs in this schedule</CardTitle>
+                <CardDescription>Select a job to see where it is now</CardDescription>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
+            </CardHeader>
+            <CardContent>
+                <Table
+                    aria-label="Jobs in this schedule"
+                    selectionMode="single"
+                    selectionBehavior="replace"
+                    selectedKeys={selected ? new Set([selected.key]) : new Set()}
+                    onSelectionChange={(keys) => {
+                        if (keys === "all") return;
+                        const [first] = Array.from(keys);
+                        if (typeof first === "string") onSelect(first);
+                    }}
+                >
+                    <TableHeader>
+                        <TableColumn isRowHeader>Job</TableColumn>
+                        <TableColumn>Progress</TableColumn>
+                        <TableColumn>Status</TableColumn>
+                        <TableColumn>Current machine</TableColumn>
+                        <TableColumn />
+                    </TableHeader>
+                    <TableBody items={jobs}>
+                        {(job) => (
+                            <TableRow id={job.key}>
+                                <TableCell className="font-semibold">{job.label}</TableCell>
+                                <TableCell>
+                                    <div className="flex items-center gap-2">
+                                        <ProgressBar aria-label={`${job.label} progress`} value={job.progressPct} className="w-24">
+                                            <ProgressBarTrack className="min-w-0" />
+                                        </ProgressBar>
+                                        <span className="text-xs tabular-nums">{job.doneCount}/{job.totalCount}</span>
+                                    </div>
+                                </TableCell>
+                                <TableCell>
+                                    <Badge intent={statusIntent(job.state)}>{job.state}</Badge>
+                                </TableCell>
+                                <TableCell>{job.current?.machineLabel ?? "–"}</TableCell>
+                                <TableCell className="text-right">
+                                    <Link
+                                        href={`/manager/jobs?job=${encodeURIComponent(job.key)}`}
+                                        aria-label={`Open ${job.label} in the job backlog`}
+                                        className="inline-flex items-center text-muted-fg transition hover:text-primary"
+                                    >
+                                        <ChevronRightIcon className="size-4" />
+                                    </Link>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
     );
 }
 
 function JobDetail({ job }: { job: JobProgress }) {
     return (
         <Card>
-            <CardHeader className="flex-row items-start justify-between gap-3">
+            <CardHeader>
                 <CardTitle>{job.label}</CardTitle>
-                <Badge intent={statusIntent(job.state)}>{job.state}</Badge>
+                <CardAction className="flex items-center gap-2">
+                    <Badge intent={statusIntent(job.state)}>{job.state}</Badge>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent className="space-y-5">
                 <ProgressBar aria-label="Job progress" value={job.progressPct}>
