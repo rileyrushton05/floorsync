@@ -13,8 +13,9 @@ import { useLiveUpdates, type LiveStatus } from "@/core/live-updates/useLiveUpda
 import { Wordmark } from "@/core/shell/Logo";
 import { formatOffset } from "@/domains/scheduling/format";
 import { FALLBACK_POLL_MS, useActiveSimulation, useOperatorTimeline } from "@/features/operator/data/queries";
-import { buildOperatorQueue, simulatedMinutes } from "@/features/operator/model/operator-queue";
+import { buildOperatorQueue, shiftStatus, simulatedMinutes, upcomingSegments } from "@/features/operator/model/operator-queue";
 import { CurrentOperation, UpcomingOperations } from "@/features/operator/ui/OperatorOperations";
+import { ShiftStatusCard, ShiftStrip } from "@/features/operator/ui/ShiftPlan";
 import { useQueryClient } from "@tanstack/react-query";
 import { operatorKeys } from "@/features/operator/data/keys";
 import { ArrowPathIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
@@ -86,6 +87,7 @@ export default function OperatorScreen() {
     );
     const started = simulation !== null && simulation.status !== "not_started";
     const nowMins = simulation && started ? simulatedMinutes(simulation, nowMs) : null;
+    const status = queue ? shiftStatus(queue, nowMins) : null;
 
     function completeCurrent() {
         if (!queue?.current || !simulation) return;
@@ -142,11 +144,18 @@ export default function OperatorScreen() {
                             <ProgressBarTrack className="min-w-0 [--progress-content-bg:var(--color-success)]" />
                         </ProgressBar>
                     )}
+                    {queue?.current && <ShiftStrip segments={queue.segments} nowMins={nowMins} />}
                     {queue && (
                         queue.current ? (
                             <>
-                                <CurrentOperation operation={queue.current} nowMins={nowMins} onComplete={completeCurrent} />
-                                <UpcomingOperations operations={queue.upcoming} nowMins={nowMins} />
+                                {status && <ShiftStatusCard status={status} />}
+                                <CurrentOperation
+                                    operation={queue.current}
+                                    nowMins={nowMins}
+                                    onComplete={completeCurrent}
+                                    heading={status?.kind === "break" && status.planned ? "Up after your break" : undefined}
+                                />
+                                <UpcomingOperations segments={upcomingSegments(queue)} nowMins={nowMins} />
                             </>
                         ) : (
                             <Note intent="success" className="max-w-lg">
