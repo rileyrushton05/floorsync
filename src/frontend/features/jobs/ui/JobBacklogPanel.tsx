@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HeaderCount } from "@/components/ui/header-count";
 import {
     GridList,
@@ -14,6 +14,7 @@ import { Input, InputGroup } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { priorityIntent } from "@/core/presentation/badge-intent";
 import type { JobColor } from "@/domains/scheduling/colors";
 import { formatDuration, totalWorkMins } from "@/domains/scheduling/format";
@@ -87,6 +88,9 @@ export function JobBacklogPanel({
                     Job backlog
                     <HeaderCount label={`${openCount} open ${openCount === 1 ? "job" : "jobs"}`}>{openCount}</HeaderCount>
                 </CardTitle>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent>
                 <TextField

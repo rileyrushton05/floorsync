@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
+import { row } from "@/core/panels/layout";
+import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
+import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import type { JobDef, OperationDef } from "@/domains/scheduling/types";
 import {
@@ -46,6 +48,15 @@ import {
     type JobFilters,
 } from "@/features/jobs/model/editor";
 
+const JOBS_WORKSPACE = defineWorkspace({
+    id: "jobs",
+    panels: {
+        backlog: { title: "Job backlog", minWidth: 240 },
+        editor: { title: "Job editor", minWidth: 360 },
+    },
+    layout: row(["backlog", 28], ["editor", 72]),
+});
+
 /** How long the zoom-out runs before the dialog unmounts, in ms. */
 const CLOSE_MS = 150;
 
@@ -67,6 +78,7 @@ export default function JobsPage() {
 }
 
 function JobsPageInner() {
+    const workspace = usePanelWorkspace(JOBS_WORKSPACE);
     const machineQuery = useMachines();
     const jobQuery = useJobDefinitions();
     const createJob = useCreateJobDefinition();
@@ -630,14 +642,15 @@ function JobsPageInner() {
 
     return (
         <ManagerShell
+            workspace={workspace}
             actions={
                 <Button onPress={startNewJob} isDisabled={loading || saving}>
                     <PlusIcon /> New job
                 </Button>
             }
         >
-            <SidePaneLayout className="gap-3 p-3 sm:gap-5 sm:p-5">
-                <SidePane id="jobs.backlog" side="left" label="Job backlog" grow={0.8} minWidth={240}>
+            <PanelWorkspace workspace={workspace}>
+                <WorkspacePanel id="backlog">
                     <JobBacklogPanel
                         jobs={jobs}
                         visibleJobs={visibleJobs}
@@ -649,8 +662,8 @@ function JobsPageInner() {
                         onFiltersChange={(update) => setFilters(update)}
                         onSelect={editJob}
                     />
-                </SidePane>
-                <SidePaneMain grow={2}>
+                </WorkspacePanel>
+                <WorkspacePanel id="editor">
                     <JobEditorPanel
                         draft={draft}
                         sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
@@ -687,8 +700,8 @@ function JobsPageInner() {
                         onRequestDelete={() => setConfirmingDelete(true)}
                         onRequestArchive={() => setConfirmingArchive(true)}
                     />
-                </SidePaneMain>
-            </SidePaneLayout>
+                </WorkspacePanel>
+            </PanelWorkspace>
 
             {pendingOpen !== null && (
                 <ConfirmDialog

@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Link } from "@/components/ui/link";
@@ -12,6 +12,7 @@ import { TextField } from "@/components/ui/text-field";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { Note } from "@/components/ui/note";
 import { errorMessage } from "@/core/http/errors";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { useSaveShortcutLabel } from "@/core/keyboard/useSaveShortcut";
 import { formatDuration, primaryRoute, routeMins, totalWorkMins } from "@/domains/scheduling/format";
 import type { Machine, OperationDef } from "@/domains/scheduling/types";
@@ -212,6 +213,9 @@ export function JobEditorPanel({
                         </Badge>
                     )}
                 </span>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
 
             <CardContent className="flex flex-1 flex-col gap-3 sm:gap-4">
