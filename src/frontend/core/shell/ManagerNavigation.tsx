@@ -3,6 +3,7 @@
 import { Link } from "@/components/ui/link";
 import {
     ArchiveBoxIcon,
+    ArrowUpTrayIcon,
     ChartBarSquareIcon,
     ChevronDownIcon,
     ClipboardDocumentListIcon,
@@ -24,6 +25,7 @@ const NAV: (NavItem | NavGroup)[] = [
         items: [
             { href: "/manager/jobs", label: "Jobs", icon: ClipboardDocumentListIcon },
             { href: "/manager/machines", label: "Machines", icon: CpuChipIcon },
+            { href: "/manager/import", label: "Import", icon: ArrowUpTrayIcon },
         ],
     },
     {
