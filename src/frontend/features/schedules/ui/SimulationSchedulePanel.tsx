@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import {
     GridList,
     GridListDescription,
@@ -49,6 +50,9 @@ export function SimulationSchedulePanel({
                     Confirmed schedules
                     <HeaderCount label={`${total} confirmed ${total === 1 ? "schedule" : "schedules"}`}>{total}</HeaderCount>
                 </CardTitle>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent>
                 <TextField aria-label="Search confirmed schedules by name or strategy" value={query} onChange={onQueryChange}>

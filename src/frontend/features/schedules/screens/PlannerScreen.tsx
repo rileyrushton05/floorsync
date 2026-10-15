@@ -35,8 +35,11 @@ import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
+import { column, row } from "@/core/panels/layout";
+import { PanelControls } from "@/core/panels/PanelChrome";
+import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
+import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { reportingDateStartsAt } from "@/core/shell/ReportingDate";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration, formatOffset } from "@/domains/scheduling/format";
@@ -69,6 +72,20 @@ import {
     type ScheduleTimeline,
     type SchedulingIssue,
 } from "../data/api";
+
+const PLANNER_WORKSPACE = defineWorkspace({
+    id: "planner",
+    panels: {
+        jobs: { title: "Jobs to plan", minWidth: 320 },
+        plan: { title: "Plan", minWidth: 420, minHeight: 240 },
+        save: { title: "Save schedule", minWidth: 260 },
+        summary: { title: "Plan summary", minWidth: 260 },
+    },
+    layout: row(
+        ["jobs", 22],
+        [column(["plan", 60], [row(["save", 35], ["summary", 65]), 40]), 78],
+    ),
+});
 
 const JOB_SORTS = [
     { id: "newest", label: "Newest first" },
@@ -315,6 +332,7 @@ export default function PlannerPage() {
 }
 
 function PlannerPageInner() {
+    const workspace = usePanelWorkspace(PLANNER_WORKSPACE);
     const { user } = useAuth();
     const router = useRouter();
     const jobsQuery = useJobSummaries();
@@ -648,7 +666,7 @@ function PlannerPageInner() {
                     : { kind: "empty" };
 
     return (
-        <ManagerShell actions={<>
+        <ManagerShell workspace={workspace} actions={<>
             <Link href="/manager/schedules" className={buttonStyles({ intent: "plain", size: "sm" })}>
                 <ArrowLeftIcon /> Schedules
             </Link>
@@ -688,9 +706,9 @@ function PlannerPageInner() {
             </Button>
         </>}>
 
-            <SidePaneLayout>
+            <PanelWorkspace workspace={workspace}>
                 {/* ===== WHAT WILL BE SCHEDULED ===== */}
-                <SidePane id="planner.jobs" side="left" label="Jobs to plan" grow={0.8} minWidth={260}>
+                <WorkspacePanel id="jobs">
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
@@ -706,8 +724,8 @@ function PlannerPageInner() {
                                     cannot.
                                 </InfoTooltip>
                             </CardTitle>
-                            {visibleJobs.length > 0 && (
-                                <CardAction>
+                            <CardAction className="flex items-center gap-2">
+                                {visibleJobs.length > 0 && (
                                     <Button
                                         intent="plain"
                                         size="sm"
@@ -723,8 +741,9 @@ function PlannerPageInner() {
                                     >
                                         {allVisibleSelected ? "Clear" : "Select all"}
                                     </Button>
-                                </CardAction>
-                            )}
+                                )}
+                                <PanelControls />
+                            </CardAction>
                         </CardHeader>
                         <CardContent>
                             {plannableJobs.length > 0 && (
@@ -905,10 +924,10 @@ function PlannerPageInner() {
                             )}
                         </CardContent>
                     </Card>
-                </SidePane>
+                </WorkspacePanel>
 
                 {/* ===== PLAN ===== */}
-                <SidePaneMain grow={2.2}>
+                <WorkspacePanel id="plan">
                     <Card className="min-w-0">
                         <CardHeader className="gap-1">
                             <CardTitle className="flex flex-wrap items-center gap-2.5">
@@ -924,6 +943,9 @@ function PlannerPageInner() {
                                     {generation.createdAt === null ? "generated just now" : `generated ${formatCreatedAt(generation.createdAt)}`}
                                 </span>
                             )}
+                            <CardAction>
+                                <PanelControls />
+                            </CardAction>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {plan && schedule ? (
@@ -942,129 +964,131 @@ function PlannerPageInner() {
                             )}
                         </CardContent>
                     </Card>
-                </SidePaneMain>
+                </WorkspacePanel>
 
                 {/* ===== SAVE + SUMMARY ===== */}
-                <SidePane id="planner.summary" side="right" label="Save and summary" grow={0.9} minWidth={260}>
-                    <div className="flex min-w-0 flex-col gap-5">
-                        <SavePlanPanel
-                            state={saveState}
-                            name={name}
-                            saving={updateSchedule.isPending}
-                            discarding={deleteSchedule.isPending}
-                            onNameChange={setName}
-                            onSave={() => void save(true)}
-                            onSaveDraft={() => void save(false)}
-                            onDiscard={() => setConfirmDiscard(true)}
-                        />
-
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Plan summary</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                {plan && schedule ? (
-                                    <>
-                                        <div className="grid grid-cols-2 gap-2.5">
-                                            <div className="rounded-lg border bg-muted p-3">
-                                                <div className="font-bold text-xl tabular-nums">
-                                                    {formatDuration(schedule.makespanMins)}
-                                                </div>
-                                                <div className="text-muted-fg text-xs">Makespan</div>
+                <WorkspacePanel id="save">
+                    <SavePlanPanel
+                        state={saveState}
+                        name={name}
+                        saving={updateSchedule.isPending}
+                        discarding={deleteSchedule.isPending}
+                        onNameChange={setName}
+                        onSave={() => void save(true)}
+                        onSaveDraft={() => void save(false)}
+                        onDiscard={() => setConfirmDiscard(true)}
+                    />
+                </WorkspacePanel>
+                <WorkspacePanel id="summary">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Plan summary</CardTitle>
+                            <CardAction>
+                                <PanelControls />
+                            </CardAction>
+                        </CardHeader>
+                        <CardContent>
+                            {plan && schedule ? (
+                                <>
+                                    <div className="grid grid-cols-2 gap-2.5">
+                                        <div className="rounded-lg border bg-muted p-3">
+                                            <div className="font-bold text-xl tabular-nums">
+                                                {formatDuration(schedule.makespanMins)}
                                             </div>
-                                            <div className="rounded-lg border bg-muted p-3">
-                                                <div className="font-bold text-xl tabular-nums">
-                                                    {schedule.order.length}
-                                                </div>
-                                                <div className="text-muted-fg text-xs">Jobs</div>
+                                            <div className="text-muted-fg text-xs">Makespan</div>
+                                        </div>
+                                        <div className="rounded-lg border bg-muted p-3">
+                                            <div className="font-bold text-xl tabular-nums">
+                                                {schedule.order.length}
                                             </div>
+                                            <div className="text-muted-fg text-xs">Jobs</div>
                                         </div>
+                                    </div>
 
-                                        <h3 className="mt-5 font-semibold text-sm">Machine load</h3>
-                                        <ul className="mt-2 space-y-2">
-                                            {schedule.machineLoad
-                                                .filter((load) => load.busyMins > 0)
-                                                .map((load) => (
-                                                    <li key={load.machineId} className="flex items-center gap-2.5">
-                                                        <span className="w-24 shrink-0 truncate text-sm">
-                                                            {machineName(load.machineId)}
-                                                        </span>
-                                                        <ProgressBar
-                                                            aria-label={`${machineName(load.machineId)} utilisation`}
-                                                            value={load.utilisationPct}
-                                                            className="flex-1"
-                                                        >
-                                                            <ProgressBarTrack className="min-w-0" />
-                                                        </ProgressBar>
-                                                        <span className="w-9 shrink-0 text-right text-muted-fg text-xs tabular-nums">
-                                                            {load.utilisationPct}%
-                                                        </span>
-                                                    </li>
-                                                ))}
-                                        </ul>
+                                    <h3 className="mt-5 font-semibold text-sm">Machine load</h3>
+                                    <ul className="mt-2 space-y-2">
+                                        {schedule.machineLoad
+                                            .filter((load) => load.busyMins > 0)
+                                            .map((load) => (
+                                                <li key={load.machineId} className="flex items-center gap-2.5">
+                                                    <span className="w-24 shrink-0 truncate text-sm">
+                                                        {machineName(load.machineId)}
+                                                    </span>
+                                                    <ProgressBar
+                                                        aria-label={`${machineName(load.machineId)} utilisation`}
+                                                        value={load.utilisationPct}
+                                                        className="flex-1"
+                                                    >
+                                                        <ProgressBarTrack className="min-w-0" />
+                                                    </ProgressBar>
+                                                    <span className="w-9 shrink-0 text-right text-muted-fg text-xs tabular-nums">
+                                                        {load.utilisationPct}%
+                                                    </span>
+                                                </li>
+                                            ))}
+                                    </ul>
 
-                                        {/* Every job's placement in text, so the plan is readable
-                                            without relying on the colour channel. */}
-                                        <h3 className="mt-5 font-semibold text-sm">Job placement</h3>
-                                        <p className="mt-1 text-muted-fg text-xs">
-                                            When each job opens and closes, in the lane order the engine
-                                            itself reports. Click a row to trace it on the grid.
-                                        </p>
-                                        {/* The column is narrow at xl, so the table scrolls
-                                            sideways rather than clipping its last column. */}
-                                        <div className="mt-2 overflow-x-auto">
-                                            <Table
-                                                aria-label="Job placement"
-                                                selectionMode="single"
-                                                selectionBehavior="replace"
-                                                selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
-                                                onSelectionChange={(keys) => {
-                                                    if (keys === "all") return;
-                                                    const [first] = Array.from(keys);
-                                                    setHighlightedJobId(typeof first === "string" ? first : null);
-                                                }}
-                                            >
-                                                <TableHeader>
-                                                    <TableColumn className="w-0">#</TableColumn>
-                                                    <TableColumn isRowHeader>Job</TableColumn>
-                                                    <TableColumn>Starts</TableColumn>
-                                                    <TableColumn>Finishes</TableColumn>
-                                                </TableHeader>
-                                                <TableBody items={schedule.order.map((id, index) => ({ id, index }))}>
-                                                    {({ id, index }) => (
-                                                        <TableRow id={id}>
-                                                            <TableCell className="tabular-nums">{index + 1}</TableCell>
-                                                            <TableCell>
-                                                                <span className="flex items-center gap-2">
-                                                                    <JobDot colors={colors} jobId={id} />
-                                                                    <span>
-                                                                        {plan.jobs.find((job) => job.id === id)?.name ?? id}
-                                                                    </span>
-                                                                </span>
-                                                            </TableCell>
-                                                            <TableCell className="tabular-nums">
-                                                                {formatOffset(schedule.jobStart[id] ?? 0)}
-                                                            </TableCell>
-                                                            <TableCell className="tabular-nums">
-                                                                {formatOffset(schedule.jobFinish[id] ?? 0)}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    )}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <p className="text-muted-fg text-sm">
-                                        Generate a plan to see its makespan, machine load and job
-                                        placement.
+                                    {/* Every job's placement in text, so the plan is readable
+                                        without relying on the colour channel. */}
+                                    <h3 className="mt-5 font-semibold text-sm">Job placement</h3>
+                                    <p className="mt-1 text-muted-fg text-xs">
+                                        When each job opens and closes, in the lane order the engine
+                                        itself reports. Click a row to trace it on the grid.
                                     </p>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
-                </SidePane>
-            </SidePaneLayout>
+                                    {/* The column is narrow at xl, so the table scrolls
+                                        sideways rather than clipping its last column. */}
+                                    <div className="mt-2 overflow-x-auto">
+                                        <Table
+                                            aria-label="Job placement"
+                                            selectionMode="single"
+                                            selectionBehavior="replace"
+                                            selectedKeys={highlightedJobId ? new Set([highlightedJobId]) : new Set()}
+                                            onSelectionChange={(keys) => {
+                                                if (keys === "all") return;
+                                                const [first] = Array.from(keys);
+                                                setHighlightedJobId(typeof first === "string" ? first : null);
+                                            }}
+                                        >
+                                            <TableHeader>
+                                                <TableColumn className="w-0">#</TableColumn>
+                                                <TableColumn isRowHeader>Job</TableColumn>
+                                                <TableColumn>Starts</TableColumn>
+                                                <TableColumn>Finishes</TableColumn>
+                                            </TableHeader>
+                                            <TableBody items={schedule.order.map((id, index) => ({ id, index }))}>
+                                                {({ id, index }) => (
+                                                    <TableRow id={id}>
+                                                        <TableCell className="tabular-nums">{index + 1}</TableCell>
+                                                        <TableCell>
+                                                            <span className="flex items-center gap-2">
+                                                                <JobDot colors={colors} jobId={id} />
+                                                                <span>
+                                                                    {plan.jobs.find((job) => job.id === id)?.name ?? id}
+                                                                </span>
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell className="tabular-nums">
+                                                            {formatOffset(schedule.jobStart[id] ?? 0)}
+                                                        </TableCell>
+                                                        <TableCell className="tabular-nums">
+                                                            {formatOffset(schedule.jobFinish[id] ?? 0)}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </>
+                            ) : (
+                                <p className="text-muted-fg text-sm">
+                                    Generate a plan to see its makespan, machine load and job
+                                    placement.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                </WorkspacePanel>
+            </PanelWorkspace>
 
             {pickingStartDate && (
                 <PlanStartDateDialog

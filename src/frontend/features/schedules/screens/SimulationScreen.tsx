@@ -11,8 +11,11 @@ import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { useLiveUpdates, type LiveStatus } from "@/core/live-updates/useLiveUpdates";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
+import { column, row } from "@/core/panels/layout";
+import { PanelControls } from "@/core/panels/PanelChrome";
+import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
+import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import { formatDuration } from "@/domains/scheduling/format";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
@@ -73,6 +76,20 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
  * control when it settles, so a drag is one event rather than hundreds.
  */
 
+const SIMULATION_WORKSPACE = defineWorkspace({
+    id: "simulation",
+    panels: {
+        schedules: { title: "Confirmed schedules", minWidth: 280 },
+        playback: { title: "Playback", minWidth: 420, minHeight: 240 },
+        machines: { title: "Machines now", minWidth: 280 },
+        progress: { title: "Job progress", minWidth: 260 },
+    },
+    layout: row(
+        ["schedules", 20],
+        [column(["playback", 62], [row(["machines", 58], ["progress", 42]), 38]), 80],
+    ),
+});
+
 /** How long a keyboard or step scrub waits for more input before it is recorded. */
 const SCRUB_SETTLE_MS = 350;
 /** The repaint interval of the local clock while playing, in ms. */
@@ -87,6 +104,7 @@ export default function SimulationPage() {
 }
 
 function SimulationPageInner() {
+    const workspace = usePanelWorkspace(SIMULATION_WORKSPACE);
     const queryClient = useQueryClient();
     const schedulesQuery = useScheduleSummaries();
     const jobsQuery = useJobSummaries();
@@ -416,9 +434,9 @@ function SimulationPageInner() {
     })();
 
     return (
-        <ManagerShell actions={schedulesLink}>
-            <SidePaneLayout>
-                <SidePane id="simulation.schedules" side="left" label="Schedules" grow={0.7} minWidth={280}>
+        <ManagerShell workspace={workspace} actions={schedulesLink}>
+            <PanelWorkspace workspace={workspace}>
+                <WorkspacePanel id="schedules">
                     <SimulationSchedulePanel
                         total={confirmedRows.length}
                         rows={visibleRows}
@@ -433,124 +451,127 @@ function SimulationPageInner() {
                             setUserChoiceId(id);
                         }}
                     />
-                </SidePane>
-                <SidePaneMain grow={2.3}>
-                    <div className="flex min-w-0 flex-col gap-5">
-                        {schedulesQuery.error && (
-                            <Note intent="warning" role="status">
-                                Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}
-                            </Note>
-                        )}
-
-                        <Card className="min-w-0">
-                            <CardHeader className="gap-1">
-                                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-                                    <CardTitle className={`truncate text-2xl ${selected?.name ? "" : "text-muted-fg italic"}`}>
-                                        {selected ? scheduleDisplayName(selected) : "–"}
-                                    </CardTitle>
-                                    <Badge intent={PLAYBACK_INTENT[status]}>{PLAYBACK_LABEL[status]}</Badge>
-                                    {simulation !== null && <LiveBadge status={liveStatus} />}
-                                </div>
-                                <p className="text-muted-fg text-sm">
-                                    {selected ? strategyLabel(selected.strategy) : ""}
-                                    {plan && ` · ${count(plan.jobs.length, "job")} on ${count(machinesNow.length, "machine")} · ${count(plan.schedule.ops.length, "operation")} · makespan ${formatDuration(makespan)}`}
-                                </p>
-                                <CardAction>
-                                    {selected && (
-                                        <Link
-                                            href={`/manager/schedules?schedule=${encodeURIComponent(selected.id)}`}
-                                            className={buttonStyles({ intent: "plain", size: "sm" })}
-                                        >
-                                            Schedule details
-                                        </Link>
-                                    )}
-                                </CardAction>
-                            </CardHeader>
-                            <CardContent className="flex flex-col gap-4">
-                                {simulationQuery.error && (
-                                    <Note intent="danger" role="alert">
-                                        <strong>Could not read the simulation&apos;s position.</strong>{" "}
-                                        {errorMessage(simulationQuery.error)}
-                                    </Note>
-                                )}
-                                {operatorsFollowOther && (
-                                    <Note intent="info" role="status">
-                                        Operator screens are following {operatorScheduleName}, not this schedule.
-                                        Reset that simulation to hand the floor to this one.
-                                    </Note>
-                                )}
-
-                                {plan ? (
-                                    <>
-                                        <PlaybackControls
-                                            status={status}
-                                            nowMins={displayMins}
-                                            makespanMins={makespan}
-                                            speed={speed}
-                                            pending={controlsPending || simulationQuery.isPending}
-                                            canReset={simulation !== null && (status !== "not_started" || serverMins > 0)}
-                                            onTogglePlay={() => void togglePlayback()}
-                                            onReset={() => void resetPlayback()}
-                                            onStep={(delta) => previewScrub(displayMins + delta)}
-                                            onSpeedChange={(next) => void changeSpeed(next)}
-                                            onScrub={previewScrub}
-                                            onScrubEnd={(mins) => {
-                                                latestScrub.current = clamp(mins, 0, makespan);
-                                                void commitScrub();
-                                            }}
-                                        />
-                                        {totals && <FloorTotalsStrip totals={totals} started={started} />}
-                                        <GanttChart
-                                            machines={plan.machines}
-                                            jobs={plan.jobs}
-                                            schedule={plan.schedule}
-                                            colors={colors}
-                                            mode="simulation"
-                                            nowMins={floorMins}
-                                            selectedJobId={highlightedJobId}
-                                            highlightedMachineId={highlightedMachineId}
-                                            zoom={timelineZoom}
-                                            followNow={running && scrubMins === null}
-                                            onSelectJob={(jobId) => setHighlightedJobId((previous) => (previous === jobId ? null : jobId))}
-                                            onScrub={previewScrub}
-                                            onScrubEnd={() => void commitScrub()}
-                                        />
-                                    </>
-                                ) : timelineQuery.error ? (
-                                    <PageMessage title="This schedule's timeline could not be read" tone="danger">
-                                        <p>{errorMessage(timelineQuery.error)}</p>
-                                        <Button intent="outline" size="sm" className="mt-3" onPress={() => void timelineQuery.refetch()}>
-                                            <ArrowPathIcon /> Try again
-                                        </Button>
-                                    </PageMessage>
-                                ) : (
-                                    <p className="py-10 text-center text-muted-fg text-sm" role="status">
-                                        Reading this schedule&apos;s timeline…
-                                    </p>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        {plan && (
-                            <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                                <MachinesNowPanel
-                                    machines={machinesNow}
-                                    colors={colors}
-                                    jobName={jobName}
-                                    highlightedMachineId={highlightedMachineId}
-                                    onHighlightMachine={setHighlightedMachineId}
-                                />
-                                <JobProgressPanel
-                                    jobs={jobsNow}
-                                    colors={colors}
-                                    selectedJobId={highlightedJobId}
-                                    onSelectJob={setHighlightedJobId}
-                                />
+                </WorkspacePanel>
+                <WorkspacePanel id="playback">
+                    <Card className="min-w-0">
+                        <CardHeader className="gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                                <CardTitle className={`truncate text-2xl ${selected?.name ? "" : "text-muted-fg italic"}`}>
+                                    {selected ? scheduleDisplayName(selected) : "–"}
+                                </CardTitle>
+                                <Badge intent={PLAYBACK_INTENT[status]}>{PLAYBACK_LABEL[status]}</Badge>
+                                {simulation !== null && <LiveBadge status={liveStatus} />}
                             </div>
-                        )}
-                    </div>
-                </SidePaneMain>
-            </SidePaneLayout>
+                            <p className="text-muted-fg text-sm">
+                                {selected ? strategyLabel(selected.strategy) : ""}
+                                {plan && ` · ${count(plan.jobs.length, "job")} on ${count(machinesNow.length, "machine")} · ${count(plan.schedule.ops.length, "operation")} · makespan ${formatDuration(makespan)}`}
+                            </p>
+                            <CardAction className="flex items-center gap-2">
+                                {selected && (
+                                    <Link
+                                        href={`/manager/schedules?schedule=${encodeURIComponent(selected.id)}`}
+                                        className={buttonStyles({ intent: "plain", size: "sm" })}
+                                    >
+                                        Schedule details
+                                    </Link>
+                                )}
+                                <PanelControls />
+                            </CardAction>
+                        </CardHeader>
+                        <CardContent className="flex flex-col gap-4">
+                            {schedulesQuery.error && (
+                                <Note intent="warning" role="status">
+                                    Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}
+                                </Note>
+                            )}
+                            {simulationQuery.error && (
+                                <Note intent="danger" role="alert">
+                                    <strong>Could not read the simulation&apos;s position.</strong>{" "}
+                                    {errorMessage(simulationQuery.error)}
+                                </Note>
+                            )}
+                            {operatorsFollowOther && (
+                                <Note intent="info" role="status">
+                                    Operator screens are following {operatorScheduleName}, not this schedule.
+                                    Reset that simulation to hand the floor to this one.
+                                </Note>
+                            )}
+
+                            {plan ? (
+                                <>
+                                    <PlaybackControls
+                                        status={status}
+                                        nowMins={displayMins}
+                                        makespanMins={makespan}
+                                        speed={speed}
+                                        pending={controlsPending || simulationQuery.isPending}
+                                        canReset={simulation !== null && (status !== "not_started" || serverMins > 0)}
+                                        onTogglePlay={() => void togglePlayback()}
+                                        onReset={() => void resetPlayback()}
+                                        onStep={(delta) => previewScrub(displayMins + delta)}
+                                        onSpeedChange={(next) => void changeSpeed(next)}
+                                        onScrub={previewScrub}
+                                        onScrubEnd={(mins) => {
+                                            latestScrub.current = clamp(mins, 0, makespan);
+                                            void commitScrub();
+                                        }}
+                                    />
+                                    {totals && <FloorTotalsStrip totals={totals} started={started} />}
+                                    <GanttChart
+                                        machines={plan.machines}
+                                        jobs={plan.jobs}
+                                        schedule={plan.schedule}
+                                        colors={colors}
+                                        mode="simulation"
+                                        nowMins={floorMins}
+                                        selectedJobId={highlightedJobId}
+                                        highlightedMachineId={highlightedMachineId}
+                                        zoom={timelineZoom}
+                                        followNow={running && scrubMins === null}
+                                        onSelectJob={(jobId) => setHighlightedJobId((previous) => (previous === jobId ? null : jobId))}
+                                        onScrub={previewScrub}
+                                        onScrubEnd={() => void commitScrub()}
+                                    />
+                                </>
+                            ) : timelineQuery.error ? (
+                                <PageMessage title="This schedule's timeline could not be read" tone="danger">
+                                    <p>{errorMessage(timelineQuery.error)}</p>
+                                    <Button intent="outline" size="sm" className="mt-3" onPress={() => void timelineQuery.refetch()}>
+                                        <ArrowPathIcon /> Try again
+                                    </Button>
+                                </PageMessage>
+                            ) : (
+                                <p className="py-10 text-center text-muted-fg text-sm" role="status">
+                                    Reading this schedule&apos;s timeline…
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                </WorkspacePanel>
+                {/* Both need the plan: until it is read, they leave the layout
+                    and the chart takes their room. */}
+                {plan && (
+                    <WorkspacePanel id="machines">
+                        <MachinesNowPanel
+                            machines={machinesNow}
+                            colors={colors}
+                            jobName={jobName}
+                            highlightedMachineId={highlightedMachineId}
+                            onHighlightMachine={setHighlightedMachineId}
+                        />
+                    </WorkspacePanel>
+                )}
+                {plan && (
+                    <WorkspacePanel id="progress">
+                        <JobProgressPanel
+                            jobs={jobsNow}
+                            colors={colors}
+                            selectedJobId={highlightedJobId}
+                            onSelectJob={setHighlightedJobId}
+                        />
+                    </WorkspacePanel>
+                )}
+            </PanelWorkspace>
         </ManagerShell>
     );
 }

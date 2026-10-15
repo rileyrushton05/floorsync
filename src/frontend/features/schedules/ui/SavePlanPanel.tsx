@@ -1,12 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Description, Label } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Link } from "@/components/ui/link";
 import { TextField } from "@/components/ui/text-field";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { useSaveShortcutLabel } from "@/core/keyboard/useSaveShortcut";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { CheckIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { SCHEDULE_NAME_MAX, scheduleDisplayName } from "../model/archive";
 
@@ -62,6 +63,9 @@ export function SavePlanPanel({
                         </Badge>
                     )}
                 </CardTitle>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent>
                 {state.kind === "empty" && (

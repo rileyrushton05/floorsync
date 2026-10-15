@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, buttonStyles } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { useAuth } from "@/core/auth/AuthProvider";
@@ -10,8 +10,11 @@ import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
+import { row } from "@/core/panels/layout";
+import { PanelControls } from "@/core/panels/PanelChrome";
+import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
+import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
-import { SidePane, SidePaneLayout, SidePaneMain } from "@/core/shell/SidePanes";
 import { timelineToPlan } from "@/domains/scheduling/timeline";
 import { useDeleteSchedule, useScheduleSummaries, useScheduleTimeline, useUpdateSchedule } from "@/features/schedules/data/queries";
 import {
@@ -36,6 +39,15 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+const SCHEDULES_WORKSPACE = defineWorkspace({
+    id: "schedules",
+    panels: {
+        inventory: { title: "Schedules", minWidth: 280 },
+        detail: { title: "Schedule details", minWidth: 360 },
+    },
+    layout: row(["inventory", 28], ["detail", 72]),
+});
+
 /** How long the delete dialog's zoom-out runs before it unmounts, in ms. */
 const CLOSE_MS = 150;
 
@@ -58,6 +70,7 @@ export default function SchedulesPage() {
 }
 
 function SchedulesPageInner() {
+    const workspace = usePanelWorkspace(SCHEDULES_WORKSPACE);
     const { user } = useAuth();
     const schedulesQuery = useScheduleSummaries();
     const updateSchedule = useUpdateSchedule();
@@ -205,10 +218,16 @@ function SchedulesPageInner() {
         return <ManagerPageState title="Loading schedules…">Reading schedule history from the API.</ManagerPageState>;
     }
 
+    const refreshNote = schedulesQuery.error && (
+        <Note intent="warning" role="status" className="mb-4 self-stretch">
+            Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}
+        </Note>
+    );
+
     return (
-        <ManagerShell actions={newScheduleLink}>
-            <SidePaneLayout>
-                <SidePane id="schedules.inventory" side="left" label="Schedules" grow={0.8} minWidth={280}>
+        <ManagerShell workspace={workspace} actions={newScheduleLink}>
+            <PanelWorkspace workspace={workspace}>
+                <WorkspacePanel id="inventory">
                     <ScheduleInventoryPanel
                         total={schedules.length}
                         rows={filteredRows}
@@ -225,50 +244,51 @@ function SchedulesPageInner() {
                         onClearFilters={clearFilters}
                         onSelect={setUserSelectedId}
                     />
-                </SidePane>
-                <SidePaneMain grow={2}>
-                    <div className="flex min-w-0 flex-col gap-3">
-                        {schedulesQuery.error && (
-                            <Note intent="warning" role="status">
-                                Showing the last schedules that loaded. Could not refresh: {errorMessage(schedulesQuery.error)}
-                            </Note>
-                        )}
-                        {selected ? (
-                            <ScheduleDetailPane
-                                schedule={selected}
-                                plan={plan}
-                                planLoading={timelineQuery.isPending}
-                                planError={timelineQuery.error ? errorMessage(timelineQuery.error) : null}
-                                confirmedByLabel={confirmedByLabel}
-                                updating={updateSchedule.isPending}
-                                deleting={deleteSchedule.isPending}
-                                onRename={() => setRenaming(true)}
-                                onConfirm={() => void changeStatus("confirmed")}
-                                onWithdraw={() => void changeStatus("discarded")}
-                                onRestore={() => void changeStatus("confirmed")}
-                                onDelete={() => setConfirmDelete(true)}
-                            />
-                        ) : (
-                            // Inline card rather than ManagerPageState, which would nest a
-                            // second ManagerShell (and so a second topbar) inside the grid.
-                            <Card className="min-h-full min-w-0">
-                                <CardContent className="flex h-full flex-col items-center justify-center gap-4">
-                                    <PageMessage title={rows.length === 0 ? "No schedules yet" : "No schedule selected"} tone="info">
-                                        <p>
-                                            {rows.length === 0
-                                                ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
-                                                : "No schedules match these filters. Clear them to see every schedule."}
-                                        </p>
-                                    </PageMessage>
-                                    {rows.length === 0 ? newScheduleLink : (
-                                        <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        )}
-                    </div>
-                </SidePaneMain>
-            </SidePaneLayout>
+                </WorkspacePanel>
+                <WorkspacePanel id="detail">
+                    {selected ? (
+                        <ScheduleDetailPane
+                            schedule={selected}
+                            plan={plan}
+                            planLoading={timelineQuery.isPending}
+                            planError={timelineQuery.error ? errorMessage(timelineQuery.error) : null}
+                            confirmedByLabel={confirmedByLabel}
+                            updating={updateSchedule.isPending}
+                            deleting={deleteSchedule.isPending}
+                            onRename={() => setRenaming(true)}
+                            onConfirm={() => void changeStatus("confirmed")}
+                            onWithdraw={() => void changeStatus("discarded")}
+                            onRestore={() => void changeStatus("confirmed")}
+                            onDelete={() => setConfirmDelete(true)}
+                            notice={refreshNote}
+                        />
+                    ) : (
+                        // Inline card rather than ManagerPageState, which would nest a
+                        // second ManagerShell (and so a second topbar) inside the workspace.
+                        <Card className="min-h-full min-w-0">
+                            <CardHeader>
+                                <CardTitle>Schedule details</CardTitle>
+                                <CardAction>
+                                    <PanelControls />
+                                </CardAction>
+                            </CardHeader>
+                            <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
+                                {refreshNote}
+                                <PageMessage title={rows.length === 0 ? "No schedules yet" : "No schedule selected"} tone="info">
+                                    <p>
+                                        {rows.length === 0
+                                            ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
+                                            : "No schedules match these filters. Clear them to see every schedule."}
+                                    </p>
+                                </PageMessage>
+                                {rows.length === 0 ? newScheduleLink : (
+                                    <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
+                </WorkspacePanel>
+            </PanelWorkspace>
 
             {confirmDelete && selected && (
                 <DeleteScheduleDialog

@@ -4,6 +4,7 @@ import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
 import { Separator } from "@/components/ui/separator";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { buildJobColors, type JobColor } from "@/domains/scheduling/colors";
 import { formatDuration } from "@/domains/scheduling/format";
 import type { TimelinePlan } from "@/domains/scheduling/timeline";
@@ -39,6 +40,7 @@ export function ScheduleDetailPane({
     onWithdraw,
     onRestore,
     onDelete,
+    notice,
 }: {
     schedule: ScheduleRow;
     plan: TimelinePlan | null;
@@ -53,6 +55,8 @@ export function ScheduleDetailPane({
     onWithdraw: () => void;
     onRestore: () => void;
     onDelete: () => void;
+    /** Shown above the schedule, e.g. that the list could not refresh. */
+    notice?: React.ReactNode;
 }) {
     const summary = plan?.schedule ?? null;
     const machineName = (id: string) => plan?.machines.find((machine) => machine.id === id)?.name ?? id;
@@ -119,9 +123,11 @@ export function ScheduleDetailPane({
                             Restore schedule
                         </Button>
                     )}
+                    <PanelControls />
                 </CardAction>
             </CardHeader>
             <CardContent>
+                {notice}
                 {schedule.status === "draft" && (
                     <Note intent="warning" className="mb-4">
                         <strong>This schedule has not been saved.</strong> Open it in the Planner to name

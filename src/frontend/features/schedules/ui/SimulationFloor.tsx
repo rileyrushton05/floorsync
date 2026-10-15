@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { GridList, GridListItem } from "@/components/ui/grid-list";
 import { HeaderCount } from "@/components/ui/header-count";
 import { ProgressBar, ProgressBarTrack } from "@/components/ui/progress-bar";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import type { JobColor } from "@/domains/scheduling/colors";
 import { formatOffset } from "@/domains/scheduling/format";
 import { JobDot } from "@/domains/scheduling/ui/JobDot";
@@ -78,6 +79,9 @@ export function MachinesNowPanel({
                     <HeaderCount label={`${machines.length} machines in this plan`}>{machines.length}</HeaderCount>
                 </CardTitle>
                 <CardDescription>Hover a machine to find its lane in the chart.</CardDescription>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent>
                 <ul className="grid gap-2.5 sm:grid-cols-2">
@@ -170,6 +174,9 @@ export function JobProgressPanel({
                     <HeaderCount label={`${jobs.length} jobs in this plan`}>{jobs.length}</HeaderCount>
                 </CardTitle>
                 <CardDescription>Select a job to pick it out in the chart.</CardDescription>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent className="scroll-rail max-h-[32rem] overflow-y-auto">
                 <GridList

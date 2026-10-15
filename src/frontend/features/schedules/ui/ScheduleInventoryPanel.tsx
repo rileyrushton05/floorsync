@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import {
     GridList,
     GridListDescription,
@@ -82,6 +83,9 @@ export function ScheduleInventoryPanel({
                     Schedules
                     <HeaderCount label={`${total} ${total === 1 ? "schedule" : "schedules"}`}>{total}</HeaderCount>
                 </CardTitle>
+                <CardAction>
+                    <PanelControls />
+                </CardAction>
             </CardHeader>
             <CardContent>
                 <TextField aria-label="Search schedules by name or strategy" value={query} onChange={onQueryChange}>
