@@ -244,7 +244,7 @@ export function MachineInventoryPanel({
             </CardContent>
             <div className="mt-auto border-t p-3">
                 <Button className="w-full" onPress={onAddMachine} isDisabled={busy}>
-                    <PlusIcon /> Add machine
+                    <PlusIcon /> New Machine
                 </Button>
             </div>
         </Card>

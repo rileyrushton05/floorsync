@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
-import { PageMessage } from "@/core/feedback/PageMessage";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { errorMessage } from "@/core/http/errors";
 import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
@@ -102,7 +102,7 @@ function JobsPageInner() {
     const searchParams = useSearchParams();
     // The screen opens with nothing selected — the right pane shows the
     // neutral empty state, exactly like the Machines page. A draft is only
-    // loaded by picking a job in the backlog, a ?job=<id> link, or "New job".
+    // loaded by picking a job in the backlog, a ?job=<id> link, or "New Job".
     const [draft, setDraft] = useState<JobDraft>(EMPTY_JOB_DRAFT);
     // The job as the API has it. Anything the draft says differently is unsaved
     // work, which is what the leave warnings key off.
@@ -156,7 +156,7 @@ function JobsPageInner() {
     const [blockingDrafts, setBlockingDrafts] = useState<ScheduleReferences | null>(null);
 
     // The screen opens with nothing selected: the right pane shows a neutral
-    // empty state until a job is picked in the backlog, or "New job" is
+    // empty state until a job is picked in the backlog, or "New Job" is
     // pressed. Only a ?job=<id> link or user action opens the editor.
 
     function dismissDelete() {
@@ -645,17 +645,19 @@ function JobsPageInner() {
                         // pages: nothing is open until a job is picked, linked
                         // to, or created.
                         <Card className="min-h-full min-w-0">
-                            <CardContent className="flex h-full flex-col items-center justify-center gap-4">
-                                <PageMessage title={jobs.length === 0 ? "No jobs yet" : "No job selected"} tone="info">
-                                    <p>
-                                        {jobs.length === 0
-                                            ? "Create a job in the backlog to get started."
-                                            : "Pick a job in the backlog to view or edit it, or start a new one."}
-                                    </p>
-                                </PageMessage>
-                                <Button onPress={startNewJob} isDisabled={loading || saving}>
-                                    <PlusIcon /> New job
-                                </Button>
+                            <CardContent className="flex h-full flex-col items-center justify-center">
+                                <EmptyState
+                                    title={jobs.length === 0 ? "No jobs yet" : "No job selected"}
+                                    action={
+                                        <Button onPress={startNewJob} isDisabled={loading || saving}>
+                                            <PlusIcon /> New Job
+                                        </Button>
+                                    }
+                                >
+                                    {jobs.length === 0
+                                        ? "Create a job in the backlog to get started."
+                                        : "Pick a job in the backlog to view or edit it, or start a new one."}
+                                </EmptyState>
                             </CardContent>
                         </Card>
                     ) : (

@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { useAuth } from "@/core/auth/AuthProvider";
-import { PageMessage } from "@/core/feedback/PageMessage";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -42,7 +42,7 @@ const CLOSE_MS = 150;
 /**
  * Every schedule, and where each one is in its life.
  *
- * Schedules are made on the Planner ("New schedule" goes there), so this page
+ * Schedules are made on the Planner ("New Schedule" goes there), so this page
  * browses them: rename, confirm, withdraw, restore, delete a draft, and jump
  * into the simulation or back into the Planner from here.
  *
@@ -172,7 +172,7 @@ function SchedulesPageInner() {
 
     const newScheduleLink = (
         <Link href="/manager/planner" className={buttonStyles()}>
-            <PlusIcon /> New schedule
+            <PlusIcon /> New Schedule
         </Link>
     );
 
@@ -205,7 +205,7 @@ function SchedulesPageInner() {
     }
 
     return (
-        <ManagerShell actions={newScheduleLink} paneScroll>
+        <ManagerShell paneScroll>
             <SidePaneLayout paneScroll>
                 <SidePane id="schedules.inventory" side="left" label="Schedules" grow={0.8} minWidth={280} paneScroll>
                     <ScheduleInventoryPanel
@@ -251,17 +251,17 @@ function SchedulesPageInner() {
                             // Inline card rather than ManagerPageState, which would nest a
                             // second ManagerShell (and so a second topbar) inside the grid.
                             <Card className="min-h-full min-w-0">
-                                <CardContent className="flex h-full flex-col items-center justify-center gap-4">
-                                    <PageMessage title={rows.length === 0 ? "No schedules yet" : "No schedule selected"} tone="info">
-                                        <p>
-                                            {rows.length === 0
-                                                ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
-                                                : "No schedules match these filters. Clear them to see every schedule."}
-                                        </p>
-                                    </PageMessage>
-                                    {rows.length === 0 ? newScheduleLink : (
-                                        <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
-                                    )}
+                                <CardContent className="flex h-full flex-col items-center justify-center">
+                                    <EmptyState
+                                        title={rows.length === 0 ? "No schedules yet" : "No schedule selected"}
+                                        action={rows.length === 0 ? newScheduleLink : (
+                                            <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
+                                        )}
+                                    >
+                                        {rows.length === 0
+                                            ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
+                                            : "No schedules match these filters. Clear them to see every schedule."}
+                                    </EmptyState>
                                 </CardContent>
                             </Card>
                         )}

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
-import { PageMessage } from "@/core/feedback/PageMessage";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -72,7 +72,7 @@ function MachinesPageInner() {
     const [baselineDraft, setBaselineDraft] = useState<MachineDraft>(EMPTY_MACHINE_DRAFT);
     const [isCreating, setIsCreating] = useState(false);
     const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
-    // The machine that was open when "Add machine" was pressed, so cancelling
+    // The machine that was open when "New Machine" was pressed, so cancelling
     // the new one goes back to it.
     const [returnId, setReturnId] = useState<string | null>(null);
     const [filters, setFilters] = useState<MachineFilters>(INITIAL_MACHINE_FILTERS);
@@ -111,7 +111,7 @@ function MachinesPageInner() {
     const gate = saveGate({ isNew: draft.id === null, dirty, problem: draftProblem(draft, machines) });
 
     // The screen opens with nothing selected: the right pane shows a neutral
-    // empty state until a machine is picked in the list, or "Add machine" is
+    // empty state until a machine is picked in the list, or "New Machine" is
     // pressed. Only a ?machine=<id> link or user action opens the editor.
 
     // The machine on screen was removed elsewhere (or in another tab): drop
@@ -343,17 +343,19 @@ function MachinesPageInner() {
                         // screen opens with nothing selected, and the editor
                         // only appears once a machine is picked or added.
                         <Card className="min-h-full min-w-0">
-                            <CardContent className="flex h-full flex-col items-center justify-center gap-4">
-                                <PageMessage title={machines.length === 0 ? "No machines yet" : "No machine selected"} tone="info">
-                                    <p>
-                                        {machines.length === 0
-                                            ? "Add a machine to the floor inventory to get started."
-                                            : "Pick a machine in the inventory to view or edit it, or add a new one."}
-                                    </p>
-                                </PageMessage>
-                                <Button onPress={startNewMachine} isDisabled={saving}>
-                                    <PlusIcon /> Add machine
-                                </Button>
+                            <CardContent className="flex h-full flex-col items-center justify-center">
+                                <EmptyState
+                                    title={machines.length === 0 ? "No machines yet" : "No machine selected"}
+                                    action={
+                                        <Button onPress={startNewMachine} isDisabled={saving}>
+                                            <PlusIcon /> New Machine
+                                        </Button>
+                                    }
+                                >
+                                    {machines.length === 0
+                                        ? "Add a machine to the floor inventory to get started."
+                                        : "Pick a machine in the inventory to view or edit it, or add a new one."}
+                                </EmptyState>
                             </CardContent>
                         </Card>
                     ) : (

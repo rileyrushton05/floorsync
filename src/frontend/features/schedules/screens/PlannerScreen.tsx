@@ -31,6 +31,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -90,7 +91,7 @@ type JobStatusFilter = (typeof JOB_STATUS_FILTERS)[number]["id"];
 /**
  * Planner: where a schedule is made.
  *
- * The flow is Schedules → "New schedule" → here: pick the open jobs, choose an
+ * The flow is Schedules → "New Schedule" → here: pick the open jobs, choose an
  * engine, generate, then name the plan and save it. Saving confirms it (so it
  * can be run in the simulation) and returns to the Schedules page with it
  * selected. "Open in planner" on an unsaved draft lands here too, via
@@ -404,16 +405,17 @@ function GenerationState({
 
         default:
             return (
-                <div className="rounded-lg border border-dashed p-8 text-center">
-                    <h3 className="font-semibold text-lg">No plan yet</h3>
-                    <p className="mx-auto mt-2 max-w-prose text-muted-fg text-sm">
-                        Tick the jobs to include, choose an engine, then press{" "}
-                        <strong className="text-fg">Generate plan</strong>. The scheduling engine
-                        assigns the selected jobs&apos; operations to compatible machines and places
-                        them on the earliest slots that respect their dependencies. When it looks
-                        right, name it and save it.
-                    </p>
-                </div>
+                <EmptyState title="No plan yet" className="max-w-none">
+                    <ol className="list-inside list-decimal space-y-1">
+                        <li>Tick the jobs to include from the list.</li>
+                        <li>Choose a scheduling engine.</li>
+                        <li>
+                            Press <strong className="text-fg">Generate plan</strong> to place each
+                            operation on the earliest compatible machine slot.
+                        </li>
+                        <li>When it looks right, name it and save it.</li>
+                    </ol>
+                </EmptyState>
             );
     }
 }
@@ -817,40 +819,6 @@ function PlannerPageInner() {
             <Link href="/manager/schedules" className={buttonStyles({ intent: "plain", size: "sm" })}>
                 <ArrowLeftIcon /> Schedules
             </Link>
-            <ToggleGroup
-                aria-label="Scheduling engine"
-                selectionMode="single"
-                disallowEmptySelection
-                isDisabled={busy}
-                selectedKeys={new Set([strategy])}
-                onSelectionChange={(keys) => {
-                    const [first] = Array.from(keys);
-                    if (first === "resched" || first === "exact") setStrategy(first);
-                }}
-            >
-                {STRATEGIES.map((option) => (
-                    <ToggleGroupItem
-                        key={option.value}
-                        id={option.value}
-                        aria-label={`${option.label}: ${option.hint}`}
-                    >
-                        {option.label}
-                    </ToggleGroupItem>
-                ))}
-            </ToggleGroup>
-
-            {/* `isPending` rather than `isDisabled` while running: React Aria
-                already stops onPress firing while pending, and keeps the
-                control focusable and announced as busy instead of silently
-                going dead. */}
-            <Button
-                intent={schedule ? "outline" : "primary"}
-                onPress={() => setPickingStartDate(true)}
-                isPending={generating}
-                isDisabled={!generating && !canGenerate}
-            >
-                {generating ? "Generating…" : schedule ? "Regenerate plan" : "Generate plan"}
-            </Button>
         </>}>
 
             <SidePaneLayout paneScroll>
@@ -1095,6 +1063,42 @@ function PlannerPageInner() {
                                     <Badge intent="warning">Unsaved draft</Badge>
                                 )}
                             </CardTitle>
+                            <CardAction className="flex flex-wrap items-center gap-2">
+                                <ToggleGroup
+                                    aria-label="Scheduling engine"
+                                    selectionMode="single"
+                                    disallowEmptySelection
+                                    isDisabled={busy}
+                                    selectedKeys={new Set([strategy])}
+                                    onSelectionChange={(keys) => {
+                                        const [first] = Array.from(keys);
+                                        if (first === "resched" || first === "exact") setStrategy(first);
+                                    }}
+                                >
+                                    {STRATEGIES.map((option) => (
+                                        <ToggleGroupItem
+                                            key={option.value}
+                                            id={option.value}
+                                            aria-label={`${option.label}: ${option.hint}`}
+                                        >
+                                            {option.label}
+                                        </ToggleGroupItem>
+                                    ))}
+                                </ToggleGroup>
+
+                                {/* `isPending` rather than `isDisabled` while running: React Aria
+                                    already stops onPress firing while pending, and keeps the
+                                    control focusable and announced as busy instead of silently
+                                    going dead. */}
+                                <Button
+                                    intent={schedule ? "outline" : "primary"}
+                                    onPress={() => setPickingStartDate(true)}
+                                    isPending={generating}
+                                    isDisabled={!generating && !canGenerate}
+                                >
+                                    {generating ? "Generating…" : schedule ? "Regenerate plan" : "Generate plan"}
+                                </Button>
+                            </CardAction>
                             {generation.status === "ready" && schedule && (
                                 <span className="text-muted-fg text-xs">
                                     {currentSummary ? `${strategyLabel(currentSummary.strategy)} · ` : ""}
