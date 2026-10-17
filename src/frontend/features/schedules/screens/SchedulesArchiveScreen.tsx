@@ -5,7 +5,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
 import { useAuth } from "@/core/auth/AuthProvider";
-import { PageMessage } from "@/core/feedback/PageMessage";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -54,7 +54,7 @@ const CLOSE_MS = 150;
 /**
  * Every schedule, and where each one is in its life.
  *
- * Schedules are made on the Planner ("New schedule" goes there), so this page
+ * Schedules are made on the Planner ("New Schedule" goes there), so this page
  * browses them: rename, confirm, withdraw, restore, delete a draft, and jump
  * into the simulation or back into the Planner from here.
  *
@@ -102,14 +102,13 @@ function SchedulesPageInner() {
         return sortScheduleRows(matches, sort);
     }, [query, rows, sort, statusFilter, strategyFilter]);
 
-    // A selection survives refetching and filtering unless the schedule is no
-    // longer visible; then the first visible row takes over, so the pane is
-    // never empty while the list has something to show.
+    // A selection survives refetching and filtering, but nothing is opened
+    // automatically: the pane starts empty until the manager picks a schedule
+    // (or arrives from a link to one).
     const selectedOverrideId = userSelectedId ?? linkedScheduleId;
-    const effectiveSelectedId =
-        filteredRows.some((row) => row.id === selectedOverrideId)
-            ? selectedOverrideId
-            : filteredRows[0]?.id ?? null;
+    const effectiveSelectedId = filteredRows.some((row) => row.id === selectedOverrideId)
+        ? selectedOverrideId
+        : null;
 
     const selected = rows.find((row) => row.id === effectiveSelectedId) ?? null;
     const timelineQuery = useScheduleTimeline(effectiveSelectedId);
@@ -186,7 +185,7 @@ function SchedulesPageInner() {
 
     const newScheduleLink = (
         <Link href="/manager/planner" className={buttonStyles()}>
-            <PlusIcon /> New schedule
+            <PlusIcon /> New Schedule
         </Link>
     );
 
@@ -225,7 +224,7 @@ function SchedulesPageInner() {
     );
 
     return (
-        <ManagerShell workspace={workspace} actions={newScheduleLink}>
+        <ManagerShell workspace={workspace}>
             <PanelWorkspace workspace={workspace}>
                 <WorkspacePanel id="inventory">
                     <ScheduleInventoryPanel
@@ -274,16 +273,16 @@ function SchedulesPageInner() {
                             </CardHeader>
                             <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
                                 {refreshNote}
-                                <PageMessage title={rows.length === 0 ? "No schedules yet" : "No schedule selected"} tone="info">
-                                    <p>
-                                        {rows.length === 0
-                                            ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
-                                            : "No schedules match these filters. Clear them to see every schedule."}
-                                    </p>
-                                </PageMessage>
-                                {rows.length === 0 ? newScheduleLink : (
-                                    <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
-                                )}
+                                <EmptyState
+                                    title={rows.length === 0 ? "No schedules yet" : "No schedule selected"}
+                                    action={rows.length === 0 ? newScheduleLink : (
+                                        <Button intent="outline" onPress={clearFilters}>Clear filters</Button>
+                                    )}
+                                >
+                                    {rows.length === 0
+                                        ? "Create a schedule: pick the open jobs to plan, generate it, then name and save it."
+                                        : "No schedules match these filters. Clear them to see every schedule."}
+                                </EmptyState>
                             </CardContent>
                         </Card>
                     )}

@@ -5,6 +5,7 @@ import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/components/ui/link";
 import { Note } from "@/components/ui/note";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { PageMessage } from "@/core/feedback/PageMessage";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
@@ -414,12 +415,14 @@ function SimulationPageInner() {
         return (
             <ManagerShell actions={schedulesLink}>
                 <main className="flex flex-1 flex-col items-center justify-center gap-4 p-5">
-                    <PageMessage title={schedules.length === 0 ? "No schedules yet" : "No confirmed schedules to simulate"}>
+                    <EmptyState
+                        title={schedules.length === 0 ? "No schedules yet" : "No confirmed schedules to simulate"}
+                        action={<Link href="/manager/planner" className={buttonStyles()}>Open the Planner</Link>}
+                    >
                         {schedules.length === 0
                             ? "Plan some open jobs in the Planner, then save the schedule to run it here."
                             : "Only confirmed schedules can be simulated. Save a draft from the Planner, or confirm one on the Schedules page."}
-                    </PageMessage>
-                    <Link href="/manager/planner" className={buttonStyles()}>Open the Planner</Link>
+                    </EmptyState>
                 </main>
             </ManagerShell>
         );

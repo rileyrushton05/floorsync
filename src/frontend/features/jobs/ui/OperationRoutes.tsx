@@ -118,10 +118,13 @@ export function OperationRoutes({
             {/* The gutter is reserved even when nothing overflows, so the heading
                 row above (padded by the same scrollbar width) stays aligned whether
                 or not the bar is showing. The small inset keeps focus rings from
-                being clipped by the scroll container. */}
+                being clipped by the scroll container. `relative` keeps each row's
+                screen-reader-only labels (absolutely positioned) inside this
+                box: without it they hang off <body> and a long list stretches
+                the whole page past the viewport, so the page scrolls. */}
             <ul
                 ref={listRef}
-                className="scroll-rail h-40 sm:h-52 space-y-2.5 lg:h-auto lg:min-h-0 lg:flex-1 overflow-y-auto p-0.5 pe-2 [scrollbar-gutter:stable]"
+                className="scroll-rail relative h-40 sm:h-52 space-y-2.5 lg:h-auto lg:min-h-0 lg:flex-1 overflow-y-auto p-0.5 pe-2 [scrollbar-gutter:stable]"
             >
                 {routes.map((route, routeIndex) => {
                     const currentMachine = machines.find((machine) => machine.id === route.machineId);

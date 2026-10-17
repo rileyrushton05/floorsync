@@ -14,9 +14,10 @@ import { Input, InputGroup } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
+import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { PanelControls } from "@/core/panels/PanelChrome";
-import { ChevronRightIcon, MagnifyingGlassIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ChevronRightIcon, MagnifyingGlassIcon, PlusIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
     ANY_CATEGORY,
     CATEGORIES_IN_USE_HINT,
@@ -44,6 +45,7 @@ export function MachineInventoryPanel({
     selectedId,
     filters,
     busy,
+    onAddMachine,
     onFiltersChange,
     onSelect,
 }: {
@@ -56,13 +58,16 @@ export function MachineInventoryPanel({
     filters: MachineFilters;
     /** A write is in flight; switching machines now would be overwritten when it lands. */
     busy: boolean;
+    /** Open the blank new-machine editor; rendered at the foot of the panel. */
+    onAddMachine: () => void;
     onFiltersChange: (update: (filters: MachineFilters) => MachineFilters) => void;
     onSelect: (id: string) => void;
 }) {
     const narrowed = filtersActive(filters);
+    const pager = useCollapsedRows(rows, selectedId);
 
     return (
-        <Card>
+        <Card className="flex h-full flex-col">
             <CardHeader>
                 <CardTitle>
                     Machine inventory
@@ -74,9 +79,10 @@ export function MachineInventoryPanel({
                     <PanelControls />
                 </CardAction>
             </CardHeader>
-            <CardContent>
-                <TextField
-                    aria-label="Search machines by name or category"
+            <CardContent className="flex min-h-0 flex-1 flex-col">
+                <div className="scroll-rail min-h-0 flex-1 overflow-y-auto">
+                    <TextField
+                        aria-label="Search machines by name or category"
                     value={filters.query}
                     onChange={(query) => onFiltersChange((current) => ({ ...current, query }))}
                 >
@@ -161,15 +167,16 @@ export function MachineInventoryPanel({
                         </SelectContent>
                     </Select>
                     <Badge intent="outline" className="ml-auto" role="status">
-                        Showing {rows.length} of {total}
+                        Showing {pager.shown.length} of {rows.length} machines
                     </Badge>
                 </div>
 
+                <div className="scroll-rail min-h-0 flex-1 overflow-y-auto">
                 <GridList
                     aria-label="Machine inventory"
                     selectionMode="single"
                     selectionBehavior="replace"
-                    items={rows}
+                    items={pager.shown}
                     // A save reopens the editor on the machine it wrote, so a
                     // switch started mid-flight would be silently undone.
                     disabledKeys={busy ? rows.map((row) => row.id) : []}
@@ -190,6 +197,7 @@ export function MachineInventoryPanel({
                     {(row) => (
                         <GridListItem
                             id={row.id}
+                            data-row-id={row.id}
                             textValue={`${row.name}, ${row.categoryLabel}, ${row.statusLabel}`}
                             className="items-start"
                         >
@@ -224,7 +232,25 @@ export function MachineInventoryPanel({
                         </GridListItem>
                     )}
                 </GridList>
+                </div>
+                </div>
+
+                {/* Leftover height lives between the expand button and the
+                    pinned Add button below, not between the rows and the
+                    expand button. */}
+                <ListPager
+                    hiddenCount={pager.hiddenCount}
+                    expanded={pager.expanded}
+                    highlighted={pager.selectedIsHidden}
+                    onToggle={pager.toggle}
+                    noun="machines"
+                />
             </CardContent>
+            <div className="mt-auto border-t p-3">
+                <Button className="w-full" onPress={onAddMachine} isDisabled={busy}>
+                    <PlusIcon /> New Machine
+                </Button>
+            </div>
         </Card>
     );
 }

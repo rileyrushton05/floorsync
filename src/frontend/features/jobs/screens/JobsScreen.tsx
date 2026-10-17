@@ -1,15 +1,22 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
-import { errorMessage } from "@/core/http/errors";
+import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportBackendFailure, reportMutationError } from "@/core/feedback/reportMutationError";
+import { errorMessage } from "@/core/http/errors";
+import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
+import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
 import { row } from "@/core/panels/layout";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
 import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { buildJobColors } from "@/domains/scheduling/colors";
 import type { JobDef, OperationDef } from "@/domains/scheduling/types";
+import { scheduleReferences, type ScheduleReferences } from "@/features/jobs/data/api";
 import {
     JobGraphWriteError,
     useArchiveJob,
@@ -19,20 +26,7 @@ import {
     useJobDependencies,
     useUpdateJobDefinition,
 } from "@/features/jobs/data/queries";
-import { scheduleReferences, type ScheduleReferences } from "@/features/jobs/data/api";
-import { useDeleteSchedule } from "@/features/schedules/data/queries";
-import { useMachines } from "@/features/machines/data/queries";
-import { PlusIcon } from "@heroicons/react/24/outline";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
-import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
-import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
 import { edgesForSavedOperations } from "@/features/jobs/model/dependencies";
-import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
-import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
-import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import {
     DEFAULT_SORT,
     EMPTY_JOB_DRAFT,
@@ -48,6 +42,15 @@ import {
     type JobDraft,
     type JobFilters,
 } from "@/features/jobs/model/editor";
+import { DeleteJobDialog } from "@/features/jobs/ui/DeleteJobDialog";
+import { JobBacklogPanel } from "@/features/jobs/ui/JobBacklogPanel";
+import { JobEditorPanel } from "@/features/jobs/ui/JobEditorPanel";
+import { useMachines } from "@/features/machines/data/queries";
+import { useDeleteSchedule } from "@/features/schedules/data/queries";
+import { useSearchParams } from "next/navigation";
+import { PlusIcon } from "@heroicons/react/24/outline";
+import { Suspense, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 const JOBS_WORKSPACE = defineWorkspace({
     id: "jobs",
@@ -110,7 +113,10 @@ function JobsPageInner() {
         archiveJob.isPending ||
         deleteSchedule.isPending;
     const searchParams = useSearchParams();
-    const [draft, setDraft] = useState<JobDraft>(() => (jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT));
+    // The screen opens with nothing selected — the right pane shows the
+    // neutral empty state, exactly like the Machines page. A draft is only
+    // loaded by picking a job in the backlog, a ?job=<id> link, or "New Job".
+    const [draft, setDraft] = useState<JobDraft>(EMPTY_JOB_DRAFT);
     // The job as the API has it. Anything the draft says differently is unsaved
     // work, which is what the leave warnings key off.
     //
@@ -119,9 +125,7 @@ function JobsPageInner() {
     // edit, and folding them into the baseline alone would also fold in
     // whatever the manager had typed while the fetch was in flight, silently
     // clearing the dirty flag that protects it.
-    const [baselineDraft, setBaselineDraft] = useState<JobDraft>(() =>
-        jobs.length > 0 ? draftFromJob(jobs[0]) : EMPTY_JOB_DRAFT,
-    );
+    const [baselineDraft, setBaselineDraft] = useState<JobDraft>(EMPTY_JOB_DRAFT);
     const [isCreating, setIsCreating] = useState(false);
     /** A job switch or a new job, held back until unsaved work is dealt with. */
     const [pendingOpen, setPendingOpen] = useState<
@@ -164,19 +168,9 @@ function JobsPageInner() {
      */
     const [blockingDrafts, setBlockingDrafts] = useState<ScheduleReferences | null>(null);
 
-    // The floor definition arrives after authentication. Select its first job
-    // only while the editor is pristine, so a delayed API response never
-    // overwrites a new draft a manager has already started. This guarded render
-    // update settles immediately, without a transient blank draft after load.
-    //
-    // An open job is preferred over a job that has left the backlog: the list carries both,
-    // and landing on a read-only editor would read as the page being broken.
-    // Falling back to the first job at all is deliberate — on a floor where
-    // everything is archived, showing one is better than showing nothing.
-    const firstJobToOpen = jobs.find((job) => job.backlogStatus === "open") ?? jobs[0];
-    if (firstJobToOpen && !isCreating && draft.id === null && draft.name === "") {
-        openDraft(draftFromJob(firstJobToOpen));
-    }
+    // The screen opens with nothing selected: the right pane shows a neutral
+    // empty state until a job is picked in the backlog, or "New Job" is
+    // pressed. Only a ?job=<id> link or user action opens the editor.
 
     function dismissDelete() {
         if (deleteClosing) return;
@@ -336,12 +330,15 @@ function JobsPageInner() {
     }
 
     // Where cancelling a new job lands: the job it was started from if that
-    // still exists, otherwise the one the screen opens on. Null when the floor
-    // has no jobs at all, in which case there is nothing to cancel back to.
-    const cancelTarget = jobs.find((job) => job.id === returnJobId) ?? firstJobToOpen ?? null;
+    // still exists, otherwise nothing — the empty pane.
+    const cancelTarget = jobs.find((job) => job.id === returnJobId) ?? null;
 
     function cancelNewJob() {
-        if (cancelTarget === null) return;
+        if (cancelTarget === null) {
+            setIsCreating(false);
+            openDraft(EMPTY_JOB_DRAFT);
+            return;
+        }
         if (dirty) setPendingOpen({ kind: "cancel", job: cancelTarget });
         else openJob(cancelTarget);
     }
@@ -639,14 +636,7 @@ function JobsPageInner() {
     );
 
     return (
-        <ManagerShell
-            workspace={workspace}
-            actions={
-                <Button onPress={startNewJob} isDisabled={loading || saving}>
-                    <PlusIcon /> New job
-                </Button>
-            }
-        >
+        <ManagerShell workspace={workspace}>
             <PanelWorkspace workspace={workspace}>
                 <WorkspacePanel id="backlog">
                     <JobBacklogPanel
@@ -657,11 +647,39 @@ function JobsPageInner() {
                         selectedJobId={draft.id}
                         filters={filters}
                         busy={saving}
+                        onNewJob={startNewJob}
                         onFiltersChange={(update) => setFilters(update)}
                         onSelect={editJob}
                     />
                 </WorkspacePanel>
                 <WorkspacePanel id="editor">
+                    {draft.id === null && !isCreating ? (
+                        // Same neutral empty pane as the Machines and Schedules
+                        // pages: nothing is open until a job is picked, linked
+                        // to, or created. The header keeps the panel's controls.
+                        <Card className="min-h-full min-w-0">
+                            <CardHeader>
+                                <CardTitle>Job editor</CardTitle>
+                                <CardAction>
+                                    <PanelControls />
+                                </CardAction>
+                            </CardHeader>
+                            <CardContent className="flex flex-1 flex-col items-center justify-center">
+                                <EmptyState
+                                    title={jobs.length === 0 ? "No jobs yet" : "No job selected"}
+                                    action={
+                                        <Button onPress={startNewJob} isDisabled={loading || saving}>
+                                            <PlusIcon /> New Job
+                                        </Button>
+                                    }
+                                >
+                                    {jobs.length === 0
+                                        ? "Create a job in the backlog to get started."
+                                        : "Pick a job in the backlog to view or edit it, or start a new one."}
+                                </EmptyState>
+                            </CardContent>
+                        </Card>
+                    ) : (
                     <JobEditorPanel
                         draft={draft}
                         sequenceNumber={draft.id ? sequenceNumbers.get(draft.id) : undefined}
@@ -698,6 +716,7 @@ function JobsPageInner() {
                         onRequestDelete={() => setConfirmingDelete(true)}
                         onRequestArchive={() => setConfirmingArchive(true)}
                     />
+                    )}
                 </WorkspacePanel>
             </PanelWorkspace>
 

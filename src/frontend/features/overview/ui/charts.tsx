@@ -104,6 +104,8 @@ export interface BarDatum {
     color: string;
     /** The tooltip's text; defaults to the label and formatted value. */
     detail?: string;
+    /** An optional dot under the bar, for an extra categorical dimension. */
+    dotColor?: string;
 }
 
 /**
@@ -173,6 +175,13 @@ export function BarChart({
                 <div className="flex h-6 gap-[2px] sm:gap-2">
                     {data.map((datum) => (
                         <span key={datum.key} className="min-w-0 flex-1 truncate pt-1.5 text-center text-[11px] text-muted-fg" title={datum.label}>
+                            {datum.dotColor && (
+                                <span
+                                    aria-hidden
+                                    className="me-1 inline-block size-2.5 rounded-full align-[-1px]"
+                                    style={{ background: datum.dotColor }}
+                                />
+                            )}
                             {datum.label}
                         </span>
                     ))}

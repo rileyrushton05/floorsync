@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/grid-list";
 import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
+import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { TextField } from "@/components/ui/text-field";
 import { formatDuration } from "@/domains/scheduling/format";
 import { ChevronRightIcon, MagnifyingGlassIcon, SignalIcon } from "@heroicons/react/24/outline";
@@ -43,6 +44,7 @@ export function SimulationSchedulePanel({
     onQueryChange: (value: string) => void;
     onSelect: (id: string) => void;
 }) {
+    const pager = useCollapsedRows(rows, selectedId);
     return (
         <Card className="min-w-0">
             <CardHeader>
@@ -69,13 +71,13 @@ export function SimulationSchedulePanel({
 
                 {/* Capped on narrow screens, where this list sits above the
                     playback and a long history would push it off screen. */}
-                <div className="scroll-rail max-h-[40dvh] overflow-y-auto xl:max-h-none xl:overflow-visible">
+                <div className="scroll-rail min-h-0 flex-1 overflow-y-auto xl:max-h-none xl:overflow-visible">
                     <GridList
                         aria-label="Confirmed schedules"
                         selectionMode="single"
                         selectionBehavior="replace"
                         disallowEmptySelection
-                        items={rows}
+                        items={pager.shown}
                         // Rows render from more than the item, so they must
                         // re-render when the followed schedule changes.
                         dependencies={[operatorScheduleId]}
@@ -94,6 +96,7 @@ export function SimulationSchedulePanel({
                         {(row) => (
                             <GridListItem
                                 id={row.id}
+                                data-row-id={row.id}
                                 textValue={`${scheduleDisplayName(row)}, ${strategyLabel(row.strategy)}${row.id === operatorScheduleId ? ", followed by operators" : ""}`}
                                 className="items-start"
                             >
@@ -127,6 +130,14 @@ export function SimulationSchedulePanel({
                         )}
                     </GridList>
                 </div>
+
+                <ListPager
+                    hiddenCount={pager.hiddenCount}
+                    expanded={pager.expanded}
+                    highlighted={pager.selectedIsHidden}
+                    onToggle={pager.toggle}
+                    noun="schedules"
+                />
             </CardContent>
         </Card>
     );

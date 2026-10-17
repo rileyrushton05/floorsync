@@ -1,8 +1,10 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { EmptyState } from "@/core/feedback/EmptyState";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -10,6 +12,7 @@ import { useSaveShortcut } from "@/core/keyboard/useSaveShortcut";
 import { useNavigationGuard } from "@/core/navigation/NavigationGuard";
 import { ManagerPageState } from "@/core/shell/ManagerPageState";
 import { row } from "@/core/panels/layout";
+import { PanelControls } from "@/core/panels/PanelChrome";
 import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
 import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
@@ -19,12 +22,12 @@ import {
     EMPTY_MACHINE_DRAFT,
     INITIAL_MACHINE_FILTERS,
     NO_USAGE,
+    categoriesInUse,
     categoryNames,
     draftFingerprint,
     draftFromMachine,
     draftProblem,
     filterMachineRows,
-    categoriesInUse,
     machineInputFromDraft,
     machineUsage,
     saveGate,
@@ -82,7 +85,7 @@ function MachinesPageInner() {
     const [baselineDraft, setBaselineDraft] = useState<MachineDraft>(EMPTY_MACHINE_DRAFT);
     const [isCreating, setIsCreating] = useState(false);
     const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
-    // The machine that was open when "Add machine" was pressed, so cancelling
+    // The machine that was open when "New Machine" was pressed, so cancelling
     // the new one goes back to it.
     const [returnId, setReturnId] = useState<string | null>(null);
     const [filters, setFilters] = useState<MachineFilters>(INITIAL_MACHINE_FILTERS);
@@ -120,13 +123,9 @@ function MachinesPageInner() {
     const dirty = draftFingerprint(draft) !== draftFingerprint(baselineDraft);
     const gate = saveGate({ isNew: draft.id === null, dirty, problem: draftProblem(draft, machines) });
 
-    // The screen opens on a machine rather than an empty form, as the jobs
-    // screen does. Only while the editor is pristine, so a list arriving late
-    // never overwrites a new machine someone has already started typing.
-    const firstMachine = machines.find((machine) => machine.active) ?? machines[0];
-    if (firstMachine && !isCreating && draft.id === null && !dirty) {
-        openDraft(draftFromMachine(firstMachine));
-    }
+    // The screen opens with nothing selected: the right pane shows a neutral
+    // empty state until a machine is picked in the list, or "New Machine" is
+    // pressed. Only a ?machine=<id> link or user action opens the editor.
 
     // The machine on screen was removed elsewhere (or in another tab): drop
     // it rather than leave a form that can only ever save into a 404.
@@ -190,12 +189,15 @@ function MachinesPageInner() {
     }
 
     // Where cancelling a new machine lands: the one it was started from if
-    // that still exists, otherwise whichever the screen opens on.
-    const cancelTarget = machines.find((machine) => machine.id === returnId) ?? firstMachine ?? null;
+    // that still exists, otherwise nothing — the empty pane.
+    const cancelTarget = machines.find((machine) => machine.id === returnId) ?? null;
 
     function leaveNewMachine(target: MachineSummary | null) {
         if (target) openMachine(target);
-        else openDraft(EMPTY_MACHINE_DRAFT);
+        else {
+            setIsCreating(false);
+            openDraft(EMPTY_MACHINE_DRAFT);
+        }
     }
 
     function cancelNewMachine() {
@@ -332,7 +334,7 @@ function MachinesPageInner() {
     const openJobsOnSelected = selectedUsage?.jobs.filter((job) => job.backlogStatus === "open").length ?? 0;
 
     return (
-        <ManagerShell workspace={workspace} actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
+        <ManagerShell workspace={workspace}>
             <PanelWorkspace workspace={workspace}>
                 <WorkspacePanel id="inventory">
                     <MachineInventoryPanel
@@ -343,12 +345,41 @@ function MachinesPageInner() {
                         selectedId={draft.id}
                         filters={filters}
                         busy={saving}
+                        onAddMachine={startNewMachine}
                         onFiltersChange={(update) => setFilters(update)}
                         onSelect={selectMachine}
                     />
                 </WorkspacePanel>
                 <WorkspacePanel id="editor">
-                    <MachineEditor
+                    {selected === null && !isCreating ? (
+                        // Same neutral empty pane the Schedules page shows: the
+                        // screen opens with nothing selected, and the editor
+                        // only appears once a machine is picked or added. The
+                        // header keeps the panel's controls.
+                        <Card className="min-h-full min-w-0">
+                            <CardHeader>
+                                <CardTitle>Machine editor</CardTitle>
+                                <CardAction>
+                                    <PanelControls />
+                                </CardAction>
+                            </CardHeader>
+                            <CardContent className="flex flex-1 flex-col items-center justify-center">
+                                <EmptyState
+                                    title={machines.length === 0 ? "No machines yet" : "No machine selected"}
+                                    action={
+                                        <Button onPress={startNewMachine} isDisabled={saving}>
+                                            <PlusIcon /> New Machine
+                                        </Button>
+                                    }
+                                >
+                                    {machines.length === 0
+                                        ? "Add a machine to the floor inventory to get started."
+                                        : "Pick a machine in the inventory to view or edit it, or add a new one."}
+                                </EmptyState>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <MachineEditor
                         draft={draft}
                         selected={selected}
                         categories={draftCategories}
@@ -364,7 +395,8 @@ function MachinesPageInner() {
                         onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
                         onToggleActive={requestToggleActive}
                         onRemove={() => setConfirmRemove(true)}
-                    />
+                        />
+                    )}
                 </WorkspacePanel>
             </PanelWorkspace>
 

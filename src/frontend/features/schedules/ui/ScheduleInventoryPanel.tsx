@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PanelControls } from "@/core/panels/PanelChrome";
 import {
@@ -12,11 +12,13 @@ import {
 } from "@/components/ui/grid-list";
 import { HeaderCount } from "@/components/ui/header-count";
 import { Input, InputGroup } from "@/components/ui/input";
+import { Link } from "@/components/ui/link";
+import { ListPager, useCollapsedRows } from "@/components/ui/list-pager";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TextField } from "@/components/ui/text-field";
 import { formatDuration } from "@/domains/scheduling/format";
-import { ChevronRightIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ChevronRightIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
     formatCreatedAt,
     scheduleDisplayName,
@@ -76,8 +78,10 @@ export function ScheduleInventoryPanel({
     onClearFilters: () => void;
     onSelect: (id: string) => void;
 }) {
+    const pager = useCollapsedRows(rows, selectedId);
+
     return (
-        <Card>
+        <Card className="flex h-full flex-col">
             <CardHeader>
                 <CardTitle>
                     Schedules
@@ -87,7 +91,7 @@ export function ScheduleInventoryPanel({
                     <PanelControls />
                 </CardAction>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex min-h-0 flex-1 flex-col">
                 <TextField aria-label="Search schedules by name or strategy" value={query} onChange={onQueryChange}>
                     <InputGroup>
                         <MagnifyingGlassIcon data-slot="icon" />
@@ -155,15 +159,16 @@ export function ScheduleInventoryPanel({
                         </SelectContent>
                     </Select>
                     <Badge intent="outline" className="ml-auto" role="status">
-                        Showing {rows.length} of {total}
+                        Showing {pager.shown.length} of {rows.length} schedules
                     </Badge>
                 </div>
 
+                <div className="scroll-rail min-h-0 flex-1 overflow-y-auto">
                 <GridList
                     aria-label="Schedules"
                     selectionMode="single"
                     selectionBehavior="replace"
-                    items={rows}
+                    items={pager.shown}
                     selectedKeys={selectedId ? new Set([selectedId]) : new Set()}
                     onSelectionChange={(keys) => {
                         if (keys === "all") return;
@@ -181,6 +186,7 @@ export function ScheduleInventoryPanel({
                     {(row) => (
                         <GridListItem
                             id={row.id}
+                            data-row-id={row.id}
                             textValue={`${scheduleDisplayName(row)}, ${row.status}, ${strategyLabel(row.strategy)}`}
                             className="items-start"
                         >
@@ -210,7 +216,21 @@ export function ScheduleInventoryPanel({
                         </GridListItem>
                     )}
                 </GridList>
+                </div>
+
+                <ListPager
+                    hiddenCount={pager.hiddenCount}
+                    expanded={pager.expanded}
+                    highlighted={pager.selectedIsHidden}
+                    onToggle={pager.toggle}
+                    noun="schedules"
+                />
             </CardContent>
+            <div className="mt-auto border-t p-3">
+                <Link href="/manager/planner" className={buttonStyles({ className: "w-full" })}>
+                    <PlusIcon /> New Schedule
+                </Link>
+            </div>
         </Card>
     );
 }
