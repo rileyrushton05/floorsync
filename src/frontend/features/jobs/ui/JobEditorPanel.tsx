@@ -22,10 +22,11 @@ import {
     CheckIcon,
     CursorArrowRaysIcon,
     DocumentDuplicateIcon,
+    ExclamationTriangleIcon,
     PlusIcon,
 } from "@heroicons/react/24/outline";
 import { criticalPathMins, wouldCreateCycle } from "../model/dependencies";
-import { JOB_PRIORITIES, type JobDraft, type SaveGate } from "../model/editor";
+import { JOB_PRIORITIES, UNASSIGNED_MACHINE, type JobDraft, type SaveGate } from "../model/editor";
 import { JobGraphDiagram } from "./JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
 
@@ -142,7 +143,11 @@ export function JobEditorPanel({
         draft.operations.map((operation) => [operation.id, routeMins(primaryRoute(operation))]),
     );
     const machineCount = new Set(
-        draft.operations.flatMap((operation) => operation.routes.map((route) => route.machineId)),
+        draft.operations.flatMap((operation) =>
+            operation.routes
+                .map((route) => route.machineId)
+                .filter((machineId) => machineId !== UNASSIGNED_MACHINE),
+        ),
     ).size;
     const nodes = draft.operations.map((operation) => ({ id: operation.id, dependsOn: operation.dependsOn }));
     const elapsedMins = criticalPathMins(nodes, (id) => durationOf.get(id) ?? 0);
@@ -273,7 +278,7 @@ export function JobEditorPanel({
                                 intent="primary"
                                 size="sm"
                                 onPress={onAddOperation}
-                                isDisabled={saving || loading || hasLoadError || activeMachines.length === 0}
+                                isDisabled={saving || loading || hasLoadError}
                             >
                                 <PlusIcon /> Add operation
                             </Button>
@@ -362,7 +367,15 @@ export function JobEditorPanel({
                         time, rather than arriving as a toast after a round trip
                         the draft was never going to survive. */}
                     {gate.reason !== null && (
-                        <span className="me-auto text-muted-fg text-sm" role="status">
+                        <span
+                            className={
+                                gate.needsFix
+                                    ? "me-auto flex items-center gap-1.5 rounded-md bg-warning-subtle px-2.5 py-1.5 font-medium text-sm text-warning-subtle-fg"
+                                    : "me-auto text-muted-fg text-sm"
+                            }
+                            role="status"
+                        >
+                            {gate.needsFix && <ExclamationTriangleIcon className="size-4 shrink-0" />}
                             {gate.reason}
                         </span>
                     )}

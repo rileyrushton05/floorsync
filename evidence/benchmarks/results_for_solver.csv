@@ -1,0 +1,70 @@
+run_at,instance,method,makespan,lower_bound,seconds,status,bks,gap_to_bks
+2026-10-11T17:51:46,mk07,resched,148,,0.296,heuristic,139,6.47%
+2026-10-11T18:01:47,mk07,gurobi,147,103,600.662,"time limit, gap 29.9%",139,5.76%
+2026-10-11T20:53:45,mk07,cp-lbbd,139,139,2.888,optimal,139,0.00%
+2026-10-11T18:11:51,mk01,resched,42,,0.187,heuristic,40,5.00%
+2026-10-11T18:12:02,mk01,gurobi,40,40,11.383,optimal,40,0.00%
+2026-10-11T20:53:45,mk01,cp-lbbd,40,40,0.059,optimal,40,0.00%
+2026-10-11T18:12:07,fattahi11,resched,555,,0.059,heuristic,468,18.59%
+2026-10-11T18:12:07,fattahi11,gurobi,468,468,0.086,optimal,468,0.00%
+2026-10-11T20:53:45,fattahi11,cp-lbbd,468,468,0.011,optimal,468,0.00%
+2026-10-11T18:12:09,fattahi15,resched,552,,0.073,heuristic,514,7.39%
+2026-10-11T18:12:09,fattahi15,gurobi,514,514,0.416,optimal,514,0.00%
+2026-10-11T20:53:46,fattahi15,cp-lbbd,514,514,0.031,optimal,514,0.00%
+2026-10-11T18:12:26,kacem2,resched,17,,0.091,heuristic,11,54.55%
+2026-10-11T18:12:29,kacem2,gurobi,11,11,2.180,optimal,11,0.00%
+2026-10-11T20:53:46,kacem2,cp-lbbd,11,11,0.044,optimal,11,0.00%
+2026-10-11T18:12:31,ft06_sdata,resched,57,,0.103,heuristic,55,3.64%
+2026-10-11T18:12:31,ft06_sdata,gurobi,55,55,0.040,optimal,55,0.00%
+2026-10-11T20:53:46,ft06_sdata,cp-lbbd,55,55,0.008,optimal,55,0.00%
+2026-10-11T18:12:33,ft06_vdata,resched,47,,0.104,heuristic,47,0.00%
+2026-10-11T18:12:33,ft06_vdata,gurobi,47,47,0.166,optimal,47,0.00%
+2026-10-11T20:53:46,ft06_vdata,cp-lbbd,47,47,0.013,optimal,47,0.00%
+2026-10-11T18:12:49,car7_sdata,resched,7861,,0.138,heuristic,6558,19.87%
+2026-10-11T18:12:50,car7_sdata,gurobi,6558,6558,0.570,optimal,6558,0.00%
+2026-10-11T20:53:46,car7_sdata,cp-lbbd,6558,6558,0.076,optimal,6558,0.00%
+2026-10-11T18:12:56,behnke3,resched,111,,0.160,heuristic,91,21.98%
+2026-10-11T18:14:32,behnke3,gurobi,91,91,95.984,optimal,91,0.00%
+2026-10-11T20:53:47,behnke3,cp-lbbd,91,91,1.071,optimal,91,0.00%
+2026-10-11T18:18:10,behnke42,resched,107,,0.187,heuristic,87,22.99%
+2026-10-11T18:22:44,behnke42,gurobi,87,87,273.593,optimal,87,0.00%
+2026-10-11T20:53:48,behnke42,cp-lbbd,87,87,1.759,optimal,87,0.00%
+2026-10-11T18:26:30,la03_sdata,resched,711,,0.135,heuristic,597,19.10%
+2026-10-11T18:26:31,la03_sdata,gurobi,597,597,0.639,optimal,597,0.00%
+2026-10-11T20:53:49,la03_sdata,cp-lbbd,597,597,0.031,optimal,597,0.00%
+2026-10-11T18:26:36,la04_sdata,resched,706,,0.135,heuristic,590,19.66%
+2026-10-11T18:26:38,la04_sdata,gurobi,590,590,1.766,optimal,590,0.00%
+2026-10-11T20:53:49,la04_sdata,cp-lbbd,590,590,0.031,optimal,590,0.00%
+2026-10-11T18:26:46,kacem4,resched,20,,0.171,heuristic,11,81.82%
+2026-10-11T18:36:47,kacem4,gurobi,11,10,601.223,"time limit, gap 9.1%",11,0.00%
+2026-10-11T20:54:10,kacem4,cp-lbbd,11,11,21.515,optimal,11,0.00%
+2026-10-11T18:46:49,car3_sdata,resched,8987,,0.195,heuristic,7312,22.91%
+2026-10-11T18:47:23,car3_sdata,gurobi,7312,7312,34.439,optimal,7312,0.00%
+2026-10-11T20:54:10,car3_sdata,cp-lbbd,7312,7312,0.142,optimal,7312,0.00%
+2026-10-11T18:50:39,mk04,resched,72,,0.269,heuristic,60,20.00%
+2026-10-11T19:00:39,mk04,gurobi,60,55,600.199,"time limit, gap 8.3%",60,0.00%
+2026-10-11T20:54:10,mk04,cp-lbbd,60,60,0.133,optimal,60,0.00%
+2026-10-11T21:18:15,behnke47,resched,149,,0.240,heuristic,117,27.35%
+2026-10-11T21:28:16,behnke47,gurobi,126,77,601.342,"time limit, gap 38.9%",117,7.69%
+2026-10-11T21:36:14,behnke47,cp-lbbd,117,117,291.714,optimal,117,0.00%
+2026-10-11T21:36:16,mk06,resched,73,,0.328,heuristic,57,28.07%
+2026-10-11T21:46:17,mk06,gurobi,65,39,600.936,"time limit, gap 40.0%",57,14.04%
+2026-10-11T21:56:17,mk06,cp-lbbd,58,52,600.026,"time limit, gap 10.3%",57,1.75%
+2026-10-11T21:56:19,la24_vdata,resched,796,,0.269,heuristic,773,2.98%
+2026-10-11T22:06:20,la24_vdata,gurobi,819,704,601.135,"time limit, gap 14.0%",773,5.95%
+2026-10-11T22:16:20,la24_vdata,cp-lbbd,774,773,600.012,"time limit, gap 0.1%",773,0.13%
+2026-10-11T22:16:22,setb4xy,resched,1056,,0.268,heuristic,910,16.04%
+2026-10-11T22:17:31,setb4xy,gurobi,910,910,68.778,optimal,910,0.00%
+2026-10-11T22:17:32,setb4xy,cp-lbbd,910,910,1.397,optimal,910,0.00%
+2026-10-11T22:17:33,mk11,resched,664,,0.346,heuristic,609,9.03%
+2026-10-11T22:27:34,mk11,gurobi,622,278,600.409,"time limit, gap 55.3%",609,2.13%
+2026-10-11T22:27:42,mk11,cp-lbbd,609,609,7.714,optimal,609,0.00%
+2026-10-11T22:27:44,dpp03a,resched,2343,,0.372,heuristic,2228,5.16%
+2026-10-11T22:37:45,dpp03a,gurobi,2349,1392,601.119,"time limit, gap 40.7%",2228,5.43%
+2026-10-11T22:47:45,dpp03a,cp-lbbd,2231,2228,600.042,"time limit, gap 0.1%",2228,0.13%
+2026-10-11T22:47:48,la26_edata,resched,1316,,0.597,heuristic,1106,18.99%
+2026-10-11T22:57:48,la26_edata,gurobi,1179,1013,600.283,"time limit, gap 14.1%",1106,6.60%
+2026-10-11T23:07:48,la26_edata,cp-lbbd,1110,1106,600.013,"time limit, gap 0.4%",1106,0.36%
+2026-10-11T23:07:50,la28_edata,resched,1365,,0.397,heuristic,1142,19.53%
+2026-10-11T23:17:51,la28_edata,gurobi,1213,940,600.148,"time limit, gap 22.5%",1142,6.22%
+2026-10-11T23:27:51,la28_edata,cp-lbbd,1144,1131,600.024,"time limit, gap 1.1%",1142,0.18%

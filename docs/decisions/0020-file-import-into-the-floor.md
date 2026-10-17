@@ -36,8 +36,9 @@ UX of its own (#299).
 3. **Everything becomes ordinary rows** in `jobs`, `operations`, `compatibilities` and
    `dependencies`, the same rows the builder writes. No schema change and no import table. Every
    imported job is new and open in the backlog.
-4. **Machines and categories are matched by exact name, reused, and never modified.** The floor's
-   values win; a file that describes an existing machine differently gets a `machine_differs`
+4. **Machines and categories are matched by name, reused, and never modified.** Machines match
+   exactly; categories ignore case, as their unique index does, so a file's "cutting" reuses the
+   floor's "Cutting". The floor's values win; a file that describes an existing machine differently gets a `machine_differs`
    warning, not an overwrite. A route may name a machine the file does not declare if the floor has
    it. A route to an inactive machine is refused, as the builder refuses one. A machine the import
    creates gets its operator login with the default password, as every machine does (#312); one

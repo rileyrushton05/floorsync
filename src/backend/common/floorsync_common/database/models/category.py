@@ -1,4 +1,4 @@
-from sqlalchemy import Text
+from sqlalchemy import Index, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from floorsync_common.database.base import Base
@@ -10,4 +10,8 @@ class Category(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "categories"
 
-    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+# Unique ignoring case: to a manager, "Cutting" and "cutting" are one category.
+Index("uq_categories_lower_name", func.lower(Category.name), unique=True)

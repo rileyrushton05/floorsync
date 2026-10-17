@@ -37,7 +37,7 @@ class NoFeasibleSchedule(Exception):
     """
 
 
-class _OpRecord(TypedDict):
+class OpRecord(TypedDict):
     """One operation as laid out for the solver, indexed by its position in `op_list`.
 
     `energy_by_machine` is keyed by the same machine indices as `options`, so a solved
@@ -53,7 +53,7 @@ class _OpRecord(TypedDict):
 
 def adapt_scheduling_input(
     problem: SchedulingInput,
-) -> tuple[range, dict[int, list[int]], list[_OpRecord], list[tuple[UUID, Decimal | None]]]:
+) -> tuple[range, dict[int, list[int]], list[OpRecord], list[tuple[UUID, Decimal | None]]]:
     """Translate a `SchedulingInput` snapshot into the solver's index-based arrays.
 
     `SchedulingService.load_input` never filters inactive machines out of `machines` or `routes`
@@ -89,7 +89,7 @@ def adapt_scheduling_input(
         options_by_op[op_idx].append((route.duration_minutes, machine_idx))
         energy_by_op[op_idx][machine_idx] = route.energy
 
-    op_list: list[_OpRecord] = []
+    op_list: list[OpRecord] = []
     for index, operation in enumerate(operations_sorted):
         options = options_by_op[index]
         if not options:
@@ -112,9 +112,7 @@ def adapt_scheduling_input(
     return operations, eligible_machines, op_list, machine_meta
 
 
-def processing_time(
-    operation_data: Sequence[_OpRecord], operation: int, machine: int
-) -> int | None:
+def processing_time(operation_data: Sequence[OpRecord], operation: int, machine: int) -> int | None:
     """Processing time of `operation` on `machine`, or None if ineligible."""
     for duration, candidate_machine in operation_data[operation]["options"]:
         if candidate_machine == machine:
@@ -122,8 +120,8 @@ def processing_time(
     return None
 
 
-def _required_processing_time(
-    operation_data: Sequence[_OpRecord], operation: int, machine: int
+def required_processing_time(
+    operation_data: Sequence[OpRecord], operation: int, machine: int
 ) -> int:
     """Like `processing_time`, but for call sites where `machine` is already known eligible."""
     duration = processing_time(operation_data, operation, machine)
@@ -134,7 +132,7 @@ def _required_processing_time(
 def build_model(
     operations: range,
     eligible_machines: dict[int, list[int]],
-    operation_data: Sequence[_OpRecord],
+    operation_data: Sequence[OpRecord],
 ) -> tuple[gp.Model, dict[tuple[int, int], gp.Var], dict[int, gp.Var], gp.Var]:
     """Build the disjunctive MILP. Returns the model and its variables."""
     horizon = sum(max(duration for duration, _ in record["options"]) for record in operation_data)
@@ -162,7 +160,7 @@ def build_model(
     def duration_expression(operation: int) -> gp.LinExpr:
         """Processing time of an operation as a linear expression."""
         return gp.quicksum(
-            _required_processing_time(operation_data, operation, machine)
+            required_processing_time(operation_data, operation, machine)
             * assignment[operation, machine]
             for machine in eligible_machines[operation]
         )
@@ -206,7 +204,7 @@ def build_model(
                 model.addConstr(
                     start_time[first]
                     >= start_time[second]
-                    + _required_processing_time(operation_data, second, machine)
+                    + required_processing_time(operation_data, second, machine)
                     - slack_a * horizon,
                     name=f"no_overlap_a[{first},{second},{machine}]",
                 )
@@ -216,7 +214,7 @@ def build_model(
                 model.addConstr(
                     start_time[second]
                     >= start_time[first]
-                    + _required_processing_time(operation_data, first, machine)
+                    + required_processing_time(operation_data, first, machine)
                     - slack_b * horizon,
                     name=f"no_overlap_b[{first},{second},{machine}]",
                 )
@@ -232,7 +230,7 @@ def build_model(
 
 
 def report(
-    operation_data: Sequence[_OpRecord],
+    operation_data: Sequence[OpRecord],
     eligible_machines: dict[int, list[int]],
     assignment: dict[tuple[int, int], gp.Var],
     start_time: dict[int, gp.Var],
@@ -265,27 +263,24 @@ def report(
 
 
 def build_schedule_plan(
-    operation_data: Sequence[_OpRecord],
-    eligible_machines: dict[int, list[int]],
-    assignment: dict[tuple[int, int], gp.Var],
-    start_time: dict[int, gp.Var],
-    makespan: gp.Var,
+    operation_data: Sequence[OpRecord],
+    machine_by_operation: Sequence[int],
+    start_minutes: Sequence[int],
+    makespan_minutes: int,
     machine_meta: list[tuple[UUID, Decimal | None]],
     starts_at: datetime,
 ) -> SchedulePlan:
-    """Turn a solved model into a `SchedulePlan`, ready for `SchedulingService.store_draft`."""
+    """Turn a solved schedule into a `SchedulePlan`, ready for `SchedulingService.store_draft`.
+
+    Takes plain machine indices and start offsets (minutes from `starts_at`), indexed like
+    `operation_data`, so any engine working on the adapted arrays can share it.
+    """
     assignments: list[ScheduledOperation] = []
-    machine_by_operation: list[int] = []
     for operation, record in enumerate(operation_data):
-        machine = next(
-            candidate
-            for candidate in eligible_machines[operation]
-            if assignment[operation, candidate].X > 0.5
-        )
-        machine_by_operation.append(machine)
-        duration = _required_processing_time(operation_data, operation, machine)
+        machine = machine_by_operation[operation]
+        duration = required_processing_time(operation_data, operation, machine)
         machine_id, salary_per_minute = machine_meta[machine]
-        op_starts_at = starts_at + timedelta(minutes=int(start_time[operation].X))
+        op_starts_at = starts_at + timedelta(minutes=start_minutes[operation])
         assignments.append(
             ScheduledOperation(
                 operation_id=record["op_id"],
@@ -323,7 +318,7 @@ def build_schedule_plan(
                 if assigned_machine == machine
             ),
             key=lambda operation: (
-                int(start_time[operation].X),
+                start_minutes[operation],
                 str(operation_data[operation]["op_id"]),
             ),
         )
@@ -363,7 +358,7 @@ def build_schedule_plan(
         assignments=tuple(assignments),
         dependencies=tuple(dependencies),
         metrics=ScheduleMetrics(
-            makespan_minutes=int(makespan.X),
+            makespan_minutes=makespan_minutes,
             total_energy=total_energy,
             total_labour_cost=total_labour_cost,
         ),
@@ -373,7 +368,7 @@ def build_schedule_plan(
 def solve_fajsp(
     operations: range,
     eligible_machines: dict[int, list[int]],
-    operation_data: Sequence[_OpRecord],
+    operation_data: Sequence[OpRecord],
     machine_meta: list[tuple[UUID, Decimal | None]],
     starts_at: datetime,
 ) -> tuple[SchedulePlan, int, bool, float]:
@@ -410,8 +405,21 @@ def solve_fajsp(
         )
 
     report(operation_data, eligible_machines, assignment, start_time, makespan, model)
+    machine_by_operation = [
+        next(
+            machine
+            for machine in eligible_machines[operation]
+            if assignment[operation, machine].X > 0.5
+        )
+        for operation in operations
+    ]
     plan = build_schedule_plan(
-        operation_data, eligible_machines, assignment, start_time, makespan, machine_meta, starts_at
+        operation_data,
+        machine_by_operation,
+        [round(start_time[operation].X) for operation in operations],
+        round(makespan.X),
+        machine_meta,
+        starts_at,
     )
     proven_optimal = model.Status == gp.GRB.OPTIMAL
     return plan, runtime_ms, proven_optimal, 0.0 if proven_optimal else model.MIPGap

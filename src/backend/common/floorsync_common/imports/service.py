@@ -6,8 +6,9 @@ plan becomes ordinary rows in `jobs`, `operations`, `compatibilities` and `depen
 rows the job builder writes, and every imported job is a new open job in the backlog.
 
 Machines and categories are the exception, because a file and the floor can share them: they are
-matched by exact name, reused when the floor has them, and never modified by an import. The floor's
-values win; a file that disagrees gets a warning, not an overwrite.
+matched by name (machines exactly, categories ignoring case), reused when the floor has them, and
+never modified by an import. The floor's values win; a file that disagrees gets a warning, not an
+overwrite.
 
 `ImportService` runs the steps in order; each capability is its own service, reachable as
 `ImportService.Parsing`, `ImportService.Validation` and `ImportService.Persistence`.
@@ -71,16 +72,15 @@ class ImportService:
 
         to_create = [machine for name, machine in declared.items() if name not in floor]
         similar = await ImportService.Persistence.similar_names(db, to_create)
-        categories = list(
-            dict.fromkeys(machine.category for machine in to_create if machine.category)
+        categories = await ImportService.Persistence.categories_to_create(
+            db, [machine.category for machine in to_create if machine.category]
         )
-        known_categories = await ImportService.Persistence.load_category_ids(db, categories)
 
         summary = ImportSummary(
             format=plan.format,
             machines_created=tuple(machine.name for machine in to_create),
             machines_reused=tuple(name for name in needed if name in floor),
-            categories_created=tuple(name for name in categories if name not in known_categories),
+            categories_created=tuple(categories),
             jobs=len(plan.jobs),
             operations=plan.operation_count,
             routes=plan.route_count,
@@ -109,7 +109,13 @@ class ImportService:
             summary,
             machines_created=tuple(name for name in needed if name in created_machines),
             machines_reused=tuple(name for name in needed if name not in created_machines),
-            categories_created=tuple(name for name in categories if name in created_categories),
+            categories_created=tuple(
+                name
+                for name in dict.fromkeys(
+                    machine.category for machine in to_create if machine.category
+                )
+                if name in created_categories
+            ),
         )
         # Judged against the machines as they are now: one another import created after the first
         # lookup is reused with its values, not the file's, and the file must be told.

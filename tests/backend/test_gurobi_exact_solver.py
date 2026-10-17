@@ -12,11 +12,15 @@ picks. D (dur 3, only M1) fans in from both B (ends 3) and C (ends 5), so it can
 and ends at 8. No machine contention forces it later than that, so 8 is optimal.
 """
 
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
 from uuid import UUID, uuid4
 
+import pytest
+
+from floorsync_common.scheduling import FJSP_lbbd, gurobi_exact_solver
 from floorsync_common.scheduling.contracts import (
     DependencySpec,
     MachineSpec,
@@ -25,10 +29,18 @@ from floorsync_common.scheduling.contracts import (
     ScheduledOperation,
     SchedulingInput,
 )
-from floorsync_common.scheduling.gurobi_exact_solver import adapt_scheduling_input, solve_fajsp
+from floorsync_common.scheduling.gurobi_exact_solver import adapt_scheduling_input
+
+# Both engines share the adapter and the `solve_fajsp` signature; the `exact` strategy runs LBBD.
+ENGINES = pytest.mark.parametrize(
+    "solve_fajsp", [gurobi_exact_solver.solve_fajsp, FJSP_lbbd.solve_fajsp], ids=["milp", "lbbd"]
+)
 
 
-def test_solve_fajsp_finds_the_provable_optimum_for_a_fan_in_instance() -> None:
+@ENGINES
+def test_solve_fajsp_finds_the_provable_optimum_for_a_fan_in_instance(
+    solve_fajsp: Callable[..., tuple],
+) -> None:
     machine_1, machine_2 = uuid4(), uuid4()
     op_a, op_b, op_c, op_d = uuid4(), uuid4(), uuid4(), uuid4()
     starts_at = datetime(2026, 9, 6, 8, tzinfo=UTC)
@@ -68,6 +80,23 @@ def test_solve_fajsp_finds_the_provable_optimum_for_a_fan_in_instance() -> None:
     assert gap == 0.0
     assert plan.metrics.makespan_minutes == 8
 
+    # Every operation is assigned exactly once, only to a machine it has a route on (#137, #63),
+    # and its end time is its start time plus that route's duration (#64).
+    durations = {
+        (route.operation_id, route.machine_id): route.duration_minutes for route in problem.routes
+    }
+    assert sorted(a.operation_id for a in plan.assignments) == sorted(
+        o.id for o in problem.operations
+    )
+    for assignment in plan.assignments:
+        assert (assignment.operation_id, assignment.machine_id) in durations
+        assert (
+            assignment.duration_minutes == durations[assignment.operation_id, assignment.machine_id]
+        )
+        assert assignment.ends_at == assignment.starts_at + timedelta(
+            minutes=assignment.duration_minutes
+        )
+
     ends_at = {assignment.operation_id: assignment.ends_at for assignment in plan.assignments}
     starts_at_by_op = {
         assignment.operation_id: assignment.starts_at for assignment in plan.assignments
@@ -87,7 +116,10 @@ def test_solve_fajsp_finds_the_provable_optimum_for_a_fan_in_instance() -> None:
             assert previous.ends_at <= current.starts_at
 
 
-def test_solve_fajsp_records_a_machine_queue_edge_for_unrelated_operations() -> None:
+@ENGINES
+def test_solve_fajsp_records_a_machine_queue_edge_for_unrelated_operations(
+    solve_fajsp: Callable[..., tuple],
+) -> None:
     """Two operations with no precedence between them still need an ordering reason.
 
     Both can only run on the single machine available, so Gurobi must sequence them one after the

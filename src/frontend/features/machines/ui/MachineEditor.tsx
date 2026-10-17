@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { TextField } from "@/components/ui/text-field";
 import { InfoTooltip } from "@/components/ui/tooltip";
 import { useSaveShortcutLabel } from "@/core/keyboard/useSaveShortcut";
-import { ArrowUturnLeftIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { ArrowUturnLeftIcon, CheckIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import {
     CATEGORIES_IN_USE_HINT,
     NO_CATEGORY,
@@ -135,6 +135,7 @@ export function MachineEditor({
 
                 <TextField
                     value={draft.name}
+                    isInvalid={gate.invalidField === "name"}
                     onChange={(name) => onDraftChange((value) => ({ ...value, name }))}
                 >
                     <Label>Machine name</Label>
@@ -187,6 +188,7 @@ export function MachineEditor({
                     <TextField
                         className="flex-1"
                         value={draft.salary}
+                        isInvalid={gate.invalidField === "salary"}
                         onChange={(salary) => onDraftChange((value) => ({ ...value, salary }))}
                     >
                         <Label>Hourly salary</Label>
@@ -252,7 +254,15 @@ export function MachineEditor({
                 <div className="mt-auto flex flex-wrap items-center justify-end gap-2.5 border-t pt-5">
                     {/* A disabled button with no reason beside it is a dead end. */}
                     {gate.reason !== null && (
-                        <span className="me-auto text-muted-fg text-sm" role="status">
+                        <span
+                            className={
+                                gate.invalidField !== null
+                                    ? "me-auto flex items-center gap-1.5 rounded-md bg-warning-subtle px-2.5 py-1.5 font-medium text-sm text-warning-subtle-fg"
+                                    : "me-auto text-muted-fg text-sm"
+                            }
+                            role="status"
+                        >
+                            {gate.invalidField !== null && <ExclamationTriangleIcon className="size-4 shrink-0" />}
                             {gate.reason}
                         </span>
                     )}
