@@ -416,9 +416,9 @@ function SimulationPageInner() {
     })();
 
     return (
-        <ManagerShell actions={schedulesLink}>
-            <SidePaneLayout>
-                <SidePane id="simulation.schedules" side="left" label="Schedules" grow={0.7} minWidth={280}>
+        <ManagerShell paneScroll actions={schedulesLink}>
+            <SidePaneLayout paneScroll>
+                <SidePane id="simulation.schedules" side="left" label="Schedules" grow={0.7} minWidth={280} paneScroll>
                     <SimulationSchedulePanel
                         total={confirmedRows.length}
                         rows={visibleRows}
@@ -434,7 +434,7 @@ function SimulationPageInner() {
                         }}
                     />
                 </SidePane>
-                <SidePaneMain grow={2.3}>
+                <SidePaneMain grow={2.3} paneScroll>
                     <div className="flex min-w-0 flex-col gap-5">
                         {schedulesQuery.error && (
                             <Note intent="warning" role="status">

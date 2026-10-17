@@ -88,6 +88,26 @@ export function strategyLabel(strategy: string): string {
     }
 }
 
+/**
+ * The colour that identifies a schedule's engine, from the theme's categorical
+ * chart tokens: blue for ReSched, orange for Exact.
+ *
+ * Everything that renders a schedule by strategy — chart bars, legend swatches,
+ * list dots — must come through here, so the same schedule is the same colour
+ * everywhere. Goes through `strategyFamily` because stored strategies are
+ * versioned identifiers (`resched_reinforce_v1`), not the bare family names.
+ */
+export function strategyColor(strategy: string): string {
+    switch (strategyFamily(strategy)) {
+        case "resched":
+            return "var(--chart-1)";
+        case "exact":
+            return "var(--chart-2)";
+        default:
+            return "var(--chart-4)";
+    }
+}
+
 /** A filter is "active" when anything other than the defaults is chosen. */
 export function isFilterActive(status: string, strategy: string, query: string): boolean {
     return status !== "all" || strategy !== "any" || query.trim() !== "";

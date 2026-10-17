@@ -1,8 +1,10 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Note } from "@/components/ui/note";
 import { ConfirmDialog } from "@/core/feedback/ConfirmDialog";
+import { PageMessage } from "@/core/feedback/PageMessage";
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
@@ -17,12 +19,12 @@ import {
     EMPTY_MACHINE_DRAFT,
     INITIAL_MACHINE_FILTERS,
     NO_USAGE,
+    categoriesInUse,
     categoryNames,
     draftFingerprint,
     draftFromMachine,
     draftProblem,
     filterMachineRows,
-    categoriesInUse,
     machineInputFromDraft,
     machineUsage,
     saveGate,
@@ -108,13 +110,9 @@ function MachinesPageInner() {
     const dirty = draftFingerprint(draft) !== draftFingerprint(baselineDraft);
     const gate = saveGate({ isNew: draft.id === null, dirty, problem: draftProblem(draft, machines) });
 
-    // The screen opens on a machine rather than an empty form, as the jobs
-    // screen does. Only while the editor is pristine, so a list arriving late
-    // never overwrites a new machine someone has already started typing.
-    const firstMachine = machines.find((machine) => machine.active) ?? machines[0];
-    if (firstMachine && !isCreating && draft.id === null && !dirty) {
-        openDraft(draftFromMachine(firstMachine));
-    }
+    // The screen opens with nothing selected: the right pane shows a neutral
+    // empty state until a machine is picked in the list, or "Add machine" is
+    // pressed. Only a ?machine=<id> link or user action opens the editor.
 
     // The machine on screen was removed elsewhere (or in another tab): drop
     // it rather than leave a form that can only ever save into a 404.
@@ -178,12 +176,15 @@ function MachinesPageInner() {
     }
 
     // Where cancelling a new machine lands: the one it was started from if
-    // that still exists, otherwise whichever the screen opens on.
-    const cancelTarget = machines.find((machine) => machine.id === returnId) ?? firstMachine ?? null;
+    // that still exists, otherwise nothing — the empty pane.
+    const cancelTarget = machines.find((machine) => machine.id === returnId) ?? null;
 
     function leaveNewMachine(target: MachineSummary | null) {
         if (target) openMachine(target);
-        else openDraft(EMPTY_MACHINE_DRAFT);
+        else {
+            setIsCreating(false);
+            openDraft(EMPTY_MACHINE_DRAFT);
+        }
     }
 
     function cancelNewMachine() {
@@ -320,9 +321,9 @@ function MachinesPageInner() {
     const openJobsOnSelected = selectedUsage?.jobs.filter((job) => job.backlogStatus === "open").length ?? 0;
 
     return (
-        <ManagerShell actions={<Button onPress={startNewMachine} isDisabled={saving}><PlusIcon /> Add machine</Button>}>
-            <SidePaneLayout>
-                <SidePane id="machines.inventory" side="left" label="Machines" grow={0.8} minWidth={280}>
+        <ManagerShell paneScroll>
+            <SidePaneLayout paneScroll>
+                <SidePane id="machines.inventory" side="left" label="Machines" grow={0.8} minWidth={280} paneScroll>
                     <MachineInventoryPanel
                         total={machines.length}
                         activeCount={activeCount}
@@ -331,12 +332,32 @@ function MachinesPageInner() {
                         selectedId={draft.id}
                         filters={filters}
                         busy={saving}
+                        onAddMachine={startNewMachine}
                         onFiltersChange={(update) => setFilters(update)}
                         onSelect={selectMachine}
                     />
                 </SidePane>
-                <SidePaneMain grow={2}>
-                    <MachineEditor
+                <SidePaneMain grow={2} paneScroll>
+                    {selected === null && !isCreating ? (
+                        // Same neutral empty pane the Schedules page shows: the
+                        // screen opens with nothing selected, and the editor
+                        // only appears once a machine is picked or added.
+                        <Card className="min-h-full min-w-0">
+                            <CardContent className="flex h-full flex-col items-center justify-center gap-4">
+                                <PageMessage title={machines.length === 0 ? "No machines yet" : "No machine selected"} tone="info">
+                                    <p>
+                                        {machines.length === 0
+                                            ? "Add a machine to the floor inventory to get started."
+                                            : "Pick a machine in the inventory to view or edit it, or add a new one."}
+                                    </p>
+                                </PageMessage>
+                                <Button onPress={startNewMachine} isDisabled={saving}>
+                                    <PlusIcon /> Add machine
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <MachineEditor
                         draft={draft}
                         selected={selected}
                         categories={draftCategories}
@@ -352,7 +373,8 @@ function MachinesPageInner() {
                         onCancelNew={isCreating && (cancelTarget !== null || dirty) ? cancelNewMachine : undefined}
                         onToggleActive={requestToggleActive}
                         onRemove={() => setConfirmRemove(true)}
-                    />
+                        />
+                    )}
                 </SidePaneMain>
             </SidePaneLayout>
 

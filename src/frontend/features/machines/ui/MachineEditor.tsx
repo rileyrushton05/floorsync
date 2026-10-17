@@ -307,7 +307,7 @@ export function MachineEditor({
                         isDisabled={!gate.canSave}
                         aria-keyshortcuts="Control+S Meta+S"
                     >
-                        <CheckIcon /> {draft.id ? "Save changes" : "Add machine"}
+                        <CheckIcon /> Save changes
                         {shortcut !== null && (
                             <kbd aria-hidden className="ms-1 font-sans text-[0.75em] opacity-70">
                                 {shortcut}

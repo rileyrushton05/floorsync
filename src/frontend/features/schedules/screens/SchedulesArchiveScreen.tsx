@@ -89,14 +89,13 @@ function SchedulesPageInner() {
         return sortScheduleRows(matches, sort);
     }, [query, rows, sort, statusFilter, strategyFilter]);
 
-    // A selection survives refetching and filtering unless the schedule is no
-    // longer visible; then the first visible row takes over, so the pane is
-    // never empty while the list has something to show.
+    // A selection survives refetching and filtering, but nothing is opened
+    // automatically: the pane starts empty until the manager picks a schedule
+    // (or arrives from a link to one).
     const selectedOverrideId = userSelectedId ?? linkedScheduleId;
-    const effectiveSelectedId =
-        filteredRows.some((row) => row.id === selectedOverrideId)
-            ? selectedOverrideId
-            : filteredRows[0]?.id ?? null;
+    const effectiveSelectedId = filteredRows.some((row) => row.id === selectedOverrideId)
+        ? selectedOverrideId
+        : null;
 
     const selected = rows.find((row) => row.id === effectiveSelectedId) ?? null;
     const timelineQuery = useScheduleTimeline(effectiveSelectedId);
@@ -206,9 +205,9 @@ function SchedulesPageInner() {
     }
 
     return (
-        <ManagerShell actions={newScheduleLink}>
-            <SidePaneLayout>
-                <SidePane id="schedules.inventory" side="left" label="Schedules" grow={0.8} minWidth={280}>
+        <ManagerShell actions={newScheduleLink} paneScroll>
+            <SidePaneLayout paneScroll>
+                <SidePane id="schedules.inventory" side="left" label="Schedules" grow={0.8} minWidth={280} paneScroll>
                     <ScheduleInventoryPanel
                         total={schedules.length}
                         rows={filteredRows}
@@ -226,7 +225,7 @@ function SchedulesPageInner() {
                         onSelect={setUserSelectedId}
                     />
                 </SidePane>
-                <SidePaneMain grow={2}>
+                <SidePaneMain grow={2} paneScroll>
                     <div className="flex min-w-0 flex-col gap-3">
                         {schedulesQuery.error && (
                             <Note intent="warning" role="status">
