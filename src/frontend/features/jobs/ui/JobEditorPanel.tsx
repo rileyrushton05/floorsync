@@ -28,7 +28,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { criticalPathMins, wouldCreateCycle } from "../model/dependencies";
 import { JOB_PRIORITIES, UNASSIGNED_MACHINE, type JobDraft, type SaveGate } from "../model/editor";
-import { JobGraphDiagram } from "./JobGraphDiagram";
+import { JobGraphDiagram } from "@/domains/scheduling/ui/JobGraphDiagram";
 import { OperationDetailPanel } from "./OperationDetailPanel";
 
 /** One figure in the draft summary. */
