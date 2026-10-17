@@ -49,6 +49,26 @@ The report:
     "categories_created": ["Cutting"],
     "jobs": 3, "operations": 10, "routes": 11, "dependencies": 7
   },
+  "jobs": [
+    {
+      "name": "Shower screen 1200x800",
+      "priority": "high",
+      "location": "jobs[0]",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            { "machine": "Cutting Table 1", "duration": 20, "energy": "3.5" },
+            { "machine": "Cutting Table 2", "duration": 25, "energy": "3.2" }
+          ],
+          "predecessors": []
+        },
+        { "name": "Polish edges", "routes": [...], "predecessors": [0] }
+      ],
+      "issues": [],
+      "warnings": []
+    }
+  ],
   "job_ids": [],
   "issues": [],
   "warnings": [
@@ -61,7 +81,11 @@ The report:
 }
 ```
 
-`summary` is null when the file could not be read at all. `location` points into the file
+`summary` and `jobs` are null when the file could not be read at all. `jobs` lists every job the
+file describes, in its order, with each operation's routes and `predecessors`: the positions in the
+job's `operations` it waits for, with the precedence rules below already applied. Each job also
+carries the report's `issues` and `warnings` that point into it (at the job, an operation or a
+route); one about the file as a whole, or about a machine, belongs to no job. `location` points into the file
 (`jobs[1].operations[0].routes[0].duration`), or is null for the file as a whole.
 
 ## The FloorSync format

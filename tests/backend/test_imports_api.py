@@ -273,3 +273,101 @@ def test_a_request_without_a_file_is_a_validation_problem(session: FakeSession) 
 
     assert response.status_code == 422
     assert response.json()["type"] == "urn:floorsync:problem:request-validation"
+
+
+def test_a_dry_run_previews_every_job_with_its_operations_routes_and_predecessors(
+    monkeypatch: pytest.MonkeyPatch, session: FakeSession
+) -> None:
+    stub(monkeypatch, applied(()))
+    raw = json.dumps(
+        {
+            "format": "floorsync",
+            "version": 1,
+            "jobs": [
+                {
+                    "name": "Chain",
+                    "operations": [
+                        {"name": "Cut", "routes": [{"machine": "Saw", "duration": 10}]},
+                        {
+                            "name": "Polish",
+                            "routes": [
+                                {"machine": "Polisher", "duration": 20, "energy": 1.5},
+                                {"machine": "Saw", "duration": 30},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "name": "Branch",
+                    "priority": "high",
+                    "operations": [
+                        {"name": "A", "routes": [{"machine": "Saw", "duration": 5}]},
+                        {"name": "B", "routes": [{"machine": "Saw", "duration": 5}]},
+                        {
+                            "name": "C",
+                            "after": ["A", "B"],
+                            "routes": [{"machine": "Saw", "duration": 5}],
+                        },
+                    ],
+                },
+            ],
+        }
+    ).encode()
+
+    body = upload(import_client(session), raw, dry_run=True).json()
+
+    chain, branch = body["jobs"]
+    assert (chain["name"], chain["priority"], chain["location"]) == ("Chain", "med", "jobs[0]")
+    # No `after` anywhere: the operations run in the order listed.
+    assert [operation["predecessors"] for operation in chain["operations"]] == [[], [0]]
+    assert chain["operations"][1]["routes"] == [
+        {"machine": "Polisher", "duration": 20, "energy": "1.5"},
+        {"machine": "Saw", "duration": 30, "energy": None},
+    ]
+    # Any `after`: only what is stated, so A and B wait for nothing.
+    assert branch["priority"] == "high"
+    assert [operation["predecessors"] for operation in branch["operations"]] == [[], [], [0, 1]]
+
+
+def test_an_unreadable_file_previews_no_jobs(session: FakeSession) -> None:
+    preview = upload(import_client(session), b"not json", dry_run=True).json()
+
+    assert preview["jobs"] is None
+
+
+def test_each_previewed_job_carries_the_issues_and_warnings_that_point_into_it(
+    monkeypatch: pytest.MonkeyPatch, session: FakeSession
+) -> None:
+    job = {
+        "name": "Panel",
+        "operations": [{"name": "Cut", "routes": [{"machine": "Saw", "duration": 10}]}],
+    }
+    raw = json.dumps({"format": "floorsync", "version": 1, "jobs": [job] * 11}).encode()
+    route_issue = ImportIssue(
+        ImportIssueCode.UNKNOWN_MACHINE, "No machine 'Saw'.", "jobs[10].operations[0].routes[0]"
+    )
+    field_issue = ImportIssue(
+        ImportIssueCode.INVALID_VALUE, "Too long.", "jobs[1].operations[0].routes[0].duration"
+    )
+    file_issue = ImportIssue(ImportIssueCode.TOO_LARGE, "Too many rows.", None)
+    job_warning = ImportIssue(ImportIssueCode.RESCHED_UNSUPPORTED, "Branches.", "jobs[1]")
+    stub(
+        monkeypatch,
+        ImportRejected(
+            summary=SUMMARY,
+            issues=(route_issue, field_issue, file_issue),
+            warnings=(WARNING, job_warning),
+        ),
+    )
+
+    jobs = upload(import_client(session), raw, dry_run=True).json()["jobs"]
+
+    def codes(index: int, key: str) -> list[str]:
+        return [issue["code"] for issue in jobs[index][key]]
+
+    # `jobs[10]` is job 10's, not job 1's; a file-wide issue and a machine warning are no job's.
+    assert codes(10, "issues") == ["unknown_machine"]
+    assert codes(1, "issues") == ["invalid_value"]
+    assert codes(1, "warnings") == ["resched_unsupported"]
+    assert all(not jobs[index]["issues"] for index in range(10) if index != 1)
+    assert all(not job["warnings"] for index, job in enumerate(jobs) if index != 1)
