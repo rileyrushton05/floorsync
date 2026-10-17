@@ -3,15 +3,22 @@
 import { reportMutationError } from "@/core/feedback/reportMutationError";
 import { ApiError } from "@/core/http/client";
 import { errorMessage } from "@/core/http/errors";
-import { row } from "@/core/panels/layout";
+import { column, row } from "@/core/panels/layout";
 import { PanelWorkspace, WorkspacePanel } from "@/core/panels/PanelWorkspace";
 import { defineWorkspace, usePanelWorkspace } from "@/core/panels/workspace";
 import { ManagerShell } from "@/core/shell/ManagerShell";
 import { useImportDryRun, useImportFile } from "@/features/imports/data/queries";
-import { plural, rejectedIssues, toImportReport, type PreviewState } from "@/features/imports/model/import-report";
+import {
+    filterImportJobs,
+    plural,
+    rejectedIssues,
+    toImportReport,
+    type PreviewState,
+} from "@/features/imports/model/import-report";
+import { ImportJobsPanel } from "@/features/imports/ui/ImportJobsPanel";
 import { ImportPreviewPanel } from "@/features/imports/ui/ImportPreviewPanel";
 import { ImportUploadPanel } from "@/features/imports/ui/ImportUploadPanel";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const IMPORT_WORKSPACE = defineWorkspace({
@@ -19,8 +26,9 @@ const IMPORT_WORKSPACE = defineWorkspace({
     panels: {
         upload: { title: "Upload", minWidth: 280 },
         preview: { title: "Preview", minWidth: 360 },
+        jobs: { title: "Jobs in file", minWidth: 360, minHeight: 200 },
     },
-    layout: row(["upload", 28], ["preview", 72]),
+    layout: row(["upload", 28], [column(["preview", 35], ["jobs", 65]), 72]),
 });
 
 /**
@@ -35,6 +43,8 @@ export default function ImportScreen() {
 
     const [file, setFile] = useState<File | null>(null);
     const [preview, setPreview] = useState<PreviewState>({ kind: "empty" });
+    const [jobQuery, setJobQuery] = useState("");
+    const [expandedJobs, setExpandedJobs] = useState<ReadonlySet<number>>(new Set());
     // Bumped by every new file or clear, so a slow answer about a file that
     // has since been replaced is dropped rather than shown against the new one.
     const attempt = useRef(0);
@@ -43,6 +53,8 @@ export default function ImportScreen() {
         const current = ++attempt.current;
         setFile(next);
         setPreview({ kind: "checking", fileName: next.name });
+        setJobQuery("");
+        setExpandedJobs(new Set());
         try {
             const report = toImportReport(await dryRun.mutateAsync(next));
             if (current === attempt.current) setPreview({ kind: "checked", fileName: next.name, report });
@@ -81,7 +93,18 @@ export default function ImportScreen() {
         }
     }
 
+    function toggleJob(index: number) {
+        setExpandedJobs((current) => {
+            const next = new Set(current);
+            if (!next.delete(index)) next.add(index);
+            return next;
+        });
+    }
+
     const canImport = file !== null && preview.kind === "checked" && preview.report.importable;
+    // The file's jobs, while it is being previewed; the panel leaves the layout otherwise.
+    const fileJobs = preview.kind === "checked" ? preview.report.jobs : null;
+    const visibleJobs = useMemo(() => filterImportJobs(fileJobs ?? [], jobQuery), [fileJobs, jobQuery]);
 
     return (
         <ManagerShell workspace={workspace}>
@@ -100,6 +123,18 @@ export default function ImportScreen() {
                 <WorkspacePanel id="preview">
                     <ImportPreviewPanel state={preview} />
                 </WorkspacePanel>
+                {fileJobs !== null && fileJobs.length > 0 && (
+                    <WorkspacePanel id="jobs">
+                        <ImportJobsPanel
+                            jobs={visibleJobs}
+                            total={fileJobs.length}
+                            query={jobQuery}
+                            expanded={expandedJobs}
+                            onQueryChange={setJobQuery}
+                            onToggle={toggleJob}
+                        />
+                    </WorkspacePanel>
+                )}
             </PanelWorkspace>
         </ManagerShell>
     );

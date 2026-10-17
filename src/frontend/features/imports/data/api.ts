@@ -20,6 +20,31 @@ export interface ImportSummaryResponse {
     dependencies: number;
 }
 
+export interface ImportRoutePreviewResponse {
+    machine: string;
+    duration: number;
+    /** Decimal as a string, or null when the file gives none. */
+    energy: string | null;
+}
+
+export interface ImportOperationPreviewResponse {
+    name: string;
+    routes: ImportRoutePreviewResponse[];
+    /** Positions in the job's `operations` this one waits for, with list-order chaining applied. */
+    predecessors: number[];
+}
+
+export interface ImportJobPreviewResponse {
+    name: string;
+    priority: "high" | "med" | "low";
+    /** Where the job is in the file, such as `jobs[2]`. */
+    location: string;
+    operations: ImportOperationPreviewResponse[];
+    /** The report's issues and warnings that point into this job. */
+    issues: ImportIssueResponse[];
+    warnings: ImportIssueResponse[];
+}
+
 /** What an import did or, for a dry run, would do. A real import with issues is a 422 instead. */
 export interface ImportReportResponse {
     format: ImportFormat | null;
@@ -27,6 +52,8 @@ export interface ImportReportResponse {
     importable: boolean;
     /** Null when the file could not be read at all. */
     summary: ImportSummaryResponse | null;
+    /** Every job the file describes, in its order; null when the file could not be read at all. */
+    jobs: ImportJobPreviewResponse[] | null;
     /** The new jobs in the file's order; empty for a dry run. */
     job_ids: string[];
     issues: ImportIssueResponse[];

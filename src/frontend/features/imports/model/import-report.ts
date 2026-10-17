@@ -1,5 +1,11 @@
 import type { ProblemDetail } from "@/core/http/contracts";
-import type { ImportFormat, ImportIssueResponse, ImportReportResponse } from "../data/api";
+import type { GraphOperation } from "@/domains/scheduling/ui/JobGraphDiagram";
+import type {
+    ImportFormat,
+    ImportIssueResponse,
+    ImportJobPreviewResponse,
+    ImportReportResponse,
+} from "../data/api";
 
 /** Benchmarks are JSON too, so one extension covers every format the API reads. */
 export const ACCEPTED_FILE_TYPES = ["application/json", ".json"];
@@ -22,10 +28,38 @@ export interface ImportSummary {
     dependencies: number;
 }
 
+export interface ImportRoute {
+    machine: string;
+    duration: number;
+    energy: string | null;
+}
+
+export interface ImportOperation {
+    /** The operation's position in its job, as a string: the graph's node id. */
+    id: string;
+    name: string;
+    routes: ImportRoute[];
+    /** Ids of the operations it waits for. */
+    dependsOn: string[];
+}
+
+export interface ImportJob {
+    /** Position in the file. */
+    index: number;
+    name: string;
+    priority: "high" | "med" | "low";
+    location: string;
+    operations: ImportOperation[];
+    issues: ImportIssue[];
+    warnings: ImportIssue[];
+}
+
 export interface ImportReport {
     format: ImportFormat | null;
     importable: boolean;
     summary: ImportSummary | null;
+    /** Null when the file could not be read far enough to list its jobs. */
+    jobs: ImportJob[] | null;
     jobIds: string[];
     issues: ImportIssue[];
     warnings: ImportIssue[];
@@ -48,6 +82,43 @@ export const FORMAT_LABELS: Record<ImportFormat, string> = {
     "flexible-jobshop": "Flexible job-shop benchmark",
 };
 
+export const PRIORITY_LABELS: Record<ImportJob["priority"], string> = { high: "High", med: "Medium", low: "Low" };
+
+function toImportJob(job: ImportJobPreviewResponse, index: number): ImportJob {
+    return {
+        index,
+        name: job.name,
+        priority: job.priority,
+        location: job.location,
+        operations: job.operations.map((operation, position) => ({
+            id: String(position),
+            name: operation.name,
+            routes: operation.routes,
+            dependsOn: operation.predecessors.map(String),
+        })),
+        issues: job.issues,
+        warnings: job.warnings,
+    };
+}
+
+/** Jobs whose name contains `query`, ignoring case. */
+export function filterImportJobs(jobs: readonly ImportJob[], query: string): readonly ImportJob[] {
+    const needle = query.trim().toLocaleLowerCase();
+    if (needle === "") return jobs;
+    return jobs.filter((job) => job.name.toLocaleLowerCase().includes(needle));
+}
+
+/** A job's operations as the precedence graph draws them. */
+export function graphOperations(job: ImportJob): GraphOperation[] {
+    return job.operations.map((operation) => ({
+        id: operation.id,
+        name: operation.name,
+        dependsOn: operation.dependsOn,
+        durationMins: operation.routes[0]?.duration ?? null,
+        machineCount: operation.routes.length,
+    }));
+}
+
 export function toImportReport(response: ImportReportResponse): ImportReport {
     const { summary } = response;
     return {
@@ -65,6 +136,7 @@ export function toImportReport(response: ImportReportResponse): ImportReport {
                     routes: summary.routes,
                     dependencies: summary.dependencies,
                 },
+        jobs: response.jobs?.map(toImportJob) ?? null,
         jobIds: response.job_ids,
         issues: response.issues,
         warnings: response.warnings,
