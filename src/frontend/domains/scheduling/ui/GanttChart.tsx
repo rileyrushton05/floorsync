@@ -268,8 +268,9 @@ export function GanttChart({
                                         const state = operationState(op.startMins, op.endMins, now);
                                         const durationMins = op.endMins - op.startMins;
                                         const dimmed = selectedJobId !== null && selectedJobId !== op.jobId;
-                                        // A short block cannot fit both tokens; the job name is
-                                        // the one that has to survive, since it carries identity.
+                                        // A short block cannot fit both tokens; the operation name
+                                        // is the one that survives, since the block's colour (and
+                                        // the legend) already says which job it belongs to.
                                         const compact = durationMins < 45;
                                         const progressPct =
                                             state === "running" && now !== null
@@ -305,8 +306,8 @@ export function GanttChart({
                                                 <span className="block truncate leading-tight">
                                                     {STATE_MARK[state]}
                                                     {compact
-                                                        ? jobName(op.jobId)
-                                                        : `${jobName(op.jobId)} · ${op.opName}`}
+                                                        ? op.opName
+                                                        : `${op.opName} · ${jobName(op.jobId)}`}
                                                 </span>
                                                 {state === "running" && (
                                                     <span
