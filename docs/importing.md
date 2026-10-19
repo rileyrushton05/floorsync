@@ -8,6 +8,10 @@ selected for a schedule.
 A file with any problem imports nothing, and the response lists every problem with where it is in
 the file. Check a file first with a dry run.
 
+In the app, **Resources → Import** (`/manager/import`) does this: choosing or dropping a file runs
+the dry run and previews the report, and Import is offered once the file has no problems. It only
+imports; generating a schedule for the new jobs is done from the Planner.
+
 One upload finds every shape problem (a missing field, a wrong type) and every value problem in the
 machines and jobs whose shape is fine. Checks against the floor, such as whether a named machine
 exists, need the whole file to be well-formed, so they appear once the shape problems are fixed.
@@ -45,6 +49,26 @@ The report:
     "categories_created": ["Cutting"],
     "jobs": 3, "operations": 10, "routes": 11, "dependencies": 7
   },
+  "jobs": [
+    {
+      "name": "Shower screen 1200x800",
+      "priority": "high",
+      "location": "jobs[0]",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            { "machine": "Cutting Table 1", "duration": 20, "energy": "3.5" },
+            { "machine": "Cutting Table 2", "duration": 25, "energy": "3.2" }
+          ],
+          "predecessors": []
+        },
+        { "name": "Polish edges", "routes": [...], "predecessors": [0] }
+      ],
+      "issues": [],
+      "warnings": []
+    }
+  ],
   "job_ids": [],
   "issues": [],
   "warnings": [
@@ -57,7 +81,11 @@ The report:
 }
 ```
 
-`summary` is null when the file could not be read at all. `location` points into the file
+`summary` and `jobs` are null when the file could not be read at all. `jobs` lists every job the
+file describes, in its order, with each operation's routes and `predecessors`: the positions in the
+job's `operations` it waits for, with the precedence rules below already applied. Each job also
+carries the report's `issues` and `warnings` that point into it (at the job, an operation or a
+route); one about the file as a whole, or about a machine, belongs to no job. `location` points into the file
 (`jobs[1].operations[0].routes[0].duration`), or is null for the file as a whole.
 
 ## The FloorSync format

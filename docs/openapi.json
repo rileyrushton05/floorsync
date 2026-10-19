@@ -637,8 +637,85 @@
         "title": "ImportIssueResponse",
         "type": "object"
       },
+      "ImportJobPreviewResponse": {
+        "description": "One job the file describes, as it would be added. `location` is where it is in the file.\n\n`issues` and `warnings` are the report's own that point into this job: at the job, one of its\noperations or one of their routes.",
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ImportIssueResponse"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/ImportOperationPreviewResponse"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/JobPriority"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ImportIssueResponse"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "priority",
+          "location",
+          "operations",
+          "issues",
+          "warnings"
+        ],
+        "title": "ImportJobPreviewResponse",
+        "type": "object"
+      },
+      "ImportOperationPreviewResponse": {
+        "description": "One step of a job in the file.\n\n`predecessors` are the positions, in the job's `operations`, of the steps this one waits for:\nthe chain in list order when the job states no `after`, otherwise only what it states.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "predecessors": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Predecessors",
+            "type": "array"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRoutePreviewResponse"
+            },
+            "title": "Routes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "routes",
+          "predecessors"
+        ],
+        "title": "ImportOperationPreviewResponse",
+        "type": "object"
+      },
       "ImportReportResponse": {
-        "description": "What an import did or, for a dry run, would do.\n\n`importable` is false when `issues` is not empty; a real import with issues is refused with a\n422 instead. `summary` is null when the file could not be read at all. `job_ids` lists the new\njobs in the file's order, and is empty for a dry run, which keeps nothing.",
+        "description": "What an import did or, for a dry run, would do.\n\n`importable` is false when `issues` is not empty; a real import with issues is refused with a\n422 instead. `summary` and `jobs` are null when the file could not be read at all. `jobs` is\nevery job the file describes, in its order, so a dry run can be previewed job by job. `job_ids`\nlists the new jobs in the file's order, and is empty for a dry run, which keeps nothing.",
         "properties": {
           "dry_run": {
             "title": "Dry Run",
@@ -673,6 +750,20 @@
             "title": "Job Ids",
             "type": "array"
           },
+          "jobs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ImportJobPreviewResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jobs"
+          },
           "summary": {
             "anyOf": [
               {
@@ -696,11 +787,44 @@
           "dry_run",
           "importable",
           "summary",
+          "jobs",
           "job_ids",
           "issues",
           "warnings"
         ],
         "title": "ImportReportResponse",
+        "type": "object"
+      },
+      "ImportRoutePreviewResponse": {
+        "description": "One machine an operation can run on, by name as the file gives it.",
+        "properties": {
+          "duration": {
+            "title": "Duration",
+            "type": "integer"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine",
+          "duration",
+          "energy"
+        ],
+        "title": "ImportRoutePreviewResponse",
         "type": "object"
       },
       "ImportSummaryResponse": {

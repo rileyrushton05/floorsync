@@ -20,7 +20,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { jobKeys } from "./keys";
 import { toJobDefinition, toJobDefinitionInput } from "../model/job-definition";
 import { toJobSummary } from "../model/job-summary";
-import { edgesForSavedOperations, type PrecedenceNode } from "../model/dependencies";
+import type { PrecedenceNode } from "@/domains/scheduling/precedence";
+import { edgesForSavedOperations } from "../model/dependencies";
 
 function requireToken(token: string | null): string {
     if (token === null) throw new Error("Sign in again before changing the job backlog.");
