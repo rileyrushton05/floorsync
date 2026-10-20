@@ -6,7 +6,8 @@
 
 ## Status
 
-Accepted
+Accepted. Point 1 (the engine behind `exact` only) and point 3 are superseded by decision 0021:
+`exact` now runs critical-path-search LBBD, with its own time budget and gap. Points 2 and 4 stand.
 
 ## Context
 

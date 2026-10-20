@@ -21,13 +21,14 @@ Decision records help explain why the team made particular design, technical, sc
 | [0011](0011-store-floorsync-start-times.md) | Accepted | Store the scheduler's own start times on schedule entries |
 | [0012](0012-query-managed-frontend-server-state.md) | Accepted | TanStack Query-managed frontend server state |
 | [0013](0013-scoped-schedule-generation.md) | Accepted | Scoped schedule generation refuses an incomplete job selection |
-| [0014](0014-fajsp_milp_formulation.md) | Accepted | Single-shot MILP as a second, general-DAG-capable schedule generation strategy |
+| [0014](0014-fajsp_milp_formulation.md) | Partly superseded by 0021 | Single-shot MILP as a second, general-DAG-capable schedule generation strategy |
 | [0015](0015-schedule-lifecycle-and-job-archival.md) | Accepted | Drafts are disposable, confirmed schedules are history, finished jobs are archived |
 | [0016](0016-shared-input-validation.md) | Accepted | Validate production data once, apart from what each scheduler can take |
 | [0017](0017-live-update-outbox.md) | Accepted | Announce simulation changes through a transactional outbox with a versioned envelope |
 | [0018](0018-archived-jobs-are-read-only.md) | Accepted | A job that has left the backlog is read-only, and archiving is one way (supersedes 0015 point 7) |
 | [0019](0019-derived-backlog-status.md) | Accepted | A job's place in the backlog is derived from its schedules, never stored on it |
 | [0020](0020-file-import-into-the-floor.md) | Accepted | Import a file straight into the floor's own tables, all of it or none of it |
+| [0021](0021-cp-lbbd-exact-solver.md) | Accepted | The exact strategy runs critical-path-search LBBD, minimising makespan alone; job priority is informational |
 
 ## Suggested Decision Record Format
 

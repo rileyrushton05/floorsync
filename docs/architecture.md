@@ -42,7 +42,7 @@ centralised. The mandatory implementation rules are defined in the
 [observability conventions](observability-conventions.md).
 
 The scheduling adapter is a pure shared-domain module so the API, worker and benchmark runners use
-the same ReSched input/output translation. Its supported input contract and persistence boundary are
+the same ReSched and exact-solver input/output translation. Its supported input contract and persistence boundary are
 documented in [scheduling.md](scheduling.md).
 
 ## Interfaces available today
