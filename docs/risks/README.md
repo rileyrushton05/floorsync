@@ -1,50 +1,23 @@
 # Risks
 
-Use this folder to record and manage project risks.
+The team's risk register. Risks 01 to 10 come from the Statement of Work and Checkpoint 1 risk
+table, and were reviewed at Checkpoint 2 (6 Oct) and at the end of the project (22 Oct). Each
+file keeps its original plan, with dated bullets recording what was done at each review.
 
-Risk planning should be updated throughout the semester, not only at the end.
+| Risk | Likelihood | Impact | Owner | Status |
+| --- | --- | --- | --- | --- |
+| [01 Scheduling algorithm performance](risk-01-scheduling-performance.md) | Low | High | Ben | Resolved |
+| [02 Simulation inconsistency](risk-02-simulation-inconsistency.md) | Medium | High | Beth | Resolved |
+| [03 Dashboard update delays](risk-03-dashboard-update-delays.md) | Medium | Medium | Beth | Resolved |
+| [04 Scheduling may not show measurable improvement](risk-04-limited-time-optimization.md) | Medium | High | Ben | Resolved |
+| [05 Incorrect input data](risk-05-incorrect-input-data.md) | Low | High | Riley | Resolved |
+| [06 Demo appears unrealistically clean](risk-06-demo-scope-realism.md) | Medium | Low | Jason | Open (accepted) |
+| [07 Unhandled edge cases](risk-07-unhandled-edge-cases.md) | Medium | Medium | Riley | Resolved |
+| [08 Performance under large scenarios](risk-08-performance-large-scenarios.md) | Medium | Medium | Ben | Resolved |
+| [10 Dashboard usability issues](risk-10-dashboard-usability.md) | Medium | Medium | Beth, Jayden | Resolved |
 
-## Risk Categories
+Risk 09 (exact solver against the ReSched baseline) was merged into risk 04 on 22 Oct, as both
+described the same gap.
 
-Risks may include:
-
-- technical risks
-- team coordination risks
-- scope risks
-- user recruitment risks
-- data availability risks
-- deployment risks
-- ethics, privacy, or security risks
-
-## Suggested Risk Format
-
-```markdown
-# Risk: [Short Risk Title]
-
-## Description
-
-What could go wrong?
-
-## Likelihood
-
-Low / Medium / High
-
-## Impact
-
-Low / Medium / High
-
-## Mitigation Plan
-
-How will the team reduce the chance or impact of this risk?
-
-## Contingency Plan
-
-What will the team do if the risk occurs?
-
-## Owner
-
-Who is responsible for monitoring this risk?
-
-## Status
-
-Open / Monitoring / Resolved
+**Status:** Open (still live), Monitoring (mitigated, being watched), Resolved (the mitigation
+worked or the cause is gone).

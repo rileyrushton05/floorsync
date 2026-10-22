@@ -20,6 +20,7 @@ Medium
 - Maintain a test case library from real user scenarios
 - **(Checkpoint 2)** Done: multiple review rounds caught real bugs by running teammates' branches against a live Postgres instance rather than reading the diff (job-definition builder, operator dashboard, simulation playback), each fixed and reverified
 - **(Checkpoint 2)** Remaining: fan-in is handled by the schema and the exact solver, but the ReSched adapter still refuses it, and whether fan-in stays in scope is an unresolved team decision (#216); reentrant-job handling is flagged as an open question against #138's definition of done
+- **(Final, 22 Oct)** Done: #216 and #138 closed; validation now refuses, before generating, any dependency shape the chosen strategy cannot schedule and names the operations at fault (#262)
 
 ## Contingency Plan
 
@@ -27,6 +28,10 @@ Medium
 - Log the failed state to allow developers to debug and fix the edge case
 - Provide a "report bug" mechanism for users to submit problematic configurations
 
+## Owner
+
+Riley
+
 ## Status
 
-Monitoring
+Resolved

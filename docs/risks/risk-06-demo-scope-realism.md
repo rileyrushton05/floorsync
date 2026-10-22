@@ -20,12 +20,17 @@ Low (down from Medium)
 - Emphasize the strength of the scheduling algorithm in baseline scenarios
 - **(Checkpoint 2)** Done: the static, day-before scheduling scope (no live repair, no disruption handling) was explicitly reconfirmed with Pasindu, making this a known and agreed product boundary rather than an open design question, which lowers the impact of a viewer noticing it
 - **(Checkpoint 2)** Remaining: no dashboard note or disruption-simulation mode has actually been built to communicate the limitation to a viewer, so the perception risk itself is still unmitigated
+- **(Final, 22 Oct)** Accepted: static scheduling is an agreed product boundary and is recorded as out of scope in the [requirements](../../spec/requirements/overview.md#scope). No in-app notice was built, so the demo explains it
 
 ## Contingency Plan
 
 - Add a "disruption simulation" mode that allows users to manually inject delays or failures and see the impact on the schedule
 - Update the roadmap documentation to show real-time disruption handling as a future enhancement
 - Add visual indicators on the dashboard showing schedule "health" and highlighting potential issues
+
+## Owner
+
+Jason
 
 ## Status
 
