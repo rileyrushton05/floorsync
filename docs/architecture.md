@@ -4,8 +4,7 @@
 
 This document describes the FloorSync development foundation: the services that run locally, their code boundaries and the interfaces used to connect them.
 
-See the [core system diagrams](diagrams/README.md) or the
-[offline viewer](diagrams/index.html) for the architecture, data model and key runtime flows.
+See the [core system diagrams](diagrams/README.md) for the architecture, data model and key runtime flows.
 
 ## System architecture
 

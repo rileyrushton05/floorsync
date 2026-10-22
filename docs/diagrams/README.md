@@ -2,8 +2,6 @@
 
 8 diagrams cover the system architecture, backend components, reliability and playback patterns, data model and key runtime flows. Final PNG images are embedded in the relevant documentation; SVG exports and editable sources are kept alongside this catalogue.
 
-[Open the local image viewer](index.html). It loads the committed image files and works offline when this directory is kept together.
-
 ## Organisation
 
 | Folder | Contents |
@@ -120,11 +118,3 @@ The earlier [physical schema](data/physical-schema.png) and [schedule-storage de
 ## Maintenance
 
 Edit draw.io files in `sources/` and export the corresponding PNG and SVG into the diagram's category folder. Edit Mermaid files in `sources/` and regenerate their PNG/SVG exports. Keep the PNGs committed so Markdown viewers do not need a diagram renderer. The supplied architecture is available as a PNG only.
-
-`manifest.json` records the image, source, related documents and decision links. After adding, renaming or exporting diagrams, rebuild the catalogue and viewer from the repository root:
-
-```sh
-node docs/diagrams/build-gallery.mjs
-```
-
-The builder uses only Node.js built-ins and references the existing exports; it does not redraw them or embed duplicate image data in HTML.
