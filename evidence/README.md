@@ -5,7 +5,7 @@ contents.
 
 | Folder or file | What it shows |
 | --- | --- |
-| [benchmarks/](benchmarks/) | The scheduling evaluation: ReSched (baseline), the first Gurobi MILP and the final Exact solver (CP-LBBD) on 23 standard instances. [`results_for_solver.csv`](benchmarks/results_for_solver.csv) has makespan, runtime and gap to the best known result for every run; the two charts plot makespan and runtime. Reproduce with `scripts/bench_resched_vs_benders.py`. |
+| [benchmarks/](benchmarks/) | The scheduling evaluation: ReSched (baseline), the first Gurobi MILP and the final Exact solver (CP-LBBD) on 23 standard instances. [`results_for_solver.csv`](benchmarks/results_for_solver.csv) has makespan, runtime and gap to the best known result for every run; the two charts plot makespan and runtime. Run on 11 Oct 2026 with a 600 s limit per solver per instance. |
 | [testing/](testing/README.md) | How the backend is tested and the last full run: 828 passed, 1 skipped, 84% coverage, with the integration tests run against real PostgreSQL and Redis. |
 | [user-testing/](user-testing/README.md) | The usability test plan, moderator script and the results of four moderated sessions (P1 to P4), with task completion and SEQ scores. |
 | [traceability.md](traceability.md) | Each usability or testing finding traced to its ticket, the change that dealt with it and the test that covers it. |
