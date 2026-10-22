@@ -1,24 +1,24 @@
 # FloorSync system diagrams
 
-8 diagrams cover the system architecture, backend components, reliability and playback patterns, data model and key runtime flows. Final PNG images are embedded in the relevant documentation; Editable sources are kept alongside this catalogue.
+8 diagrams cover the system architecture, backend components, reliability and playback patterns, data model and key runtime flows. Final PNG images are embedded in the relevant documentation; editable sources are kept alongside this catalogue.
 
 ## Organisation
 
 | Folder | Contents |
 | --- | --- |
-| [architecture/](architecture/) | Supplied system architecture and backend component images. |
+| [architecture/](architecture/) | Built system architecture and backend component images. |
 | [patterns/](patterns/) | Transactional outbox and event-sourced playback images. |
 | [data/](data/) | Production/account and schedule/simulation ERDs, plus the existing detailed schema references. |
 | [sequences/](sequences/) | Schedule-generation and simulation/live-update sequences. |
 | [sources/](sources/) | Editable draw.io and Mermaid files. |
 
-The supplied system architecture image is preserved unchanged. Component and pattern views describe the inspected backend implementation in more detail.
+The system architecture shows the built application containers. Component and pattern views explain the backend implementation in more detail.
 
 ## Diagram index
 
 | Diagram | Used in | Editable source |
 | --- | --- | --- |
-| [System architecture](#floorsync-architecture) | [Architecture](../architecture.md) | Supplied PNG |
+| [System architecture](#floorsync-architecture) | [Architecture](../architecture.md) | [draw.io](sources/system-architecture.drawio) |
 | [Backend components](#floorsync-backend-components) | [Architecture](../architecture.md) | [draw.io](sources/backend-components.drawio) |
 | [Transactional outbox](#floorsync-transactional-outbox) | [Outbox decision](../decisions/0017-live-update-outbox.md) | [draw.io](sources/transactional-outbox.drawio) |
 | [Event-sourced playback](#floorsync-event-sourced-playback) | [Playback decision](../decisions/0010-event-sourced-simulated-time.md) | [draw.io](sources/event-sourced-playback.drawio) |
@@ -31,11 +31,11 @@ The supplied system architecture image is preserved unchanged. Component and pat
 
 ## System architecture
 
-FloorSync architecture diagram supplied by the team.
+The built Next.js web application, FastAPI backend, PostgreSQL database, Redis broker/event bus and Celery scheduling worker. Simulation position is derived in the API from persisted events; the API also hosts WebSocket delivery and outbox retries. Manager features cover production management, scheduling and simulation playback.
 
 ![System architecture](architecture/system-architecture.png)
 
-[PNG](architecture/system-architecture.png)
+[PNG](architecture/system-architecture.png) · [Editable draw.io source](sources/system-architecture.drawio)
 
 <a id="floorsync-backend-components"></a>
 
@@ -117,4 +117,4 @@ The earlier [physical schema](data/physical-schema.png) and [schedule-storage de
 
 ## Maintenance
 
-Edit draw.io files in `sources/` and export the corresponding PNG into the diagram's category folder. Edit Mermaid files in `sources/` and regenerate their PNG exports. Keep the PNGs committed so Markdown viewers do not need a diagram renderer. The supplied architecture is available as a PNG only.
+Edit draw.io files in `sources/` and export the corresponding PNG into the diagram's category folder. Edit Mermaid files in `sources/` and regenerate their PNG exports. Keep the PNGs committed so Markdown viewers do not need a diagram renderer.

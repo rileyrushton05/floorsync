@@ -8,9 +8,11 @@ See the [core system diagrams](diagrams/README.md) for the architecture, data mo
 
 ## System architecture
 
+The container view shows the built system. The FastAPI application derives simulation position by replaying persisted events ([ADR 0010](decisions/0010-event-sourced-simulated-time.md)) and hosts WebSocket delivery and outbox retries ([ADR 0017](decisions/0017-live-update-outbox.md)). Celery workers execute scheduling tasks.
+
 ![FloorSync system architecture](diagrams/architecture/system-architecture.png)
 
-[Open the full-size architecture diagram](diagrams/architecture/system-architecture.png).
+[Open the full-size architecture diagram](diagrams/architecture/system-architecture.png) · [Editable draw.io source](diagrams/sources/system-architecture.drawio).
 
 ## Backend components
 
