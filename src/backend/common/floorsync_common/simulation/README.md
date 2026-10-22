@@ -15,6 +15,8 @@ Three decisions govern this package:
 - [0010: event-sourced simulated time](../../../../../docs/decisions/0010-event-sourced-simulated-time.md)
   — a stored simulation's position comes from replaying `simulation_events`, not from a clock.
 
+The [event-sourced playback diagram](../../../../../docs/diagrams/patterns/event-sourced-playback.png) connects these layers to durable history, authoritative REST positions and browser animation.
+
 ## Layers
 
 | Layer | Module | Responsibility |

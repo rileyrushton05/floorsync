@@ -79,6 +79,7 @@ gate on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 ## Documentation
 
+- [System architecture and diagrams](docs/diagrams/README.md): architecture, components, outbox/playback patterns, ERDs and runtime sequences
 - [Specification](spec/README.md): requirements, how they changed, and every user story's final status
 - [Deployment and local setup](deployment/README.md)
 - [Accounts and signing in](docs/accounts.md)

@@ -5,7 +5,7 @@ This is the implementation reference for FloorSync's scheduling and simulation r
 ## Scope and vocabulary
 
 - A **schedule** is an immutable generated assignment of operations to machines. Its lifecycle is `draft` → `confirmed` ⇄ `discarded`; a draft is deleted, never discarded (decision 0015).
-- A **timeline** is the calculated earliest-feasible placement of schedule entries on the schedule clock. It is derived, never stored.
+- A **timeline** translates stored schedule-entry start times into playback coordinates. End times and queue positions are derived; the scheduler's start times are persisted (decision 0011).
 - A **simulation** is the shared, persistent playback session for one confirmed schedule.
 - A frontend **plan** is currently an in-memory browser object. It is not a backend `Schedule` and is lost on reload.
 - Generated timeline duration is in minutes. Simulation-control timestamps are real UTC wall-clock instants.
@@ -14,19 +14,9 @@ The findings below come from the API routes, Celery task, scheduling/simulation 
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    M[Manager] --> UI[Next.js client]
-    O[Operator] --> UI
-    UI -->|Bearer HTTP| API[FastAPI /api/v1]
-    API -->|async SQLAlchemy| DB[(PostgreSQL)]
-    API -->|enqueue/result state| Redis[(Redis)]
-    Worker[Celery worker] -->|scheduling queue| Redis
-    Worker -->|sync SQLAlchemy| DB
-    Worker --> Engine[ReSched adapter + checkpoint]
-    UI --> WS[WS /ws]
-    WS --- API
-```
+![FloorSync backend component diagram](diagrams/architecture/backend-components.png)
+
+[System architecture](architecture.md) · [Editable component source](diagrams/sources/backend-components.drawio).
 
 | Area | Owner | Responsibility |
 | --- | --- | --- |
@@ -34,10 +24,10 @@ flowchart LR
 | `floorsync_workers.tasks.schedules` | worker | Snapshot floor input, infer outside a DB transaction, persist a new draft. |
 | `floorsync_common.scheduling` | shared core | Validate the supported FJSP shape, adapt ReSched output, calculate metrics and store drafts. |
 | `floorsync_api.features.simulation` | API | Expose timeline reads and map simulation commands/outcomes to HTTP. |
-| `floorsync_common.simulation` | shared core | Resolve schedule graph into a timeline and replay an event log into an authoritative position. |
+| `floorsync_common.simulation` | shared core | Translate stored assignments into a timeline and replay the event log into an authoritative position. |
 | frontend | browser | Draw Gantt data and animate smoothly between authoritative server positions. |
 
-`GET /health` and `WS /ws` are outside `/api/v1`. The WebSocket currently accepts every connection and emits only `{"type":"connected"}`; it is not yet an authenticated update channel.
+`GET /health` and `WS /ws` are outside `/api/v1`. The WebSocket uses single-use tickets, authorises simulation subscriptions, and delivers versioned snapshots/change notifications. The browser refetches authoritative REST state on notifications or reconnection.
 
 ## Data model and invariants
 
@@ -49,8 +39,9 @@ flowchart LR
 | `schedule_dependencies` | waiting entry, prerequisite entry, `job_order` / `machine_queue` | The graph used to calculate the timeline. References must belong to the same schedule. |
 | `simulations` | unique schedule, status, speed, timestamps | At most one simulation for each schedule. Status/speed are a projection, not the clock authority. |
 | `simulation_events` | type, occurred time, optional speed | Append-only source of truth for playback time. |
+| `live_update_outbox` | aggregate, sequence, envelope, publication and retry fields | Notification commits with the control; publication and relay retries happen after that commit. |
 
-Timeline resolution is a topological longest-path calculation over entries and dependencies. It throws on a cycle or inconsistent graph instead of inventing a start time. Playback replays every control event at read time; it never derives position from `started_at + speed` alone because that would continue advancing while paused.
+FloorSync playback reads the start times stored on schedule entries and derives their end times and machine queue positions. The benchmark adapter still uses a topological longest-path resolver for solutions without stored timing. Playback replays every control event at read time; it never derives position from `started_at + speed` alone because that would continue advancing while paused.
 
 ## Current HTTP surface
 
@@ -102,45 +93,9 @@ The code checks that speed is supplied when required, but it does not yet reject
 
 The API intentionally does not run inference. The worker reads input in a short transaction, closes it, runs the pure adapter, then opens a new transaction only to store a result.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Manager
-    participant UI as Manager client
-    participant API as FastAPI
-    participant Redis as Redis / Celery
-    participant Worker as Scheduling worker
-    participant DB as PostgreSQL
-    participant Engine as ReSched adapter
+![Schedule-generation sequence](diagrams/sequences/schedule-generation.png)
 
-    Manager->>UI: Generate at starts_at, optionally for chosen jobs
-    UI->>API: POST /api/v1/schedules
-    API->>API: Validate body and require manager
-    API->>Redis: enqueue floorsync.schedules.generate(starts_at, job_ids)
-    API-->>UI: 202 generation ID + status URL
-    loop Until terminal
-        UI->>API: GET /schedules/generations/{id}
-        API->>Redis: AsyncResult(id)
-        Redis-->>API: task state/result
-        API-->>UI: normalised status
-    end
-    Redis->>Worker: deliver task on scheduling queue
-    Worker->>DB: Load machines, operations, routes, dependencies, downtime
-    DB-->>Worker: Current floor snapshot
-    Worker->>Engine: Validate and infer outside transaction
-    alt Invalid or unsupported input
-        Engine-->>Worker: typed issues
-        Worker-->>Redis: SUCCESS {outcome: invalid, issues}
-    else Runtime unavailable
-        Engine-->>Worker: unavailable
-        Worker-->>Redis: SUCCESS {outcome: unavailable}
-    else Complete plan
-        Engine-->>Worker: assignments, dependencies, metrics
-        Worker->>DB: Insert draft + entries + dependency graph
-        DB-->>Worker: schedule ID
-        Worker-->>Redis: SUCCESS {outcome: stored, schedule_id}
-    end
-```
+[Editable sequence source](diagrams/sources/schedule-generation.mmd).
 
 Data coherence is checked once, in `scheduling/input_checks.py`, before either engine runs: positive durations, non-negative energy, unique IDs/routes/dependencies, known references, a timezone-aware start, at least one operation, an active compatible route for each operation, and no cycle (each operation in a cycle is named). The ReSched adapter additionally supports conventional flexible job-shop chains only, so it rejects downtime windows, fan-in/fan-out, and any dependency graph that is not disjoint linear chains; the exact solver rejects downtime windows only. Both worker tasks apply their strategy's limits through `validate_for_strategy` before adapting the input, so the exact task refuses downtime windows rather than silently dropping them. No partial schedule is persisted on rejection. `GET /api/v1/schedules/validation` runs the same checks on demand and reports, per strategy, whether a generation would succeed (#133).
 
@@ -150,37 +105,7 @@ The required product flow has an explicit confirmation boundary. Generation prod
 
 Refusals that a schedule causes elsewhere name it: `DELETE /jobs/{id}`, `DELETE /operations/{id}` and a definition save that removes a scheduled step all answer `409` with `draft_schedule_ids` (delete those and retry) and `confirmed_schedule_ids` (history; archive the job instead with `PATCH /jobs/{id}` `{"archived": true}`).
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Manager
-    participant UI as Manager UI
-    participant API as API
-    participant DB as PostgreSQL
-
-    Manager->>UI: Submit planning start
-    UI->>API: POST /schedules
-    API-->>UI: 202 generation URL
-    UI->>API: Poll GET generation status
-    API-->>UI: completed + schedule URL
-    UI->>API: GET /schedules/{schedule_id}
-    API-->>UI: Metrics, assignments, dependencies
-    UI->>API: GET /schedules/{schedule_id}/timeline
-    API-->>UI: Resolved timeline
-    Manager->>UI: Review and choose confirm/discard
-    alt Confirm — missing today
-        UI->>API: PATCH /schedules/{id} {status: confirmed}
-        API->>DB: Atomically confirm draft and record user/time
-        API-->>UI: Confirmed schedule
-        UI->>API: POST /simulations {schedule_id}
-        API->>DB: Create one not_started session
-        API-->>UI: 201 simulation
-    else Discard — missing today
-        UI->>API: PATCH /schedules/{id} {status: discarded}
-        API->>DB: Atomically discard draft
-        API-->>UI: Discarded schedule
-    end
-```
+The generation sequence above includes draft review and confirmation. The allowed transitions and history constraints are recorded in [decision 0015](decisions/0015-schedule-lifecycle-and-job-archival.md).
 
 Recommended public contract:
 
@@ -191,49 +116,23 @@ Content-Type: application/json
 {"status":"confirmed"}
 ```
 
-Managers should be able to transition only `draft -> confirmed` or `draft -> discarded`. Confirmation must write `confirmed_by_user_id` and `confirmed_at`; any other transition should receive `409`. Use a conditional update or row lock so competing managers cannot reach different terminal states.
+Managers confirm a draft or restore a discarded schedule with `status: confirmed`. A confirmed schedule can be withdrawn with `status: discarded` only before any simulation controls have been recorded. Drafts are deleted rather than discarded. Confirmation records `confirmed_by_user_id` and `confirmed_at`; lifecycle transitions lock the schedule row and refuse conflicting confirmed job plans.
 
 ## Required shared simulation flow
 
 The manager UI uses the event-sourced playback API. It reads an immutable timeline for geometry, recovers the simulation by schedule on entry, and records every control action rather than treating browser time as authoritative.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Manager
-    participant MUI as Manager UI
-    participant API as API
-    participant DB as PostgreSQL
-    participant OUI as Operator UI
+![Event-sourced playback and browser synchronisation](diagrams/patterns/event-sourced-playback.png)
 
-    MUI->>API: POST /simulations {confirmed schedule_id}
-    API->>DB: Verify confirmed status and create unique simulation
-    API-->>MUI: 201 not_started simulation
-    MUI->>API: GET /schedules/{schedule_id}/timeline
-    API-->>MUI: Immutable operations and lanes
-    OUI->>API: GET /schedules/{schedule_id}/simulation
-    API->>DB: Replay event log at server time
-    API-->>OUI: Authoritative position
-    Manager->>MUI: Start at speed
-    MUI->>API: POST /simulations/{id}/events {started, speed}
-    API->>DB: Validate then append event and project status/speed
-    API-->>MUI: 201 authoritative anchor
-    par Smooth local rendering
-        MUI->>MUI: Animate from returned anchor
-        OUI->>OUI: Animate from last anchor
-    end
-    loop Join/reconnect/focus/short resync interval
-        MUI->>API: GET /schedules/{schedule_id}/simulation
-        OUI->>API: GET /schedules/{schedule_id}/simulation
-        API->>DB: Replay events
-        API-->>MUI: Correct position
-        API-->>OUI: Correct position
-    end
-    Manager->>MUI: Pause, speed change, or reset
-    MUI->>API: POST /simulations/{id}/events
-    API->>DB: Append event and update projection
-    API-->>MUI: New authoritative anchor
-```
+[Editable draw.io source](diagrams/sources/event-sourced-playback.drawio) · [Playback decision](decisions/0010-event-sourced-simulated-time.md).
+
+### Durable live updates
+
+The event, readable projection and outbox notification commit together. Immediate publishing and relay retries are separate from the control transaction; clients refetch REST state when notified.
+
+![Simulation control, outbox delivery, retries and client recovery](diagrams/sequences/simulation-live-updates.png)
+
+[Editable sequence source](diagrams/sources/simulation-live-updates.mmd) · [Outbox pattern](diagrams/patterns/transactional-outbox.png) · [Delivery decision](decisions/0017-live-update-outbox.md).
 
 Client rules:
 
@@ -242,6 +141,7 @@ Client rules:
 3. Create a simulation only after confirmation, then send start, pause, resume, speed, reset, and completion controls to the API.
 4. Use every returned position as the clock authority. Do not send browser elapsed time back to the server.
 5. At or beyond the returned makespan, record completion and permit a new run only after `reset`.
+6. Treat live-update frames as refresh notifications: read the authoritative REST position after updates or reconnection, and use polling while live delivery is unavailable.
 
 ## Issues and remediation
 
@@ -249,10 +149,10 @@ Client rules:
 | --- | --- | --- | --- |
 | Done | Confirmation/discard endpoint | `PATCH /api/v1/schedules/{id}` with `status` (#268). | Frontend wiring is #271. |
 | Done | Frontend simulation bypassed backend lifecycle | The manager simulation used a local React interval and scrubber, so a refresh lost playback. | The screen now creates and recovers simulations by schedule, records controls, and displays the replayed server position (#247). |
-| P1 | Snapshot happens at worker start, not request acceptance | Queue command contains only `starts_at`; the worker loads the configuration when it claims the task. A changed floor can yield a different plan from the one the manager requested. | Persist a generation request and input snapshot before enqueueing; publish via an outbox. |
-| P1 | Concurrent simulation commands can race | Create and control services check state then write without a row lock. Concurrent calls can both pass a transition test or collide on the unique schedule ID. | Lock the schedule/simulation row; catch unique violation and return a deterministic `409`; test concurrent create/play. |
+| P1 | Snapshot happens at worker start, not request acceptance | Queue command contains `starts_at` and selected `job_ids`; the worker loads the configuration when it claims the task. A changed floor can yield a different plan from the one the manager requested. | Persist a generation request and input snapshot before enqueueing; publish via an outbox. |
+| Done | Concurrent playback controls | `record_control` locks the simulation row with `FOR UPDATE` before checking the transition. | The live-update sequence shows the serialised control write. Concurrent simulation creation is a separate uniqueness boundary to verify. |
 | P1 | Non-positive speed is accepted | Presence is validated but `Decimal <= 0` is not. Replay then raises an invariant error. | Apply `gt=0` request validation and DB checks to event/simulation speed. |
-| P1 | WebSocket is not safe or useful for state delivery | `/ws` has no authentication or subscriptions and sends only `connected`. | Use authenticated polling until subscriptions and authorisation are implemented, then publish control/task events. |
+| Done | Authenticated simulation live updates | `/ws` uses single-use tickets and authorised subscriptions. A transactional outbox feeds Redis pub/sub and the subscriber/hub. | Clients refetch REST positions on notifications and reconnection, with polling as a fallback. |
 | P2 | Generation state is only a Celery result | No durable requester/snapshot/history record; result expiry can make a completed request look pending. | Persist status, submitter, timestamps, outcome/issues, and schedule ID in PostgreSQL. |
 | P2 | Schedule list is unpaginated | It returns all rows despite the project API convention requiring cursor pagination for growing collections. | Add `limit`/cursor with stable `(created_at, id)` ordering. |
 | P2 | Timeline access policy is ambiguous | Code permits any signed-in user and drafts; documentation repeatedly describes confirmed-schedule playback. | Decide and enforce: managers review drafts; authorised viewers play confirmed schedules, or explicitly document broad access. |
@@ -263,9 +163,9 @@ Client rules:
 ## Delivery order
 
 1. Add schedule confirmation/discard and connect frontend generation, polling, review, and confirmation.
-2. Add positive speed validation and row locking for concurrent simulation controls.
+2. Add positive speed validation and verify concurrent simulation creation; playback controls already lock the simulation row.
 3. Persist generation requests/snapshots/outcomes and use an outbox for reliable task publication.
-4. Add pagination and authenticated realtime updates or bounded polling.
+4. Add pagination; retain bounded polling as the fallback for the implemented authenticated realtime updates.
 5. Only then add downtime-aware scheduling, disruption events, or rescheduling as a new draft version—not a mutation of a confirmed plan.
 
 ## Verification checklist
