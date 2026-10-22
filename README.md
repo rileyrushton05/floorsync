@@ -1,161 +1,88 @@
-# DECO3801 / DECO7381 Team Project Repository
+# FloorSync
 
-This repository is the working space for your DECO3801 / DECO7381 team project.
+Job shop scheduling, simulation and live operations management. DECO3801 project 13, Team 61
+(Cuffington & Co).
 
-Your team should use this repository to store your prototype code, design artefacts, documentation, project evidence, testing materials, deployment notes, and other relevant project work.
+A production coordinator selects jobs and generates a schedule that assigns every operation to a
+compatible machine with start and end times. The schedule then plays out in a time-driven
+simulation, while managers watch every machine and job on a live overview and each operator follows
+their own machine's queue.
 
-This repository is also part of your project evidence. Teaching staff will use it to review team progress, project quality, decision-making, and individual contributions throughout the semester.
+## Getting started
 
-Teams must keep the major folders for specification, design, documentation, evidence, source code, testing, and deployment. Teams may adapt the internal source-code structure to suit their project architecture.
+With [Docker](https://docs.docker.com/get-docker/) running:
 
----
+```bash
+git clone --recurse-submodules <repository-url>
+cd team-61-cuffington-and-co
+deployment/run-local.sh
+```
 
-## Repository Structure
+Open <http://localhost:3000> and sign in as `manager` / `floorsync-dev`. The API documentation is at
+<http://localhost:8002/docs>.
+
+**[deployment/README.md](deployment/README.md) is the full guide**: what the script does step by
+step, the deployment files, a demo walkthrough, the optional Gurobi licence for the Exact strategy,
+configuration, troubleshooting and known limitations.
+
+## Stack
+
+| Part | Technology |
+| --- | --- |
+| Frontend | Next.js, React, TypeScript, TanStack Query |
+| API | FastAPI, SQLAlchemy (async), Alembic |
+| Scheduling worker | Celery; ReSched (learned policy) and an exact solver (Gurobi with OR-Tools CP-SAT) |
+| Data and messaging | PostgreSQL, Redis |
+| Runtime | Docker Compose |
+
+[docs/architecture.md](docs/architecture.md) describes the components and their boundaries.
+
+## Repository map
 
 ```text
-project/
-├── deployment/
-│   └── README.md
-├── design/
-│   └── README.md
-├── docs/
-│   ├── meeting-notes/
-│   ├── decisions/
-│   └── risks/
-├── evidence/
-│   ├── weekly-contribution/
-│   ├── user-testing/
-│   └── screenshots/
-├── spec/
-│   ├── requirements.md
-│   ├── statement-of-work.md
-│   └── user-stories.md
+.
+├── deployment/          setup guide and run-local.sh
+├── design/              design artefacts
+├── docs/                architecture, conventions, decision records, risks, meeting notes
+│   ├── decisions/       architecture decision records (ADRs)
+│   ├── risks/           risk register
+│   └── meeting-notes/   team and client meeting minutes
+├── evidence/            benchmarks, user testing, screenshots, weekly contributions
+├── scripts/             create_manager.py, OpenAPI export, benchmark script
+├── spec/                specification
 ├── src/
-│   ├── frontend/
+│   ├── frontend/        Next.js app (features/, core/, components/)
 │   ├── backend/
+│   │   ├── api/         FastAPI routes and schemas, one folder per feature
+│   │   ├── common/      shared services, models, scheduling and simulation
+│   │   ├── workers/     Celery scheduling tasks
+│   │   └── third_party/ ReSched (git submodule)
 │   └── database/
-│       ├── schema/
-│       ├── migrations/
-│       └── seed-data/
+│       ├── migrations/  Alembic migrations
+│       └── seed-data/   benchmark instances and their solutions
 └── tests/
-    ├── frontend/
-    ├── backend/
-    └── integration/
+    ├── backend/         unit and API tests
+    └── integration/     tests against a real PostgreSQL
 ```
 
----
-
-## Getting Started
-
-### FloorSync local foundation
-
-This project uses a small service layout that mirrors the planned system: Next.js frontend, FastAPI API, Redis-backed Celery workers and PostgreSQL. Database migrations are owned by the database workstream under `src/database/`; shared SQLAlchemy models and session infrastructure live in `src/backend/common/` so both the API and workers can use them.
-
-Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), and Node.js 22 or later (Corepack provides the pinned pnpm version).
+## Development
 
 ```bash
-cp .env.example .env
-make bootstrap
-make install-hooks # optional: run the full check suite before each push
-docker compose up --build -d
+make bootstrap       # once: submodules, uv sync, pnpm install
+make check           # formatting, linting, type checks, tests, frontend build, OpenAPI check
+make install-hooks   # optional: run make check before every push
 ```
 
-Compose applies outstanding Alembic migrations before the API accepts traffic; the worker waits for
-that API health check. `make db-upgrade` remains available when you want to run the migration step
-manually.
+`make check` needs [uv](https://docs.astral.sh/uv/) and Node.js 22 on the host. CI runs the same
+gate on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/pull-requests.md](docs/pull-requests.md) describe how changes are made and reviewed.
 
-Load a scenario to work against — an empty database has no jobs or machines:
+## Documentation
 
-```bash
-make db-seed-list          # which scenarios are available
-make db-seed instance=abz5 # load one (replaces whatever was loaded before)
-```
-
-Scenarios are standard benchmark instances, in two kinds. **Job shop** instances (`ft06`, `abz5`,
-`bel00`, …) fix each operation to one machine. **Flexible job shop** instances (`fattahi1`,
-`kacem1`, `dafjs01`, `behnke58`) give each operation several machines to choose between, so machine
-selection is part of the scheduling problem. `db-seed-list` groups them by kind.
-
-Seeding replaces the current scenario rather than adding to it, so the database always holds exactly
-one. Where a solved schedule exists for an instance it is loaded too, giving `/manager/simulation`
-something to play — that currently means `abz5`, `fattahi1`, `kacem1`, `dafjs01` and `behnke58`; the
-others load the problem alone. See [`src/database/seed-data/`](src/database/seed-data/README.md) for
-what each instance is and what it does and does not populate.
-
-### Create an account
-
-There is no sign-up page, because the API has no registration route — the app cannot be signed into
-until an account exists. Create a manager, editing the three constants first:
-
-```bash
-docker compose run --rm api python -c "
-import asyncio
-from floorsync_common.database.models.user import User
-from floorsync_common.database.models.user_credential import UserCredential
-from floorsync_common.database.session import session_scope
-from floorsync_common.users import UserService
-
-NAME = 'Ada Manager'
-USERNAME = 'manager'
-PASSWORD = 'floorsync-dev'
-
-async def main():
-    async with session_scope() as session:
-        user = User(name=NAME, role='manager')
-        session.add(user)
-        await session.flush()
-        session.add(
-            UserCredential(
-                user_id=user.id,
-                username=USERNAME,
-                password_hash=UserService.hash_password(PASSWORD),
-            )
-        )
-        print('created', USERNAME, user.id)
-
-asyncio.run(main())
-"
-```
-
-Sign in with that at <http://localhost:3000/login>. The username must be lowercase, and the password
-is hashed with Argon2 before it is stored.
-
-[docs/accounts.md](docs/accounts.md) covers the rest: machine-bound operator accounts, listing
-accounts, resetting a password, disabling one, and why operators must be created *after* seeding.
-
-### Exact solver (Gurobi)
-
-The scheduler's "Exact" strategy runs the FAJSP MILP through Gurobi, which needs a license to solve
-anything beyond a trivial size. Drop your license file at the repo root as `gurobi.lic` — the worker
-container already mounts the whole repo at `/app` and has `GRB_LICENSE_FILE=/app/gurobi.lic` set, so
-nothing else to configure. `gurobi.lic` is gitignored; never commit it. Restart the worker after adding
-it: `docker compose up -d worker`. Without a license, "Exact" runs still queue but fail once Gurobi
-rejects the model — the "ReSched" strategy is unaffected either way.
-
-Open the frontend at <http://localhost:3000>, API health at <http://localhost:8002/health>, and FastAPI docs at <http://localhost:8002/docs>.
-The PostgreSQL and API host ports default to `5433` and `8002`; override
-`POSTGRES_HOST_PORT`, `API_HOST_PORT`, and the matching `NEXT_PUBLIC_API_URL` in `.env`
-when those ports are unavailable. The frontend's `3000` and Redis's `6379` are fixed in
-`docker-compose.yml`, so a clash there — a stray `pnpm dev`, a local Redis — has to be resolved by
-stopping the other process or editing the compose file.
-
-[deployment/README.md](deployment/README.md) is the full version of this: required software,
-every environment variable, a demo walkthrough, troubleshooting and known limitations.
-
-Dependencies are managed with `uv` and pnpm. Docker uses committed lockfiles with frozen installs. Run the complete local quality gate before opening a PR:
-
-```bash
-make check
-```
-
-`make check` runs Python formatting, linting, typing and tests, then frontend linting, type checking and a production build. The optional Git hook installed by `make install-hooks` runs the same suite before every push; use `git push --no-verify` only when a failing check is clearly understood and noted in the PR.
-
-Tests that need a real PostgreSQL live in `tests/integration` and skip when none is reachable, so `make check` never needs one. With the Compose database up (`docker compose up -d postgres`), `make test-integration` runs them against a separate `floorsync_test` database that they create, migrate and empty themselves. In CI, the backend job starts a PostgreSQL container and runs them only when a pull request touches migrations, database models, simulation, live updates or dependencies, so other pull requests spend no extra Actions minutes on them.
-
-See [the technical foundation](docs/architecture.md) for component boundaries and tooling decisions.
-
-This repository has already been created for your team, with all team members and teaching staff added.
-
-Use this repository for all of your team's project work. Update this `README.md` to match your project, and start using issues, branches, commits, pull requests, and GitHub Projects from the beginning of the semester.
-
-Your repository is part of your project evidence. It should show regular progress, not only final submission files.
+- [Deployment and local setup](deployment/README.md)
+- [Accounts and signing in](docs/accounts.md)
+- [Scheduling](docs/scheduling.md) and [the scheduling and simulation backend](docs/scheduling-simulation-backend.md)
+- [Importing production data](docs/importing.md)
+- [Database schema](docs/database-schema.md)
+- [Decision records](docs/decisions/README.md) and [risk register](docs/risks/README.md)
+- [All documentation](docs/README.md)
