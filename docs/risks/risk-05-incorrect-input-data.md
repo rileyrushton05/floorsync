@@ -19,6 +19,7 @@ High
 - Create a "data import" feature from a standard format (e.g., CSV) to allow for bulk uploads and reduce manual entry errors
 - Add data preview before final submission
 - **(Checkpoint 2)** Done: pre-scheduling validation merged (#262); file-import path refuses any file with a problem and writes nothing, with every problem naming its location (#300); manager CRUD APIs enforce constraints such as duplicate names and compatibility. The "data import" mitigation originally scoped here is what #300 delivers.
+- **(Final, 22 Oct)** Done: the import page (#330, #332) adds a dry-run preview before anything is written
 
 ## Contingency Plan
 
@@ -27,6 +28,10 @@ High
 - Implement a rollback feature to revert to a previous valid dataset
 - Display warnings for suspicious data values
 
+## Owner
+
+Riley
+
 ## Status
 
-Monitoring
+Resolved

@@ -4,6 +4,7 @@ What FloorSync set out to do, how that changed over the semester, and what was d
 
 | File | Contents |
 | --- | --- |
+| [project-brief.png](project-brief.png) | The course brief for project 13, with the eight success criteria |
 | [requirements/overview.md](requirements/overview.md) | Sources, users, the brief's eight success criteria and how each was met, scope, constraints and assumptions |
 | [requirements/functional-requirements.md](requirements/functional-requirements.md) | What the system does (FR-01 to FR-33), with source and status |
 | [requirements/non-functional-requirements.md](requirements/non-functional-requirements.md) | Quality attributes (NFR-01 to NFR-12), with the measured result |

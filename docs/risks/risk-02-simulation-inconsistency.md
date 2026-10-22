@@ -20,6 +20,7 @@ High
 - Implement periodic consistency checks between schedule and simulation states
 - **(Checkpoint 2)** Done: `start_time` stored once at generation and read directly by the simulation (ADR 0011), removing a derivation path that could drift; simulation state changes proven transactional against real Postgres (#288)
 - **(Checkpoint 2)** Remaining: #181 (verify the simulation against its schedule, including reentrant and multi-predecessor cases) is still open, so there is no committed evidence run proving consistency over time
+- **(Final, 22 Oct)** Done: #181 closed 18 Oct; tests in `tests/backend/test_simulation.py` confirm the simulation reproduces the stored schedule, including repeat visits and fan-in
 
 ## Contingency Plan
 
@@ -27,6 +28,10 @@ High
 - Provide a "discrepancy alert" on the dashboard that informs the user that the current simulation state is out-of-sync
 - Allow manual override to correct simulation state to match schedule
 
+## Owner
+
+Beth
+
 ## Status
 
-Open
+Resolved

@@ -1,8 +1,6 @@
 # Decisions
 
-Use this folder to record important project decisions.
-
-Decision records help explain why the team made particular design, technical, scope, or evaluation choices.
+Architecture decision records (ADRs): each records the context, the decision, the alternatives considered and the consequences. Changes to scope and requirements are recorded separately in [spec/requirements/requirement-changes.md](../../spec/requirements/requirement-changes.md).
 
 ## Decision index
 
@@ -28,43 +26,3 @@ Decision records help explain why the team made particular design, technical, sc
 | [0018](0018-archived-jobs-are-read-only.md) | Accepted | A job that has left the backlog is read-only, and archiving is one way (supersedes 0015 point 7) |
 | [0019](0019-derived-backlog-status.md) | Accepted | A job's place in the backlog is derived from its schedules, never stored on it |
 | [0020](0020-file-import-into-the-floor.md) | Accepted | Import a file straight into the floor's own tables, all of it or none of it |
-
-## Suggested Decision Record Format
-
-```markdown
-# Decision: [Short Decision Title]
-
-## Date
-
-[Date]
-
-## Context
-
-What issue, problem, or question was the team responding to?
-
-## Decision
-
-What did the team decide?
-
-## Rationale
-
-Why was this decision made?
-
-## Alternatives Considered
-
-What other options were considered?
-
-## Consequences
-
-What are the implications, risks, or trade-offs?
-```
-
-## Examples of Decisions to Record
-
-- choosing a technology stack;
-- changing the project scope;
-- removing or adding a feature;
-- changing the design direction;
-- changing the database structure;
-- changing the evaluation method; and
-- responding to mentor, stakeholder, or user feedback.
