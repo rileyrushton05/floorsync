@@ -19,6 +19,7 @@ when it happened, why, who decided and where it is recorded.
 | 6 Oct | Checkpoint 2 report | Triaged rejected and deferred work and set the final Must, Should and Could plan |
 | 9 Oct | Client meeting 2 | Added operator breaks (CHG-09) |
 | 16 Oct | Feature freeze | Unfinished Should and Could items cut (CHG-19) |
+| 22 Oct | Final board triage | The remaining open work was closed as not planned, including duplicate import detection (CHG-16) |
 
 ## Changes
 
@@ -39,7 +40,7 @@ when it happened, why, who decided and where it is recorded.
 | CHG-13 | 10 Sep | **Schedule start times are stored, not derived.** Reverses the earlier "derive, don't store" decision (ADR 0009). | The scheduler already produces each start time, so storing it once removes a second calculation; testing showed stored and derived times agreed exactly. | Team | ADR 0011; PRs #228, #252 |
 | CHG-14 | Sep | **Generation is scoped to selected open jobs, and a job's status is derived from its schedules.** Archiving jobs automatically on generation (#266) was rejected. | The manager plans part of the backlog at a time, and a stored status could drift from the schedules. | Team | ADR 0013, 0019; PRs #257, #273 |
 | CHG-15 | Oct | **Only confirmed schedules can be simulated.** | So the floor only ever follows a plan the manager approved. | Team | ADR 0015; Checkpoint 2, Final delivery plan C; PR #295 |
-| CHG-16 | 5 Oct | **Recognising previously imported jobs deferred.** An import always adds new jobs. | Duplicate handling needs its own design and UI, and was not needed for a first version. | Team | ADR 0020; #299 |
+| CHG-16 | 5 Oct, then 22 Oct | **Recognising previously imported jobs not built.** Deferred on 5 Oct, then dropped on 22 Oct: an import always adds new jobs. | Duplicate handling needs its own design and UI, was not needed for a first version, and did not fit the remaining time. | Team | ADR 0020; #299 (closed as not planned) |
 | CHG-17 | Early Sep | **Sign-in uses a username rather than an email address.** | Operator logins belong to machines, and the credential model does not assume every account has an email address. | Team | ADR 0007 |
 | CHG-18 | 6 Oct | **No separate admin role.** Managers manage operator logins; the first manager is created from the command line. | Out of scope for the prototype. | Team | Checkpoint 2, Out of scope; `scripts/create_manager.py` |
 | CHG-19 | 16 Oct | **Not built by the feature freeze:** opening a machine's operator view from the manager dashboard (CM1); bottleneck flags on the manager view (Statement of Work); schedule comparison, schedule export and first-run guidance (Checkpoint 2, Should); an acknowledgement step before confirming a schedule with warnings (Checkpoint 2, Must). The Statement of Work's stretch goals (priority re-weighting, CSV export, an AI recommendation layer) were not started. | Time. Checkpoint 2 set the rule that unfinished items are cut at the freeze and recorded. The Overview and Simulation pages already show each machine's current and next work, which covers most of what the drill-down was for. | Team | Checkpoint 2, Final delivery plan |
