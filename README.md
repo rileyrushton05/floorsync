@@ -49,7 +49,7 @@ configuration, troubleshooting and known limitations.
 │   └── meeting-notes/   team and client meeting minutes
 ├── evidence/            benchmarks, user testing, screenshots, weekly contributions
 ├── scripts/             create_manager.py, OpenAPI export, benchmark script
-├── spec/                specification
+├── spec/                requirements, statement of work and team charter, user stories
 ├── src/
 │   ├── frontend/        Next.js app (features/, core/, components/)
 │   ├── backend/
@@ -79,6 +79,7 @@ gate on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 ## Documentation
 
+- [Specification](spec/README.md): requirements, how they changed, and every user story's final status
 - [Deployment and local setup](deployment/README.md)
 - [Accounts and signing in](docs/accounts.md)
 - [Scheduling](docs/scheduling.md) and [the scheduling and simulation backend](docs/scheduling-simulation-backend.md)
