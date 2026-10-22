@@ -10,7 +10,7 @@ contents.
 | [user-testing/](user-testing/README.md) | The usability test plan, moderator script and the results of four moderated sessions (P1 to P4), with task completion and SEQ scores. |
 | [traceability.md](traceability.md) | Each usability or testing finding traced to its ticket, the change that dealt with it and the test that covers it. |
 | [weekly-contribution/](weekly-contribution/README.md) | The team's weekly contribution reviews (weeks 3 to 11), one section per member with the pull requests and issues behind each claim. |
-| [ai-prompts/](ai-prompts/README.md) | Each member's exported AI prompt log, supporting the [AI-use declarations](../ai-declarations.md). |
+| [ai-prompts/](ai-prompts/) | Each member's AI prompt log, supporting the [AI-use declarations](../ai-declarations.md). |
 
 ## Headline results
 
