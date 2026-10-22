@@ -23,7 +23,7 @@ See `backend-coverage.txt` for the full output, including the date, commit and c
 - **Result:** 828 passed, 1 skipped, 0 failed (the skip is the ReSched runtime test, because ReSched's optional dependencies are not installed on the machine used).
 - **Coverage:** 84% of statements and branches across `src/backend` (7,687 statements). The database and live-update integration tests ran against Compose Postgres and Redis and did not skip.
 - **Strongest areas:** data import (98%), database models (97%), live updates (96%), simulation (92%), schedules (90%).
-- **Weakest areas:** the superseded `FJSP_benders.py` (17%, replaced by CP-LBBD), machines (78%), jobs (81%), operations (82%), and `resched.py` (37%, because its runtime is not installed). The remaining gaps are mostly error paths in the routers and services.
+- **Weakest areas:** machines (78%), jobs (81%), operations (82%), and `resched.py` (37%, because its runtime is not installed). The remaining gaps are mostly error paths in the routers and services.
 
 ## Re-running
 

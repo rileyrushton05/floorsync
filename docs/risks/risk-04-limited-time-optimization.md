@@ -21,7 +21,7 @@ High
 - Test the team's solver against ReSched on industry-standard benchmarks and justify the choice in the documentation
 - **(Checkpoint 2)** Done: two strategies exist behind one contract (the ReSched learned policy and an exact Gurobi MILP solver, ADR 0014), selectable per run from the Planner
 - **(Checkpoint 2)** Remaining: multi-objective scoring (completion time, energy, salary) is not implemented (#69, #139), and no harness runs both strategies on identical input and saves the results (#114, #115, #159)
-- **(Final, 22 Oct)** Done: the Exact strategy became logic-based Benders decomposition (#326), and the harness (`scripts/bench_resched_vs_benders.py`) ran both on 23 benchmark instances. Exact beat ReSched on 22 and tied 1, 14.9% shorter on average, with a mean gap of 0.11% to the best known result. Multi-objective scoring was dropped by decision: schedules optimise makespan and report energy and labour cost
+- **(Final, 22 Oct)** Done: the Exact strategy became logic-based Benders decomposition (#326), and the harness (`scripts/bench_resched_vs_benders.py`, since removed; `scripts/bench_lbbd_vs_resched.py` re-runs 13 of the instances) ran both on 23 benchmark instances. Exact beat ReSched on 22 and tied 1, 14.9% shorter on average, with a mean gap of 0.11% to the best known result. Multi-objective scoring was dropped by decision: schedules optimise makespan and report energy and labour cost
 
 ## Contingency Plan
 

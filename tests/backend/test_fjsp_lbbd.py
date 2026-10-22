@@ -7,9 +7,39 @@ best-known makespans for the seeded benchmarks.
 
 from collections import defaultdict
 from itertools import pairwise
+from uuid import UUID
 
-from floorsync_common.FJSP_benders import load_fajsp
 from floorsync_common.scheduling.FJSP_lbbd import lbbd
+from floorsync_common.scheduling.gurobi_exact_solver import OpRecord
+from floorsync_common.seed.flexible import load_flexible_instance
+
+
+def load_fajsp(name: str) -> tuple[list[int], range, dict[int, list[int]], list[OpRecord]]:
+    """A seeded instance as (machines, operations, eligible machines, operation records)."""
+    instance = load_flexible_instance(name)
+    op_ids = sorted(instance.operations_by_id)
+    index_of = {op_id: index for index, op_id in enumerate(op_ids)}
+    machine_labels = sorted(
+        {candidate.machine for op in instance.operations for candidate in op.candidates}
+    )
+    machine_index = {label: index for index, label in enumerate(machine_labels)}
+    operation_data: list[OpRecord] = [
+        {
+            "op_id": UUID(int=op_id),
+            "options": [
+                (candidate.duration, machine_index[candidate.machine])
+                for candidate in instance.operations_by_id[op_id].candidates
+            ],
+            "pre": [],
+            "energy_by_machine": {},
+        }
+        for op_id in op_ids
+    ]
+    for before, after in instance.dependencies:
+        operation_data[index_of[after]]["pre"].append(index_of[before])
+    operations = range(len(operation_data))
+    eligible = {i: [k for _, k in operation_data[i]["options"]] for i in operations}
+    return list(range(len(machine_labels))), operations, eligible, operation_data
 
 
 def _assert_feasible(result: dict, eligible: dict, operation_data: list) -> None:
@@ -30,7 +60,7 @@ def _assert_feasible(result: dict, eligible: dict, operation_data: list) -> None
 
 def test_lbbd_proves_the_known_optimum_without_a_warm_start() -> None:
     for name, optimum in (("fattahi1", 66), ("kacem1", 11)):
-        _, machines, operations, eligible, operation_data = load_fajsp(name)
+        machines, operations, eligible, operation_data = load_fajsp(name)
         result = lbbd(operations, machines, eligible, operation_data, 30, warm_start=False)
         assert result is not None
         _assert_feasible(result, eligible, operation_data)
@@ -39,7 +69,7 @@ def test_lbbd_proves_the_known_optimum_without_a_warm_start() -> None:
 
 def test_lbbd_cuts_keep_the_bound_valid_on_a_dag_instance() -> None:
     """dafjs01 (optimum 257) has fan-in precedences, so release times make unsafe cuts unsound."""
-    _, machines, operations, eligible, operation_data = load_fajsp("dafjs01")
+    machines, operations, eligible, operation_data = load_fajsp("dafjs01")
     result = lbbd(operations, machines, eligible, operation_data, 5, warm_start=False)
     assert result is not None and result["iterations"] > 1
     _assert_feasible(result, eligible, operation_data)

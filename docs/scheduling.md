@@ -116,8 +116,7 @@ schedule is left-shifted before it is returned.
 
 `gurobi_exact_solver.build_model` is the earlier monolithic big-M MILP. It is no longer wired to
 `exact` and is kept as a reference and test oracle: `test_gurobi_exact_solver.py` runs both engines
-on the same instances. `floorsync_common/FJSP_benders.py` is an earlier, unshipped Benders
-experiment, used only by `scripts/bench_resched_vs_benders.py` and tests.
+on the same instances. `scripts/bench_lbbd_vs_resched.py` benchmarks CP-LBBD against ReSched.
 
 ### Outcomes
 
