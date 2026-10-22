@@ -12,7 +12,8 @@ follows their own machine's queue.
 
 | Document | Location |
 | --- | --- |
-| Signed team cover sheet | [cover-sheet.pdf](cover-sheet.pdf) |
+| Signed team cover sheet | [Signed Team Cover Sheet.pdf](Signed%20Team%20Cover%20Sheet.pdf) |
+| Original contribution statement | [Below](#original-contribution-statement) |
 | AI-use declarations | [ai-declarations.md](ai-declarations.md) |
 | Project brief | [spec/project-brief.png](spec/project-brief.png) |
 | Statement of Work and Team Charter | [spec/statement-of-work/](spec/statement-of-work/summary.md) |
@@ -99,6 +100,54 @@ in the [diagram catalogue](docs/diagrams/README.md) with its editable source. Th
 in [docs/database-schema.md](docs/database-schema.md), [docs/architecture.md](docs/architecture.md)
 covers code boundaries, and the [decision records](docs/decisions/README.md) explain the main
 choices.
+
+## Original contribution statement
+
+**Developed by the team**
+
+- **Frontend:** the sign-in page and every manager and operator page (Overview, Jobs, Import, Planner, Schedules,
+  Simulation, Machines, Settings, Operator), the schedule timeline, the job dependency graph and the
+  live-update client.
+- **Backend API:** every FastAPI feature (auth, machines, jobs and operations, schedules,
+  simulation, import, operator accounts, live updates) and the service layer behind them.
+- **Database:** the schema, all Alembic migrations, and the seed loader that reads the benchmark
+  formats.
+- **Scheduling:** input validation, the adapter that runs ReSched on FloorSync data, and the Exact
+  strategy. Exact is our implementation of critical-path logic-based Benders decomposition from
+  Naderi and Roshanaei (2022), with deliberate deviations listed at the top of
+  [FJSP_lbbd.py](src/backend/common/floorsync_common/scheduling/FJSP_lbbd.py). The first Exact
+  solver, a Gurobi MILP, followed the Dauzère-Pérès et al. formulation ([ADR 0014](docs/decisions/0014-fajsp_milp_formulation.md)).
+- **Simulation and live updates:** the server-side simulation clock, the transactional outbox,
+  the Redis relay and the WebSocket delivery with one-time tickets.
+- **File import:** the FloorSync JSON format, the benchmark-format readers and the dry run.
+- **Engineering and evaluation:** the automated tests, CI, Docker set-up, documentation, the
+  benchmark comparison and the usability study.
+
+**Used unchanged from existing sources**
+
+- **ReSched** learned scheduling policy and trained weights ([XiangjieXiao/ReSched](https://github.com/XiangjieXiao/ReSched), MIT):
+  the fast strategy and the evaluation baseline, called through our adapter.
+- **Benchmark instances and best known results** ([ScheduleOpt/benchmarks](https://github.com/ScheduleOpt/benchmarks), CC BY-SA 4.0):
+  the seed scenarios, import formats and evaluation data.
+
+**Adapted from existing sources**
+
+- **Intent UI** components ([intentui.com](https://intentui.com), MIT): buttons, fields, dialogs and
+  other parts in `src/frontend/components/ui/`, added from its registry and then edited.
+
+**Existing tools and libraries**
+
+Next.js, React, TypeScript, TanStack Query, React Aria and Tailwind CSS on the frontend; FastAPI,
+SQLAlchemy, Alembic, Pydantic and Celery on the backend; PostgreSQL and Redis for storage and
+messaging; Gurobi and OR-Tools CP-SAT inside the Exact strategy; PyTorch and NumPy to run ReSched.
+Every dependency and its licence is in [docs/external-resources/](docs/external-resources/README.md).
+
+**AI tools**
+
+Claude Code (five members) and Codex (one member) were used to explain concepts, weigh design
+options, debug, and help implement small parts of features step by step. Every change was reviewed,
+tested and committed by a team member. Details and prompt logs are in
+[ai-declarations.md](ai-declarations.md).
 
 ## Repository map
 
