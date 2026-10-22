@@ -8,14 +8,14 @@ This folder contains the design artefacts and rationale for the FloorSync manage
 Contains reference images from existing industry tools (Freshdesk, Qual, and Asana) that informed our UI choices. These were used to apply Jakob's Law, ensuring our custom design felt familiar to users who have used other scheduling or dashboard software.
 
 ### `02_wireframes/`
-Contains the initial low-fidelity wireframes for the core manager views (Overview, Simulation, and Machines). These established the layout and information architecture before any code was written. 
+Contains the early mockups made before any code was written: the manager overview (`dashboard-manager.png`), the operator dashboard (`dashboard-operator.png`), and the original coordinator view (`dashboard-manager-simulation.png`), whose planning and timeline role later moved into the manager's Planner and Simulation pages when the coordinator and manager became one role. These established the layout and information architecture.
 
-### `03_ui-evolution/`
+### `03_ui_evolution/`
 This folder is critical evidence of our iterative design process. It is split into two stages to clearly demonstrate how user testing and technical constraints forced us to re-evaluate our approach:
 - **`01_first-implementation/`**: The initial coded versions based on the wireframes.
 - **`02_mid-stage/`**: The versions that were tested and revealed UX flaws (e.g., clunky schedule selection, unreadable timeline blocks).
 
-*(Note: The final polished implementations of these fixes—such as the Timeline Zoom Bar, Expand/Collapse controls, and sidebar layouts—are demonstrated in the live prototype and the main project repository).*
+*(Note: The final polished implementations of these fixes, such as the Timeline Zoom Bar, Expand/Collapse controls, and sidebar layouts, are demonstrated in the live prototype and the main project repository).*
 
 ## Design Rationale & Usability Heuristics
 
@@ -27,10 +27,10 @@ Our design decisions were guided by established usability heuristics and industr
 
 ## Design Iterations Driven by User Feedback
 
-The progression shown in `03_ui-evolution/` reflects direct responses to user testing and self-identified UX issues:
+The progression shown in `03_ui_evolution/` reflects direct responses to user testing and self-identified UX issues:
 - **Simulation/Schedules:** Users noted that schedule blocks were too small to read in a 24-hour view, and scrolling through 100+ jobs was tedious. This led to the implementation of the **Timeline Zoom Bar** and **Expand/Collapse controls**.
 - **Simulation Page:** Early designs for schedule selection felt clunky. Based on user feedback, we pivoted to a sidebar layout to provide a familiar way to view multiple confirmed schedules.
 - **Loading States:** Users could not tell how long a schedule took to generate. We added a **Loading Bar & Time Estimation** feature to provide continuous feedback during plan generation.
 
 ## External Design Tools
-Design work was primarily conducted using **Adobe Photoshop**. The flat exported images used for handoff and implementation are stored in `02_wireframes/` and `03_ui-evolution/`.
+Design work was primarily conducted using **Adobe Photoshop**. The flat exported images used for handoff and implementation are stored in `02_wireframes/` and `03_ui_evolution/`.
