@@ -145,8 +145,9 @@ Every dependency and its licence is in [docs/external-resources/](docs/external-
 **AI tools**
 
 Claude Code (five members) and Codex (one member) were used to explain concepts, weigh design
-options, debug, and help implement small parts of features step by step. Every change was reviewed,
-tested and committed by a team member. Details and prompt logs are in
+options, debug, and help implement small parts of features step by step. They also generated code:
+mostly boilerplate, and close variations of a pattern after a member had implemented the first
+instance themselves. Every change was reviewed, tested and committed by a team member. Details and prompt logs are in
 [ai-declarations.md](ai-declarations.md).
 
 ## Repository map
