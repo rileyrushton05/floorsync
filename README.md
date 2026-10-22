@@ -112,6 +112,7 @@ choices.
 │   ├── meeting-notes/   team and client meeting minutes
 │   └── risks/           risk register
 ├── evidence/            evaluation and contribution evidence
+│   ├── ai-prompts/      each member's AI prompt log
 │   ├── benchmarks/      ReSched against Exact results and charts
 │   ├── testing/         backend test and coverage evidence
 │   ├── user-testing/    usability test plan, script and results
