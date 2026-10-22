@@ -27,6 +27,13 @@ test:
 test-integration:
 	uv run pytest tests/integration
 
+# Backend tests with a coverage report: terminal summary saved to evidence/testing/, HTML report in
+# htmlcov/. Start Postgres and Redis first (docker compose up -d postgres redis) so the integration
+# tests run and do not skip. Needs the exact-solver extra, the same as CI.
+coverage:
+	mkdir -p evidence/testing
+	FLOORSYNC_REQUIRE_TEST_DATABASE=1 uv run --extra exact pytest --cov --cov-report=term --cov-report=html -rs -q | tee evidence/testing/backend-coverage.txt
+
 frontend-build:
 	$(PNPM) build
 
