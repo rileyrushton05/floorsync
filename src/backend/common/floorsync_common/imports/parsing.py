@@ -121,8 +121,10 @@ class ImportParsingService:
 # deep file can decode fully and surface as plain invalid JSON). 1000 is the default recursion
 # limit, and no real import nests more than a handful of levels.
 _MAX_NESTING = 1000
-# A whole string literal (so brackets inside it are skipped), or one bracket.
-_STRING_OR_BRACKET = re.compile(r'"(?:\\.|[^"\\])*"|[\[\]{}]')
+# A whole string literal (so brackets inside it are skipped), or one bracket. The closing quote is
+# optional so an unterminated string runs to the end in one match: otherwise its brackets count as
+# nesting, and every later quote rescans to the end (quadratic on `"\"\"\"...`).
+_STRING_OR_BRACKET = re.compile(r'"(?:\\.|[^"\\])*"?|[\[\]{}]')
 
 
 def _nests_deeper_than(text: str, limit: int) -> bool:

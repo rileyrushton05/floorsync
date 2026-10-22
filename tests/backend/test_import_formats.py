@@ -115,6 +115,8 @@ def test_a_byte_order_mark_is_accepted() -> None:
         (b"[" * 100_000, "too_deeply_nested"),
         (b"[" * 1001 + b"]" * 1001, "too_deeply_nested"),
         (b'{"format": "' + b"[" * 100_000 + b'"}', "unknown_format"),
+        (b'{"format": "' + b"[" * 1001, "not_json"),
+        (b'"' + b'\\"' * 200_000, "not_json"),  # minutes if scanning is quadratic
         (b"[]", "not_an_object"),
         (b'"floorsync"', "not_an_object"),
         (b'{"jobs": [], "machines": []}', "unknown_format"),
