@@ -66,3 +66,7 @@ target/
 # Database
 *.sqlite
 *.db
+
+# Coverage HTML report (make coverage)
+htmlcov/
+.coverage
