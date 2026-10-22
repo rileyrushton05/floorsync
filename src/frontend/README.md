@@ -27,9 +27,9 @@ timeline into the shared Gantt model. A completed generation invalidates the
 schedule collection; acceptance alone does not, because no schedule exists at
 that point.
 
-The manager overview is an explicitly prototype feature until its backend
-contract exists; its fixtures live only in its feature area, and API-backed
-features never use them as a fallback.
+The manager overview is API-backed: it reads the jobs, machines and schedules,
+and follows `GET /simulations/active` so it shows the same simulated clock as
+the Simulation page.
 
 The operator screen is API-backed: `GET /simulations/active` names the live
 simulation, the schedule timeline is filtered to the account's machine, and the
