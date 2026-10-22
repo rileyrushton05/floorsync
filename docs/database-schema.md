@@ -1,6 +1,6 @@
 # Database schema
 
-Logical, table-by-table translation of the [Schedule Storage ER diagram](diagrams/schedule-storage-erd.png)
+Logical, table-by-table translation of the [Schedule Storage ER diagram](diagrams/data/schedule-storage-design.png)
 (#125), checked against [database-conventions.md](database-conventions.md). This is the reference for
 building the SQLAlchemy models and the first Alembic migration (#175 / US53) — every table below maps to
 one model file under `floorsync_common/database/models/`.
@@ -8,7 +8,21 @@ one model file under `floorsync_common/database/models/`.
 All tables get `id` (UUID v4, `UUIDPrimaryKeyMixin`) and `created_at` / `updated_at`
 (`TimestampMixin`) unless noted. Omitted below for brevity.
 
-![Physical schema diagram: all 16 tables with their columns, types, keys and relationships, generated from the SQLAlchemy models; created_at and updated_at are omitted](diagrams/database-schema.png)
+## Model overview
+
+### Production and accounts
+
+![Production and account entity relationships](diagrams/data/production-data-erd.png)
+
+[SVG export](diagrams/data/production-data-erd.svg) · [Editable Mermaid source](diagrams/sources/production-data-erd.mmd).
+
+### Schedules, simulation and delivery
+
+![Schedule, simulation and outbox entity relationships](diagrams/data/schedule-simulation-erd.png)
+
+[SVG export](diagrams/data/schedule-simulation-erd.svg) · [Editable Mermaid source](diagrams/sources/schedule-simulation-erd.mmd).
+
+The earlier [physical schema image](diagrams/data/physical-schema.png) and [schedule-storage design](diagrams/data/schedule-storage-design.png) remain available as detailed supporting references. The table-by-table definitions follow.
 
 ## categories
 

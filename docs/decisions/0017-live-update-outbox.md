@@ -10,6 +10,14 @@ Accepted. The durable half of #148 (contract, outbox, sequence allocation) lande
 transport half (tickets, WebSocket protocol, Redis publisher, subscriber and relay) is built
 against it and recorded under Consequences.
 
+## Diagram
+
+![Transactional outbox and delivery path](../diagrams/patterns/transactional-outbox.png)
+
+[Editable draw.io source](../diagrams/sources/transactional-outbox.drawio) · [SVG export](../diagrams/patterns/transactional-outbox.svg).
+
+For request ordering and retry failures, see the [simulation/live-update sequence](../diagrams/sequences/simulation-live-updates.png).
+
 ## Context
 
 A manager's playback control is appended to `simulation_events` and the REST response reports the

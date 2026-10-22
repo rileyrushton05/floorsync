@@ -11,6 +11,14 @@ the model's operation-machine decision policy separate from its own validation, 
 feasibility projection and schedule-version persistence. This prevents an ML inference result from
 ever bypassing production constraints.
 
+## Generation flow
+
+Generation runs asynchronously and creates a draft for review. The worker loads an input snapshot, runs the chosen solver outside a database transaction, then saves the result in a new transaction. Confirmation is a separate manager action.
+
+![Schedule generation, draft review and confirmation](diagrams/sequences/schedule-generation.png)
+
+[SVG export](diagrams/sequences/schedule-generation.svg) · [Editable Mermaid source](diagrams/sources/schedule-generation.mmd).
+
 ## Scheduling contract
 
 The engine receives an immutable `SchedulingInput`, assembled in one database transaction from:

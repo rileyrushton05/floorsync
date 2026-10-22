@@ -1,0 +1,59 @@
+sequenceDiagram
+    autonumber
+    participant C as Dashboard clients
+    participant API as Simulation API
+    participant DB as PostgreSQL
+    participant P as Immediate publisher
+    participant Q as Retry relay
+    participant R as Redis pub/sub
+    participant W as Subscriber and hub
+
+    C->>API: Manager submits playback control
+    rect rgb(230, 243, 252)
+        Note over API,DB: One caller-owned database transaction
+        API->>DB: SELECT simulation FOR UPDATE
+        API->>API: Validate control against locked state
+        API->>DB: Append control event and update projection
+        API->>DB: Load schedule entries and control history
+        API->>API: Build timeline and replay events
+        API->>DB: Allocate sequence and insert outbox envelope
+        API->>DB: COMMIT event, projection and outbox together
+        Note over API,DB: A rollback persists neither the event nor its notification
+    end
+
+    API->>P: Publish committed outbox row
+    P->>DB: Read unpublished row in separate transaction
+    P->>R: PUBLISH validated simulation.changed envelope
+    alt Redis accepts publication
+        P->>DB: Mark published in a separate transaction
+    else Publication fails
+        Note over P,DB: Leave row unpublished for the relay
+    end
+    P-->>API: Attempt finished, delivery errors contained
+    API-->>C: 200 authoritative position from committed control
+
+    opt Unpublished rows are due
+        Q->>DB: Claim batch with FOR UPDATE SKIP LOCKED
+        DB-->>Q: Locked due rows
+        Q->>R: Retry PUBLISH
+        alt Redis accepts retry
+            Q->>DB: Mark published and commit relay transaction
+        else Redis fails
+            Q->>DB: Record failure and next_attempt_at, commit
+            Note over Q,R: Stop batch, retry later with capped backoff
+        end
+    end
+
+    Note over P,Q: Publish-before-mark races can produce duplicate messages
+    Note over R,W: Redis acceptance is not a browser delivery acknowledgement
+    opt A notification reaches a subscribed client
+        R-->>W: Versioned change envelope
+        W-->>C: WebSocket simulation.changed with playback anchor
+        C->>API: Refetch current simulation through REST
+        API->>DB: Load schedule entries and control history
+        DB-->>API: Stored records
+        API->>API: Build timeline and replay events at server time
+        API-->>C: Position, playback flags and derived_at
+    end
+    Note over C,API: Refresh, reconnect and fallback polling use the same REST read
+    Note over C,W: Notifications may arrive before or after the control response

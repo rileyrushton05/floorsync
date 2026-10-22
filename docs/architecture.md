@@ -4,25 +4,30 @@
 
 This document describes the FloorSync development foundation: the services that run locally, their code boundaries and the interfaces used to connect them.
 
-## Current architecture
+See the [core system diagrams](diagrams/README.md) or the
+[offline viewer](diagrams/index.html) for the architecture, data model and key runtime flows.
 
-```mermaid
-flowchart TB
-    browser["Browser / Next.js frontend"]
-    api["FastAPI API"]
-    ws["WebSocket endpoint\n/ws"]
-    worker["Generic Celery worker"]
-    redis[("Redis")]
-    postgres[("PostgreSQL")]
+## System architecture
 
-    browser -->|"HTTP"| api
-    browser -->|"WebSocket"| ws
-    ws --- api
-    api --> redis
-    worker --> redis
-    api -->|"SQLAlchemy asyncpg sessions"| postgres
-    worker -->|"SQLAlchemy psycopg sessions"| postgres
-```
+![FloorSync system architecture](diagrams/architecture/system-architecture.png)
+
+[Open the full-size architecture diagram](diagrams/architecture/system-architecture.png).
+
+## Backend components
+
+The component view looks inside the FastAPI application container. The web application, PostgreSQL and Redis remain outside this boundary.
+
+![FloorSync backend components](diagrams/architecture/backend-components.png)
+
+[Editable draw.io source](diagrams/sources/backend-components.drawio) · [SVG export](diagrams/architecture/backend-components.svg).
+
+## Reliability and playback
+
+The [transactional outbox](diagrams/patterns/transactional-outbox.png) makes the simulation change and its notification atomic; publication and retries happen after commit. [Decision 0017](decisions/0017-live-update-outbox.md) contains the diagram and its delivery guarantees.
+
+The [event-sourced playback diagram](diagrams/patterns/event-sourced-playback.png) separates authoritative event replay from local animation. [Decision 0010](decisions/0010-event-sourced-simulated-time.md) contains the diagram and the clock-authority rationale.
+
+For request ordering, see the [schedule-generation sequence](diagrams/sequences/schedule-generation.png) and [simulation/live-update sequence](diagrams/sequences/simulation-live-updates.png).
 
 ## Component responsibilities
 
@@ -33,7 +38,7 @@ flowchart TB
 | `src/backend/common/` | Code shared by API and workers: settings, SQLAlchemy models, async sessions, typed contracts and domain utilities. |
 | `src/backend/workers/` | Celery application and asynchronous task modules. Workers consume jobs from Redis. |
 | `src/database/` | Alembic migrations and seed data. This is the database workstream’s ownership area. |
-| Redis | Celery broker and result backend. It can also support event publication for live updates. |
+| Redis | Celery broker and result backend. It also carries live-update publication and one-time WebSocket tickets. |
 | PostgreSQL | Relational data store for application data. |
 
 Product API code is organised by feature, while shared database infrastructure and ORM models remain
@@ -50,7 +55,7 @@ documented in [scheduling.md](scheduling.md).
 | Interface | Purpose |
 | --- | --- |
 | `GET /health` | Confirms that the FastAPI service is running. |
-| `WS /ws` | Accepts a client, sends `{"type":"connected"}`, and keeps the connection open. |
+| `WS /ws` | Authenticates using a single-use ticket, authorises simulation subscriptions, and sends snapshot/change notifications. |
 | Celery worker | Runs asynchronous task modules with Redis connectivity. |
 | API database session | Provides request-scoped async database access to API routes. |
 | Worker database scope | Provides a synchronous, process-local transaction for Celery tasks. |

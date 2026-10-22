@@ -1,0 +1,177 @@
+[
+  {
+    "id": "floorsync-architecture",
+    "title": "System architecture",
+    "kind": "Architecture",
+    "description": "FloorSync architecture diagram supplied by the team.",
+    "source": "architecture/system-architecture.png",
+    "image": "architecture/system-architecture.png",
+    "renderer": "image",
+    "sources": [],
+    "documents": [
+      {
+        "path": "../architecture.md",
+        "title": "Architecture"
+      }
+    ]
+  },
+  {
+    "id": "floorsync-backend-components",
+    "title": "Backend components",
+    "kind": "C4 Level 3 \u00b7 Component diagram",
+    "description": "A closer view of the FastAPI container: REST and WebSocket entry points, production management, scheduling orchestration, simulation playback, database access and live-update delivery. Next.js, PostgreSQL and Redis remain outside this container. The scheduling solver runs in the separate worker. Components group related implementation modules; transport glue and routine dependencies are simplified.",
+    "source": "sources/backend-components.drawio",
+    "image": "architecture/backend-components.png",
+    "vector": "architecture/backend-components.svg",
+    "renderer": "drawio",
+    "sources": [
+      "src/backend/api/floorsync_api/features",
+      "src/backend/api/floorsync_api/main.py",
+      "src/backend/common/floorsync_common/simulation/service.py",
+      "src/backend/common/floorsync_common/live_updates/service.py"
+    ],
+    "documents": [
+      {
+        "path": "../architecture.md",
+        "title": "Architecture"
+      }
+    ]
+  },
+  {
+    "id": "floorsync-transactional-outbox",
+    "title": "Transactional outbox",
+    "kind": "Architectural pattern \u00b7 Durable live updates",
+    "description": "The control event, readable simulation projection and outbox notification commit in one database transaction. Immediate publishing and the retry relay run after that commit. Redis acceptance marks publication, not browser receipt. Clients refetch REST state when notified.",
+    "source": "sources/transactional-outbox.drawio",
+    "image": "patterns/transactional-outbox.png",
+    "vector": "patterns/transactional-outbox.svg",
+    "renderer": "drawio",
+    "decision": "../decisions/0017-live-update-outbox.md",
+    "decision_title": "ADR 0017 \u00b7 Transactional outbox and versioned notifications",
+    "sources": [
+      "src/backend/api/floorsync_api/features/simulation/router.py",
+      "src/backend/common/floorsync_common/live_updates/service.py",
+      "src/backend/api/floorsync_api/features/live_updates/publisher.py",
+      "src/backend/api/floorsync_api/features/live_updates/outbox_relay.py"
+    ],
+    "documents": [
+      {
+        "path": "../decisions/0017-live-update-outbox.md",
+        "title": "Outbox decision"
+      }
+    ]
+  },
+  {
+    "id": "floorsync-event-sourced-playback",
+    "title": "Event-sourced playback",
+    "kind": "Architectural pattern \u00b7 Simulation authority",
+    "description": "Control history is the authority for simulated time. The server replays saved events against the schedule makespan at read time. Stored status and speed are a readable projection. The browser animates between fresh authoritative REST positions and resynchronises after refresh, reconnect or live notifications.",
+    "source": "sources/event-sourced-playback.drawio",
+    "image": "patterns/event-sourced-playback.png",
+    "vector": "patterns/event-sourced-playback.svg",
+    "renderer": "drawio",
+    "decision": "../decisions/0010-event-sourced-simulated-time.md",
+    "decision_title": "ADR 0010 \u00b7 Event-sourced simulated time",
+    "sources": [
+      "src/backend/common/floorsync_common/simulation/events.py",
+      "src/backend/common/floorsync_common/simulation/service.py",
+      "src/backend/common/floorsync_common/simulation/floorsync.py",
+      "src/frontend/features/schedules/model/simulation.ts"
+    ],
+    "documents": [
+      {
+        "path": "../decisions/0010-event-sourced-simulated-time.md",
+        "title": "Playback decision"
+      }
+    ]
+  },
+  {
+    "id": "production-data-erd",
+    "title": "Production and account data",
+    "kind": "Entity relationship diagram",
+    "description": "Key fields are shown; all tables also have UUID identifiers and timestamp mixins. Compatibility owns machine-specific operation duration. Operation.position is display order; Dependency owns precedence, including cross-job edges. An operator must have one machine; a manager must have none.",
+    "sources": [
+      "src/backend/common/floorsync_common/database/models"
+    ],
+    "source": "sources/production-data-erd.mmd",
+    "image": "data/production-data-erd.png",
+    "renderer": "mermaid",
+    "vector": "data/production-data-erd.svg",
+    "documents": [
+      {
+        "path": "../database-schema.md",
+        "title": "Database schema"
+      }
+    ]
+  },
+  {
+    "id": "schedule-simulation-erd",
+    "title": "Schedules, simulation and delivery data",
+    "kind": "Entity relationship diagram",
+    "description": "Key fields are shown; dashed associations to the outbox are intentionally absent: aggregate_id is not a foreign key. A schedule has at most one simulation. Generated assignment duration and cost are snapshots; end times and machine queue positions are derived. See the production ERD for jobs, operations, machines and users.",
+    "sources": [
+      "src/backend/common/floorsync_common/database/models"
+    ],
+    "source": "sources/schedule-simulation-erd.mmd",
+    "image": "data/schedule-simulation-erd.png",
+    "renderer": "mermaid",
+    "vector": "data/schedule-simulation-erd.svg",
+    "documents": [
+      {
+        "path": "../database-schema.md",
+        "title": "Database schema"
+      }
+    ]
+  },
+  {
+    "id": "schedule-generation-sequence",
+    "title": "Generate and review a schedule",
+    "kind": "UML sequence diagram",
+    "description": "The API returns before solving. Each worker read/write transaction is short; inference holds no database transaction. A successful result is a draft that requires a separate manager confirmation. Exact solver time limits can return a feasible plan without proving optimality.",
+    "sources": [
+      "src/backend/api/floorsync_api/features/schedules/router.py",
+      "src/backend/workers/floorsync_workers/tasks/schedules.py"
+    ],
+    "source": "sources/schedule-generation.mmd",
+    "image": "sequences/schedule-generation.png",
+    "renderer": "mermaid",
+    "vector": "sequences/schedule-generation.svg",
+    "documents": [
+      {
+        "path": "../scheduling.md",
+        "title": "Scheduling design"
+      },
+      {
+        "path": "../scheduling-simulation-backend.md",
+        "title": "Scheduling and simulation backend"
+      }
+    ]
+  },
+  {
+    "id": "simulation-live-updates-sequence",
+    "title": "Simulation control and durable live updates",
+    "kind": "UML sequence diagram",
+    "description": "Shows the shared control/outbox commit, a best-effort immediate publication, independent relay retries with SKIP LOCKED, and authoritative REST recovery. Publish/mark races can repeat notifications. The current browser refetches on updates rather than applying event deltas; notifications may arrive before or after the control response.",
+    "sources": [
+      "src/backend/api/floorsync_api/features/simulation/router.py",
+      "src/backend/common/floorsync_common/simulation/service.py",
+      "src/backend/api/floorsync_api/features/live_updates",
+      "src/frontend/core/live-updates/useLiveUpdates.ts",
+      "src/backend/api/floorsync_api/features/live_updates/outbox_relay.py"
+    ],
+    "source": "sources/simulation-live-updates.mmd",
+    "image": "sequences/simulation-live-updates.png",
+    "renderer": "mermaid",
+    "vector": "sequences/simulation-live-updates.svg",
+    "documents": [
+      {
+        "path": "../scheduling-simulation-backend.md",
+        "title": "Scheduling and simulation backend"
+      },
+      {
+        "path": "../decisions/0017-live-update-outbox.md",
+        "title": "Outbox decision"
+      }
+    ]
+  }
+]
