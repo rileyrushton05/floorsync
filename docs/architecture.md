@@ -8,21 +8,33 @@ This document describes the FloorSync development foundation: the services that 
 
 ```mermaid
 flowchart TB
-    browser["Browser / Next.js frontend"]
-    api["FastAPI API"]
-    ws["WebSocket endpoint\n/ws"]
-    worker["Generic Celery worker"]
-    redis[("Redis")]
-    postgres[("PostgreSQL")]
+    browser["Browser<br/>Next.js frontend"]
+    subgraph api["FastAPI API"]
+        rest["REST API /api/v1"]
+        ws["WebSocket /ws"]
+        relay["Outbox relay"]
+        sub["Redis subscriber"]
+    end
+    worker["Celery worker<br/>ReSched or Exact (Gurobi + CP-SAT)"]
+    redis[("Redis<br/>task queue, live-update pub/sub")]
+    postgres[("PostgreSQL<br/>data, schedules, simulations, outbox")]
 
-    browser -->|"HTTP"| api
-    browser -->|"WebSocket"| ws
-    ws --- api
-    api --> redis
-    worker --> redis
-    api -->|"SQLAlchemy asyncpg sessions"| postgres
-    worker -->|"SQLAlchemy psycopg sessions"| postgres
+    browser -->|"HTTP"| rest
+    browser <-->|"live updates"| ws
+    rest -->|"SQLAlchemy asyncpg"| postgres
+    rest -->|"enqueue generation"| redis
+    redis -->|"generation task"| worker
+    worker -->|"SQLAlchemy psycopg: draft schedule"| postgres
+    rest -->|"publish change"| redis
+    relay -->|"retry unsent outbox rows"| postgres
+    relay --> redis
+    redis --> sub --> ws
 ```
+
+A change that dashboards must see (for example a simulation control) is written to the outbox in
+the same transaction as the change, then published to Redis. Every API instance's subscriber
+forwards it to its connected WebSocket clients, and the relay retries any row that was not
+published ([ADR 0017](decisions/0017-live-update-outbox.md)).
 
 ## Component responsibilities
 
@@ -31,9 +43,9 @@ flowchart TB
 | `src/frontend/` | Next.js/TypeScript UI. Add application routes, reusable components and API/WebSocket clients here. |
 | `src/backend/api/` | FastAPI HTTP and WebSocket transport. Add request validation, API routes and connection handling here. |
 | `src/backend/common/` | Code shared by API and workers: settings, SQLAlchemy models, async sessions, typed contracts and domain utilities. |
-| `src/backend/workers/` | Celery application and asynchronous task modules. Workers consume jobs from Redis. |
+| `src/backend/workers/` | Celery tasks that generate schedules with ReSched or Exact. Workers consume tasks from Redis. |
 | `src/database/` | Alembic migrations and seed data. This is the database workstream’s ownership area. |
-| Redis | Celery broker and result backend. It can also support event publication for live updates. |
+| Redis | Celery broker and result backend, and publish and subscribe for live updates. |
 | PostgreSQL | Relational data store for application data. |
 
 Product API code is organised by feature, while shared database infrastructure and ORM models remain
@@ -45,15 +57,15 @@ The scheduling adapter is a pure shared-domain module so the API, worker and ben
 the same ReSched input/output translation. Its supported input contract and persistence boundary are
 documented in [scheduling.md](scheduling.md).
 
-## Interfaces available today
+## Interfaces
 
 | Interface | Purpose |
 | --- | --- |
-| `GET /health` | Confirms that the FastAPI service is running. |
-| `WS /ws` | Accepts a client, sends `{"type":"connected"}`, and keeps the connection open. |
-| Celery worker | Runs asynchronous task modules with Redis connectivity. |
-| API database session | Provides request-scoped async database access to API routes. |
-| Worker database scope | Provides a synchronous, process-local transaction for Celery tasks. |
+| `/api/v1/...` | The REST API, documented at `/docs` and in [openapi.json](openapi.json) |
+| `POST /api/v1/live-updates/tickets` | Issues a one-time ticket for opening the WebSocket |
+| `WS /ws` | Authenticates with a ticket, then streams the changes the client subscribed to |
+| `GET /health`, `/health/live`, `/health/ready`, `/health/live-updates` | Liveness and readiness checks; Compose waits on `/health/live` before starting the frontend and worker |
+| Celery `scheduling` queue | Schedule generation tasks, run by the worker |
 
 ## Dependency rule
 
