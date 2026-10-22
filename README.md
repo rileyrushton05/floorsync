@@ -1,161 +1,221 @@
-# DECO3801 / DECO7381 Team Project Repository
+# FloorSync
 
-This repository is the working space for your DECO3801 / DECO7381 team project.
+Flexible job shop scheduling, simulation and live operations management. DECO3801 project 13, Team 61
+(Cuffington & Co).
 
-Your team should use this repository to store your prototype code, design artefacts, documentation, project evidence, testing materials, deployment notes, and other relevant project work.
+A production manager selects jobs and generates a schedule that assigns every operation to a
+compatible machine with start and end times. The schedule then plays out in a time-driven
+simulation, while the manager watches every machine and job on a live overview and each operator
+follows their own machine's queue.
 
-This repository is also part of your project evidence. Teaching staff will use it to review team progress, project quality, decision-making, and individual contributions throughout the semester.
+## Submission documents
 
-Teams must keep the major folders for specification, design, documentation, evidence, source code, testing, and deployment. Teams may adapt the internal source-code structure to suit their project architecture.
+| Document | Location |
+| --- | --- |
+| Signed team cover sheet | [Signed Team Cover Sheet.pdf](Signed%20Team%20Cover%20Sheet.pdf) |
+| Original contribution statement | [Below](#original-contribution-statement) |
+| AI-use declarations | [ai-declarations.md](ai-declarations.md) |
+| Project brief | [spec/project-brief.png](spec/project-brief.png) |
+| Statement of Work and Team Charter | [spec/statement-of-work/](spec/statement-of-work/summary.md) |
 
----
+## Links
 
-## Repository Structure
+| What | Where |
+| --- | --- |
+| Repository | <https://github.com/Studio3Build-2026s2/team-61-cuffington-and-co> |
+| Project board (epics, features, user stories) | <https://github.com/orgs/Studio3Build-2026s2/projects/64> (course organisation members only) |
+| Deployment | None hosted: FloorSync runs locally with Docker Compose ([why](spec/requirements/requirement-changes.md), CHG-10) |
+| Benchmark instances | [ScheduleOpt benchmarks](https://github.com/ScheduleOpt/benchmarks), vendored in [src/database/seed-data/](src/database/seed-data/README.md) |
+| ReSched (baseline scheduler) | [XiangjieXiao/ReSched](https://github.com/XiangjieXiao/ReSched), included as a git submodule |
+| Gurobi academic licence (optional, for the Exact strategy) | <https://www.gurobi.com/academia/academic-program-and-licenses/> |
 
-```text
-project/
-├── deployment/
-│   └── README.md
-├── design/
-│   └── README.md
-├── docs/
-│   ├── meeting-notes/
-│   ├── decisions/
-│   └── risks/
-├── evidence/
-│   ├── weekly-contribution/
-│   ├── user-testing/
-│   └── screenshots/
-├── spec/
-│   ├── requirements.md
-│   ├── statement-of-work.md
-│   └── user-stories.md
-├── src/
-│   ├── frontend/
-│   ├── backend/
-│   └── database/
-│       ├── schema/
-│       ├── migrations/
-│       └── seed-data/
-└── tests/
-    ├── frontend/
-    ├── backend/
-    └── integration/
+## Getting started
+
+You need [Git](https://git-scm.com/downloads) and [Docker Desktop](https://docs.docker.com/get-docker/)
+(or Docker Engine with Compose v2.1 or later), running. On Windows, use WSL or Git Bash for the
+script.
+
+```bash
+git clone --recurse-submodules https://github.com/Studio3Build-2026s2/team-61-cuffington-and-co.git
+cd team-61-cuffington-and-co
+deployment/run-local.sh
 ```
 
----
+The script creates `.env`, runs `docker compose up --build -d --wait`, seeds a benchmark scenario
+and creates a manager account. Everything else (Python and Node packages, PostgreSQL and Redis
+images, the ReSched model weights) is downloaded during the first build, which takes several
+minutes. Later runs start in seconds.
 
-## Getting Started
+Then open <http://localhost:3000> and sign in as `manager` / `floorsync-dev`. Operators sign in
+with their machine's name, for example `abz5-m0` / `floorsync-dev`. The API documentation is at
+<http://localhost:8002/docs>.
 
-### FloorSync local foundation
-
-This project uses a small service layout that mirrors the planned system: Next.js frontend, FastAPI API, Redis-backed Celery workers and PostgreSQL. Database migrations are owned by the database workstream under `src/database/`; shared SQLAlchemy models and session infrastructure live in `src/backend/common/` so both the API and workers can use them.
-
-Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), and Node.js 22 or later (Corepack provides the pinned pnpm version).
+Without the script, the same steps by hand:
 
 ```bash
 cp .env.example .env
-make bootstrap
-make install-hooks # optional: run the full check suite before each push
-docker compose up --build -d
+docker compose up --build -d --wait
+docker compose run --rm api python -m floorsync_common.seed abz5
+docker compose run --rm api python scripts/create_manager.py
 ```
 
-Compose applies outstanding Alembic migrations before the API accepts traffic; the worker waits for
-that API health check. `make db-upgrade` remains available when you want to run the migration step
-manually.
+Stop with `docker compose stop`. The Exact strategy also needs a Gurobi licence file
+(`gurobi.lic`) in the repository root; without one, ReSched still works.
+[deployment/README.md](deployment/README.md) is the full guide: the deployment files, a demo
+walkthrough, the licence, configuration, troubleshooting and known limitations.
 
-Load a scenario to work against — an empty database has no jobs or machines:
+## Architecture
+
+Containers (C4 level 2):
+
+![FloorSync system architecture](docs/diagrams/architecture/system-architecture.png)
+
+Inside the FastAPI application (C4 level 3):
+
+![FloorSync backend components](docs/diagrams/architecture/backend-components.png)
+
+| Container | Technology | Role |
+| --- | --- | --- |
+| Frontend | Next.js, React, TypeScript, TanStack Query | Manager and operator pages in the browser |
+| API | FastAPI, SQLAlchemy (async), Alembic | REST API, WebSocket live updates, simulation clock, outbox relay |
+| Worker | Celery | Generates schedules with ReSched (learned policy) or Exact (Gurobi with OR-Tools CP-SAT) |
+| PostgreSQL | PostgreSQL 16 | Production data, schedules, simulations, accounts, live-update outbox |
+| Redis | Redis 7 | Celery broker, live-update publish and subscribe, one-time WebSocket tickets |
+
+How a schedule moves through the system, from the brief's pipeline:
+
+```mermaid
+flowchart LR
+    data["Jobs, machines<br/>(entered or imported)"] --> validate["Validate"]
+    validate --> generate["Generate on the worker<br/>(ReSched or Exact)"]
+    generate --> draft["Draft schedule"]
+    draft --> confirm["Confirm"]
+    confirm --> simulate["Simulate<br/>(one shared clock)"]
+    simulate --> manager["Manager overview"]
+    simulate --> operator["Operator view<br/>(one per machine)"]
+```
+
+Every diagram, including the outbox and playback patterns, the ERDs and the runtime sequences, is
+in the [diagram catalogue](docs/diagrams/README.md) with its editable source. The database schema is
+in [docs/database-schema.md](docs/database-schema.md), [docs/architecture.md](docs/architecture.md)
+covers code boundaries, and the [decision records](docs/decisions/README.md) explain the main
+choices.
+
+## Original contribution statement
+
+**Developed by the team**
+
+- **Frontend:** the sign-in page and every manager and operator page (Overview, Jobs, Import, Planner, Schedules,
+  Simulation, Machines, Settings, Operator), the schedule timeline, the job dependency graph and the
+  live-update client.
+- **Backend API:** every FastAPI feature (auth, machines, jobs and operations, schedules,
+  simulation, import, operator accounts, live updates) and the service layer behind them.
+- **Database:** the schema, all Alembic migrations, and the seed loader that reads the benchmark
+  formats.
+- **Scheduling:** input validation, the adapter that runs ReSched on FloorSync data, and the Exact
+  strategy. Exact is our implementation of critical-path logic-based Benders decomposition from
+  Naderi and Roshanaei (2022), with deliberate deviations listed at the top of
+  [FJSP_lbbd.py](src/backend/common/floorsync_common/scheduling/FJSP_lbbd.py). The first Exact
+  solver, a Gurobi MILP, followed the Dauzère-Pérès et al. formulation ([ADR 0014](docs/decisions/0014-fajsp_milp_formulation.md)).
+- **Simulation and live updates:** the server-side simulation clock, the transactional outbox,
+  the Redis relay and the WebSocket delivery with one-time tickets.
+- **File import:** the FloorSync JSON format, the benchmark-format readers and the dry run.
+- **Engineering and evaluation:** the automated tests, CI, Docker set-up, documentation, the
+  benchmark comparison and the usability study.
+
+**Used unchanged from existing sources**
+
+- **ReSched** learned scheduling policy and trained weights ([XiangjieXiao/ReSched](https://github.com/XiangjieXiao/ReSched), MIT):
+  the fast strategy and the evaluation baseline, called through our adapter.
+- **Benchmark instances and best known results** ([ScheduleOpt/benchmarks](https://github.com/ScheduleOpt/benchmarks), CC BY-SA 4.0):
+  the seed scenarios, import formats and evaluation data.
+
+**Adapted from existing sources**
+
+- **Intent UI** components ([intentui.com](https://intentui.com), MIT): buttons, fields, dialogs and
+  other parts in `src/frontend/components/ui/`, added from its registry and then edited.
+
+**Existing tools and libraries**
+
+Next.js, React, TypeScript, TanStack Query, React Aria and Tailwind CSS on the frontend; FastAPI,
+SQLAlchemy, Alembic, Pydantic and Celery on the backend; PostgreSQL and Redis for storage and
+messaging; Gurobi and OR-Tools CP-SAT inside the Exact strategy; PyTorch and NumPy to run ReSched.
+Every dependency and its licence is in [docs/external-resources/](docs/external-resources/README.md).
+
+**AI tools**
+
+Claude Code (five members) and Codex (one member) were used to explain concepts, weigh design
+options, debug, and help implement small parts of features step by step. They also generated code:
+mostly boilerplate, and close variations of a pattern after a member had implemented the first
+instance themselves. Every change was reviewed, tested and committed by a team member. Details and prompt logs are in
+[ai-declarations.md](ai-declarations.md).
+
+## Repository map
+
+```text
+.
+├── deployment/          setup guide and run-local.sh
+├── design/              inspiration, wireframes and UI evolution
+├── docs/                architecture, conventions, decisions, risks, meeting notes
+│   ├── decisions/       architecture decision records (ADRs)
+│   ├── diagrams/        architecture, pattern, data and sequence diagrams
+│   ├── meeting-notes/   team and client meeting minutes
+│   └── risks/           risk register
+├── evidence/            evaluation and contribution evidence
+│   ├── ai-prompts/      each member's AI prompt log
+│   ├── benchmarks/      ReSched against Exact results and charts
+│   ├── testing/         backend test and coverage evidence
+│   ├── user-testing/    usability test plan, script and results
+│   ├── weekly-contribution/  weekly contribution reviews
+│   └── traceability.md  testing findings traced to fixes and tests
+├── scripts/             create_manager.py, OpenAPI export, benchmark script
+├── spec/                requirements, statement of work and team charter, user stories
+├── src/
+│   ├── frontend/        Next.js app (features/, core/, components/)
+│   ├── backend/
+│   │   ├── api/         FastAPI routes and schemas, one folder per feature
+│   │   ├── common/      shared services, models, scheduling and simulation
+│   │   ├── workers/     Celery scheduling tasks
+│   │   └── third_party/ ReSched (git submodule)
+│   └── database/
+│       ├── migrations/  Alembic migrations
+│       └── seed-data/   benchmark instances and their solutions
+└── tests/
+    ├── backend/         unit and API tests
+    └── integration/     tests against a real PostgreSQL
+```
+
+## Development
 
 ```bash
-make db-seed-list          # which scenarios are available
-make db-seed instance=abz5 # load one (replaces whatever was loaded before)
+make bootstrap       # once: submodules, uv sync, pnpm install
+make check           # formatting, linting, type checks, tests, frontend build, OpenAPI check
+make install-hooks   # optional: run make check before every push
 ```
 
-Scenarios are standard benchmark instances, in two kinds. **Job shop** instances (`ft06`, `abz5`,
-`bel00`, …) fix each operation to one machine. **Flexible job shop** instances (`fattahi1`,
-`kacem1`, `dafjs01`, `behnke58`) give each operation several machines to choose between, so machine
-selection is part of the scheduling problem. `db-seed-list` groups them by kind.
+`make check` needs [uv](https://docs.astral.sh/uv/) and Node.js 22 on the host. CI runs the same
+gate on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/pull-requests.md](docs/pull-requests.md) describe how changes are made and reviewed.
 
-Seeding replaces the current scenario rather than adding to it, so the database always holds exactly
-one. Where a solved schedule exists for an instance it is loaded too, giving `/manager/simulation`
-something to play — that currently means `abz5`, `fattahi1`, `kacem1`, `dafjs01` and `behnke58`; the
-others load the problem alone. See [`src/database/seed-data/`](src/database/seed-data/README.md) for
-what each instance is and what it does and does not populate.
+## Documentation and evidence
 
-### Create an account
+- [System diagrams](docs/diagrams/README.md): architecture, components, outbox and playback patterns, ERDs and runtime sequences
+- [Specification](spec/README.md): requirements, success criteria, changes and user stories
+- [Design](design/README.md): inspiration, wireframes and how the UI evolved
+- [Scheduling](docs/scheduling.md) and [the scheduling and simulation backend](docs/scheduling-simulation-backend.md)
+- [Importing production data](docs/importing.md) and [accounts and signing in](docs/accounts.md)
+- [Decision records](docs/decisions/README.md), [risk register](docs/risks/README.md) and [meeting notes](docs/meeting-notes/README.md)
+- [Benchmarks](evidence/benchmarks/), [testing](evidence/testing/README.md), [user testing](evidence/user-testing/README.md) and [traceability](evidence/traceability.md)
+- [Weekly contribution reviews](evidence/weekly-contribution/README.md)
+- [All documentation](docs/README.md)
 
-There is no sign-up page, because the API has no registration route — the app cannot be signed into
-until an account exists. Create a manager, editing the three constants first:
+## Team
 
-```bash
-docker compose run --rm api python -c "
-import asyncio
-from floorsync_common.database.models.user import User
-from floorsync_common.database.models.user_credential import UserCredential
-from floorsync_common.database.session import session_scope
-from floorsync_common.users import UserService
-
-NAME = 'Ada Manager'
-USERNAME = 'manager'
-PASSWORD = 'floorsync-dev'
-
-async def main():
-    async with session_scope() as session:
-        user = User(name=NAME, role='manager')
-        session.add(user)
-        await session.flush()
-        session.add(
-            UserCredential(
-                user_id=user.id,
-                username=USERNAME,
-                password_hash=UserService.hash_password(PASSWORD),
-            )
-        )
-        print('created', USERNAME, user.id)
-
-asyncio.run(main())
-"
-```
-
-Sign in with that at <http://localhost:3000/login>. The username must be lowercase, and the password
-is hashed with Argon2 before it is stored.
-
-[docs/accounts.md](docs/accounts.md) covers the rest: machine-bound operator accounts, listing
-accounts, resetting a password, disabling one, and why operators must be created *after* seeding.
-
-### Exact solver (Gurobi)
-
-The scheduler's "Exact" strategy runs the FAJSP MILP through Gurobi, which needs a license to solve
-anything beyond a trivial size. Drop your license file at the repo root as `gurobi.lic` — the worker
-container already mounts the whole repo at `/app` and has `GRB_LICENSE_FILE=/app/gurobi.lic` set, so
-nothing else to configure. `gurobi.lic` is gitignored; never commit it. Restart the worker after adding
-it: `docker compose up -d worker`. Without a license, "Exact" runs still queue but fail once Gurobi
-rejects the model — the "ReSched" strategy is unaffected either way.
-
-Open the frontend at <http://localhost:3000>, API health at <http://localhost:8002/health>, and FastAPI docs at <http://localhost:8002/docs>.
-The PostgreSQL and API host ports default to `5433` and `8002`; override
-`POSTGRES_HOST_PORT`, `API_HOST_PORT`, and the matching `NEXT_PUBLIC_API_URL` in `.env`
-when those ports are unavailable. The frontend's `3000` and Redis's `6379` are fixed in
-`docker-compose.yml`, so a clash there — a stray `pnpm dev`, a local Redis — has to be resolved by
-stopping the other process or editing the compose file.
-
-[deployment/README.md](deployment/README.md) is the full version of this: required software,
-every environment variable, a demo walkthrough, troubleshooting and known limitations.
-
-Dependencies are managed with `uv` and pnpm. Docker uses committed lockfiles with frozen installs. Run the complete local quality gate before opening a PR:
-
-```bash
-make check
-```
-
-`make check` runs Python formatting, linting, typing and tests, then frontend linting, type checking and a production build. The optional Git hook installed by `make install-hooks` runs the same suite before every push; use `git push --no-verify` only when a failing check is clearly understood and noted in the PR.
-
-Tests that need a real PostgreSQL live in `tests/integration` and skip when none is reachable, so `make check` never needs one. With the Compose database up (`docker compose up -d postgres`), `make test-integration` runs them against a separate `floorsync_test` database that they create, migrate and empty themselves. In CI, the backend job starts a PostgreSQL container and runs them only when a pull request touches migrations, database models, simulation, live updates or dependencies, so other pull requests spend no extra Actions minutes on them.
-
-See [the technical foundation](docs/architecture.md) for component boundaries and tooling decisions.
-
-This repository has already been created for your team, with all team members and teaching staff added.
-
-Use this repository for all of your team's project work. Update this `README.md` to match your project, and start using issues, branches, commits, pull requests, and GitHub Projects from the beginning of the semester.
-
-Your repository is part of your project evidence. It should show regular progress, not only final submission files.
+| Member | GitHub | Responsibility |
+| --- | --- | --- |
+| Riley Rushton | [rileyrushton05](https://github.com/rileyrushton05) | Domain models and data: schema, migrations, seeding, data APIs, import, schedule lifecycle |
+| Jason Zhong | [jzhong00](https://github.com/jzhong00) | System foundations: scaffold, conventions, authentication, CI, frontend architecture |
+| Ben Cuffe | [Wugene1](https://github.com/Wugene1) | Scheduling engine: the Exact solver and the benchmark evaluation |
+| Beth McMeechan | [bethmcm16](https://github.com/bethmcm16) | Production simulation: simulation engine, live updates, usability testing |
+| Xavier Alderson | [xjalder](https://github.com/xjalder) | Frontend interfaces: dashboards, planner, simulation playback, settings |
+| Jayden Phan | [jjjeidennn](https://github.com/jjjeidennn) | Frontend interfaces: manager pages, UI polish, design |

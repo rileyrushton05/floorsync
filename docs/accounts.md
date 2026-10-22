@@ -45,43 +45,17 @@ against the same database. The stack does not need to be idle, and nothing here 
 
 ## Create a manager account
 
-Edit the three constants at the top, then run it as one command:
-
 ```bash
-docker compose run --rm api python -c "
-import asyncio
-from floorsync_common.database.models.user import User
-from floorsync_common.database.models.user_credential import UserCredential
-from floorsync_common.database.session import session_scope
-from floorsync_common.users import UserService
-
-NAME = 'Ada Manager'
-USERNAME = 'manager'
-PASSWORD = 'floorsync-dev'
-
-async def main():
-    async with session_scope() as session:
-        user = User(name=NAME, role='manager')
-        session.add(user)
-        await session.flush()
-        session.add(
-            UserCredential(
-                user_id=user.id,
-                username=USERNAME,
-                password_hash=UserService.hash_password(PASSWORD),
-            )
-        )
-        print('created', USERNAME, user.id)
-
-asyncio.run(main())
-"
+docker compose run --rm api python scripts/create_manager.py
 ```
 
-`USERNAME` must be lowercase and `PASSWORD` is hashed with Argon2 before it is stored — the plain
-value is never written to the database.
+[`scripts/create_manager.py`](../scripts/create_manager.py) creates username `manager` with password
+`floorsync-dev`. Edit the three constants at the top of the script (`NAME`, `USERNAME`, `PASSWORD`)
+first for a different account. `USERNAME` must be lowercase, and `PASSWORD` is hashed with Argon2
+before it is stored, so the plain value is never written to the database. Running it again with a
+username that is taken fails with a unique-constraint error and creates nothing.
 
-A manager is enough to sign in and use `/manager/simulation`, which is the one route that reads from
-the API today.
+A manager can sign in and use every manager page.
 
 ## Operator accounts
 

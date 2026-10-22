@@ -21,6 +21,7 @@ Medium
 - Implement database indexing for frequently queried fields
 - **(Checkpoint 2)** Done: cursor pagination is now used end to end for jobs and machines data (a shared page-walking helper fetches every page before the scheduler preview calculates counts), closing the earlier gap where the preview only read the first 100 records
 - **(Checkpoint 2)** Remaining: no large-scale timing benchmark evidence has been recorded yet, so generation-time behaviour at scale is still unproven
+- **(Final, 22 Oct)** Done: benchmarks recorded. Exact proved optimality on 18 of 23 instances within 600 s; on the other 5 it returned its best schedule at the time limit, within 1.75% of the best known result. The product caps a run at 120 s
 
 ## Contingency Plan
 
@@ -29,6 +30,10 @@ Medium
 - Compress data sent to the client
 - Allow users to archive or archive old data
 
+## Owner
+
+Ben
+
 ## Status
 
-Open
+Resolved

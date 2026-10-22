@@ -1,0 +1,73 @@
+erDiagram
+    schedules {
+      uuid id PK
+      text status "draft / confirmed / discarded"
+      text name "nullable"
+      text strategy
+      datetime starts_at
+      int runtime_ms "nullable"
+      int makespan "nullable"
+      numeric total_energy "nullable"
+      numeric total_labour_cost "nullable"
+      uuid confirmed_by_user_id FK "nullable"
+      datetime confirmed_at "nullable"
+    }
+    schedule_entries {
+      uuid id PK
+      uuid schedule_id FK
+      uuid operation_id FK
+      uuid machine_id FK
+      datetime start_time "nullable; generated rows populate it"
+      int duration "snapshot in minutes"
+      numeric energy "nullable snapshot"
+      numeric machine_salary "nullable snapshot"
+    }
+    schedule_dependencies {
+      uuid id PK
+      uuid schedule_entry_id FK
+      uuid depends_on_schedule_entry_id FK
+      text reason "job_order / machine_queue"
+    }
+    schedule_job_selections {
+      uuid id PK
+      uuid schedule_id FK
+      uuid job_id FK
+    }
+    simulations {
+      uuid id PK
+      uuid schedule_id FK,UK
+      text status
+      numeric speed
+      datetime started_at "nullable"
+      datetime completed_at "nullable"
+      bigint live_sequence
+    }
+    simulation_events {
+      uuid id PK
+      uuid simulation_id FK
+      text event_type
+      datetime occurred_at
+      numeric speed "nullable"
+      double position "only for seeked"
+    }
+    live_update_outbox {
+      uuid id PK
+      text topic "simulation.changed"
+      uuid aggregate_id "NOT a foreign key"
+      bigint sequence "unique with aggregate_id"
+      jsonb payload
+      datetime published_at "nullable"
+      int attempt_count
+      datetime next_attempt_at
+      text last_error_code "nullable"
+    }
+    users o|--o{ schedules : confirms
+    schedules ||--o{ schedule_entries : records
+    operations ||--o{ schedule_entries : assigned_as
+    machines ||--o{ schedule_entries : processes
+    schedules ||--o{ schedule_job_selections : requested
+    jobs ||--o{ schedule_job_selections : selected
+    schedule_entries ||--o{ schedule_dependencies : waits
+    schedule_entries ||--o{ schedule_dependencies : prerequisite
+    schedules ||--o| simulations : plays
+    simulations ||--o{ simulation_events : logs

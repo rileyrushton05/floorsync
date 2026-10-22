@@ -20,6 +20,7 @@ Medium
 - Use client-side caching to reduce server load
 - **(Checkpoint 2)** Done: authenticated WebSocket live-update transport (tickets, `/ws`, subscriber, relay) merged (#292), replacing polling
 - **(Checkpoint 2)** Remaining: #161, the two-instance fault-injection and recovery verification (Redis or API-instance restart, reconnect, stale-state handling), is still open, so resilience under a real failure is unproven
+- **(Final, 22 Oct)** Done: #161 closed 19 Oct; integration tests cover outbox delivery, restart and cross-instance delivery (`tests/integration/test_live_update_*.py`), and clients refetch after reconnecting
 
 ## Contingency Plan
 
@@ -28,6 +29,10 @@ Medium
 - Increase server resources (if applicable) to handle the load
 - Fall back to polling with reasonable intervals if WebSockets fail
 
+## Owner
+
+Beth
+
 ## Status
 
-Open
+Resolved
