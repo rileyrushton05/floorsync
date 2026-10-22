@@ -13,10 +13,16 @@ from fastapi.responses import JSONResponse
 
 from floorsync_api.dependencies.authentication import require_roles
 from floorsync_api.dependencies.database import DbSession
-from floorsync_api.features.imports.schemas import ImportIssueResponse, ImportReportResponse
+from floorsync_api.features.imports.schemas import (
+    ImportIssueResponse,
+    ImportJobPreviewResponse,
+    ImportOperationPreviewResponse,
+    ImportReportResponse,
+    ImportRoutePreviewResponse,
+)
 from floorsync_api.problems import ProblemDetail, problem_response
 from floorsync_common.database.models.user import User
-from floorsync_common.imports.plan import ImportIssue
+from floorsync_common.imports.plan import ImportIssue, ImportPlan, PlannedJob
 from floorsync_common.imports.results import (
     FileUnreadable,
     ImportApplied,
@@ -81,7 +87,7 @@ async def import_file(
     match read:
         case FileUnreadable(issues=issues):
             if dry_run:
-                return _report(None, dry_run=True, issues=issues, warnings=())
+                return _report(None, None, dry_run=True, issues=issues, warnings=())
             return _import_invalid(request, issues, warnings=())
         case PlanRead(plan=plan):
             async with db.begin() as transaction:
@@ -94,15 +100,24 @@ async def import_file(
                     case ImportApplied(summary=summary, job_ids=job_ids, warnings=warnings):
                         if dry_run:
                             await transaction.rollback()
-                            return _report(summary, dry_run=True, issues=(), warnings=warnings)
+                            return _report(
+                                summary, plan, dry_run=True, issues=(), warnings=warnings
+                            )
                         return _report(
-                            summary, dry_run=False, issues=(), warnings=warnings, job_ids=job_ids
+                            summary,
+                            plan,
+                            dry_run=False,
+                            issues=(),
+                            warnings=warnings,
+                            job_ids=job_ids,
                         )
                     case ImportRejected(summary=summary, issues=issues, warnings=warnings):
                         # Nearly always nothing to undo, but a late refusal follows machine inserts.
                         await transaction.rollback()
                         if dry_run:
-                            return _report(summary, dry_run=True, issues=issues, warnings=warnings)
+                            return _report(
+                                summary, plan, dry_run=True, issues=issues, warnings=warnings
+                            )
                         return _import_invalid(request, issues, warnings=warnings)
                     case _:
                         assert_never(result)
@@ -112,6 +127,7 @@ async def import_file(
 
 def _report(
     summary: ImportSummary | None,
+    plan: ImportPlan | None,
     *,
     dry_run: bool,
     issues: Sequence[ImportIssue],
@@ -125,10 +141,79 @@ def _report(
             "dry_run": dry_run,
             "importable": not issues,
             "summary": summary,
+            "jobs": None if plan is None else _job_previews(plan, issues, warnings),
             "job_ids": job_ids,
             "issues": issues,
             "warnings": warnings,
         }
+    )
+
+
+def _job_previews(
+    plan: ImportPlan, issues: Sequence[ImportIssue], warnings: Sequence[ImportIssue]
+) -> list[ImportJobPreviewResponse]:
+    # Every place in the file that belongs to a job. An issue is about the job whose place is its
+    # location, or the longest prefix of it that ends at a `.` or `[`. Locations differ by format
+    # (`jobs[0].operations[1]`, `data (job 0, operation 1)`), so they are matched, not parsed.
+    owners: dict[str, int] = {}
+    for index, job in enumerate(plan.jobs):
+        owners[job.location] = index
+        for operation in job.operations:
+            owners[operation.location] = index
+            for route in operation.routes:
+                owners[route.location] = index
+
+    def owner(issue: ImportIssue) -> int | None:
+        location = issue.location
+        if location is None:
+            return None
+        if location in owners:
+            return owners[location]
+        for end in range(len(location) - 1, 0, -1):
+            if location[end] in ".[" and location[:end] in owners:
+                return owners[location[:end]]
+        return None
+
+    job_issues: list[list[ImportIssue]] = [[] for _ in plan.jobs]
+    job_warnings: list[list[ImportIssue]] = [[] for _ in plan.jobs]
+    for issue in issues:
+        if (owned := owner(issue)) is not None:
+            job_issues[owned].append(issue)
+    for warning in warnings:
+        if (owned := owner(warning)) is not None:
+            job_warnings[owned].append(warning)
+
+    return [
+        _job_preview(job, job_issues[index], job_warnings[index])
+        for index, job in enumerate(plan.jobs)
+    ]
+
+
+def _job_preview(
+    job: PlannedJob, issues: Sequence[ImportIssue], warnings: Sequence[ImportIssue]
+) -> ImportJobPreviewResponse:
+    predecessors: list[list[int]] = [[] for _ in job.operations]
+    for before, after in ImportService.Validation.precedence_edges(job):
+        predecessors[after].append(before)
+    return ImportJobPreviewResponse(
+        name=job.name,
+        priority=job.priority,
+        location=job.location,
+        operations=[
+            ImportOperationPreviewResponse(
+                name=operation.name,
+                routes=[
+                    ImportRoutePreviewResponse(
+                        machine=route.machine, duration=route.duration, energy=route.energy
+                    )
+                    for route in operation.routes
+                ],
+                predecessors=predecessors[index],
+            )
+            for index, operation in enumerate(job.operations)
+        ],
+        issues=[ImportIssueResponse.model_validate(issue) for issue in issues],
+        warnings=[ImportIssueResponse.model_validate(issue) for issue in warnings],
     )
 
 

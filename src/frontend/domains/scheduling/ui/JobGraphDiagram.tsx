@@ -1,5 +1,5 @@
 import { formatDuration } from "@/domains/scheduling/format";
-import { levelGroups, type PrecedenceNode } from "../model/dependencies";
+import { levelGroups, type PrecedenceNode } from "../precedence";
 import { useCanvasZoom } from "./useCanvasZoom";
 
 /** One operation as the diagram needs it: identity, a label, and what it costs. */
