@@ -4,54 +4,98 @@ How to set up, run and demonstrate FloorSync. It is written for someone who has 
 nothing else, so it assumes no verbal explanation from the team.
 
 FloorSync runs as five containers under Docker Compose: a Next.js frontend, a FastAPI API, a Celery
-worker, Redis and PostgreSQL. Everything below is local development; this repository has no hosted
-deployment (see [Known limitations](#known-limitations)).
+worker, Redis and PostgreSQL. Everything here is local; this repository has no hosted deployment
+(see [Known limitations](#known-limitations)).
+
+## Quick start
+
+With [Docker](https://docs.docker.com/get-docker/) running:
+
+```bash
+git clone --recurse-submodules <repository-url>
+cd team-61-cuffington-and-co
+deployment/run-local.sh
+```
+
+Then open <http://localhost:3000> and sign in as `manager` / `floorsync-dev`.
+
+[`run-local.sh`](run-local.sh) does every setup step in [Manual setup](#manual-setup): it creates
+`.env`, fetches the ReSched submodule, builds and starts the stack, waits until it is healthy, seeds
+the `abz5` scenario and creates the manager account. Running it again skips whatever is already
+done, so it is also the way to start the stack each day. `deployment/run-local.sh kacem1` seeds a
+different scenario on the first run.
+
+The first build takes several minutes, because the worker image installs PyTorch, OR-Tools and
+Gurobi's Python package.
+
+**It worked if** the script ends with "FloorSync is running" and `docker compose ps` shows `api`,
+`postgres` and `redis` as `healthy`.
+
+On Windows, run the script from Git Bash or WSL, or follow [Manual setup](#manual-setup), which
+gives a plain `docker compose` command for every step.
+
+## Deployment files
+
+| What | File | Purpose |
+| --- | --- | --- |
+| Deployment manifest | [`docker-compose.yml`](../docker-compose.yml) | Defines the five services, their ports, health checks, start order and the `postgres_data` volume. |
+| Container configuration | [`src/frontend/Dockerfile`](../src/frontend/Dockerfile) | Node 22 image; installs the frontend from `pnpm-lock.yaml` and runs Next.js on port 3000. |
+| Container configuration | [`src/backend/api/Dockerfile`](../src/backend/api/Dockerfile) | Python 3.12 image; installs the API from `uv.lock` and serves FastAPI on port 8000. Compose runs migrations before starting it. |
+| Container configuration | [`src/backend/workers/Dockerfile`](../src/backend/workers/Dockerfile) | Python 3.12 image with the `resched` and `exact` extras (PyTorch, Gurobi, OR-Tools) and the ReSched model; runs the Celery `scheduling` queue. |
+| Environment template | [`.env.example`](../.env.example) | Every setting with a working local default; copied to `.env`. See [Configuration](#configuration). |
+| Local execution script | [`run-local.sh`](run-local.sh) | One-command setup and start (above). |
+| Local execution scripts | [`Makefile`](../Makefile) | `db-seed`, `db-seed-list`, `db-upgrade`, `check`, `test-integration` and the other day-to-day commands. |
+| Local execution script | [`scripts/create_manager.py`](../scripts/create_manager.py) | Creates the first manager account. |
+
+The manifest, Dockerfiles and environment template stay where Docker expects them: Compose reads
+`docker-compose.yml` and `.env` from the repository root, and the Dockerfiles copy paths relative to
+the build contexts it sets (the repository root for the API and worker, `src/frontend` for the
+frontend). Moving them here would break `docker compose up`, the CI workflow and these links.
 
 ## Required software
 
 | Tool | Version | Needed for |
 | --- | --- | --- |
-| Docker (with Compose v2) | Any current release | Running the stack. This is the only hard requirement. |
+| Docker (with Compose v2.1 or later) | Any current release | Running the stack. This is the only hard requirement. |
 | Git | Any current release | Cloning, plus the ReSched submodule. |
 | [uv](https://docs.astral.sh/uv/) | Latest | Python tooling on the host: `make check`, tests, linting. |
 | Node.js | 22 or later | Frontend tooling on the host. Corepack supplies the pinned pnpm version. |
 | Gurobi licence | Optional | The **Exact** scheduling strategy only. See [Exact solver licence](#exact-solver-licence). |
 
-The images install their own dependencies from the committed lockfiles (`uv.lock`,
-`pnpm-lock.yaml`), so **uv and Node are not needed just to run the stack**. They are needed for the
-quality gate and the tests outside Docker.
+The images install their own dependencies from the committed lockfiles, so **uv and Node are not
+needed just to run the stack**. They are needed for the quality gate and the tests outside Docker.
 
-## First run
+## Manual setup
 
-```bash
-git clone --recurse-submodules <repository-url>
-cd team-61-cuffington-and-co
+These are the steps `run-local.sh` automates. Each `make` command has its plain `docker compose`
+equivalent beside it, for machines without `make`.
 
-cp .env.example .env          # required: compose reads .env through env_file
-docker compose up --build -d
-```
-
-- `cp .env.example .env` is not optional. The `api` and `worker` services declare `env_file: .env`,
-  so Compose fails outright without it.
-- `--recurse-submodules` fetches ReSched (`src/backend/third_party/ReSched`), which the worker image
-  copies in. If you cloned without it, run `git submodule update --init --recursive` (or
-  `make bootstrap`, which also installs the host tooling). Without ReSched the stack still starts
-  and sign-in works, but ReSched schedule generation does not.
-- The API applies any outstanding Alembic migrations before it starts serving, and the worker waits
-  for the API's health check. `make db-upgrade` runs migrations by hand if you need it.
-
-The first build takes several minutes: the worker image installs PyTorch, OR-Tools and Gurobi's
-Python package.
-
-### Load a scenario
-
-An empty database has no jobs and no machines, so most pages have nothing to show. Load one of the
-vendored benchmark instances:
+### 1. Configure and start
 
 ```bash
-make db-seed-list             # lists every instance below
-make db-seed instance=abz5
+cp .env.example .env                        # Windows: copy .env.example .env
+git submodule update --init --recursive     # or: make bootstrap (also installs host tooling)
+docker compose up --build -d --wait
 ```
+
+- `.env` is required. The `api` and `worker` services declare `env_file: .env`, so Compose fails
+  outright without it.
+- The submodule is ReSched (`src/backend/third_party/ReSched`). Without it the stack still starts
+  and sign-in works, but ReSched schedule generation does not. A copy of the repository without git
+  history (a ZIP download) has an empty folder here: clone
+  <https://github.com/XiangjieXiao/ReSched> into it at commit
+  `5f00020c692ab03120922bdb3b969090e3f79d3c`.
+- The API applies any outstanding database migrations before it starts serving, and the worker
+  waits for the API's health check. `--wait` returns once everything is up.
+
+### 2. Load a scenario
+
+An empty database has no jobs and no machines, so most pages have nothing to show.
+
+| `make` | Plain `docker compose` |
+| --- | --- |
+| `make db-seed-list` | `docker compose run --rm api python -m floorsync_common.seed --list` |
+| `make db-seed instance=abz5` | `docker compose run --rm api python -m floorsync_common.seed abz5` |
 
 | Family | Instances | Ships a solved schedule |
 | --- | --- | --- |
@@ -60,17 +104,17 @@ make db-seed instance=abz5
 
 - **Seed `abz5` for the demo.** It has 10 jobs on 10 machines, and its solved schedule is loaded as
   a confirmed schedule, so the Simulation page has something to play straight away.
-- Instances without a solution load the problem only (machines, jobs, operations) and report
+- Instances without a solution load the problem only and report
   `No solution available, so no schedule was created`. Generate one from the Planner instead.
 - `dafjs01` has operations that wait on several others (fan-in). Only the Exact strategy can
   schedule it.
 - Seeding **replaces** the current scenario rather than adding to it, so the database always holds
   exactly one. It also replaces the operator logins (see below).
 
-[`src/database/seed-data/`](../src/database/seed-data/README.md) describes each instance and its
-source and licence.
+[`src/database/seed-data/`](../src/database/seed-data/README.md) describes each instance, its source
+and its licence.
 
-### Create a manager account
+### 3. Create a manager account
 
 There is no sign-up page, so the first manager is created from the command line:
 
@@ -81,9 +125,8 @@ docker compose run --rm api python scripts/create_manager.py
 That creates username `manager`, password `floorsync-dev`. Edit the constants at the top of
 [`scripts/create_manager.py`](../scripts/create_manager.py) for a different name or password. Running
 it a second time fails with `duplicate key value violates unique constraint
-"uq_user_credentials_username"`, which means the account already exists.
-
-Manager accounts survive reseeding.
+"uq_user_credentials_username"`, which means the account already exists. Manager accounts survive
+reseeding.
 
 ### Operator accounts
 
@@ -111,62 +154,10 @@ imported or added on the Machines page.
 
 `docker compose ps` shows the whole stack. `api`, `postgres` and `redis` report a health state, so
 `healthy` there means more than "the container started". The worker has no health check; check it
-with `docker compose logs worker`.
+with `docker compose logs worker`. Any PostgreSQL client (TablePlus, DBeaver, `psql`) can open the
+database with the details above.
 
-Any PostgreSQL client (TablePlus, DBeaver, `psql`) can connect to the database with the details
-above.
-
-## Configuration
-
-`.env` is gitignored and `.env.example` is the committed template. Copying it gives working local
-defaults for every variable, so this table is for when a default does not suit, not a list of things
-to fill in.
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `floorsync` | Must agree with `DATABASE_URL` and `DATABASE_SYNC_URL`. |
-| `POSTGRES_HOST_PORT` | `5433` | Host port only. `5433` avoids a local PostgreSQL already on `5432`. |
-| `API_HOST_PORT` | `8002` | Change this **and** `NEXT_PUBLIC_API_URL` together. |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8002` | The browser's view of the API, not the container's. |
-| `DATABASE_URL` | asyncpg URL | Used by the API. Hostnames are service names (`postgres`, `redis`), not `localhost`. |
-| `DATABASE_SYNC_URL` | psycopg URL | Used by the Celery worker and Alembic. |
-| `REDIS_URL` / `CELERY_BROKER_URL` | db `0` / db `1` | Result backend and live updates / task broker. |
-| `LIVE_UPDATE_CHANNEL_PREFIX` | `floorsync.live` | Prefix of the live-update pub/sub channel; change it if environments share one Redis. |
-| `REDIS_SOCKET_TIMEOUT_SECONDS` | `2` | Connect and command timeout for live-update Redis calls, so a hanging Redis cannot hang the API. |
-| `ENVIRONMENT` | `development` | `production` enables the JWT secret check in [Secrets](#secrets). |
-| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `human` | `json` for machine-readable logs. |
-| `MAX_REQUEST_BODY_BYTES` | `1048576` (1 MiB) | Largest request the API accepts, including import uploads. |
-| `JWT_SECRET_KEY` | development placeholder | See [Secrets](#secrets). |
-| `JWT_ISSUER` / `JWT_AUDIENCE` | `floorsync-api` / `floorsync-frontend` | Verified on every request; changing one invalidates existing tokens. |
-| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | There is no refresh endpoint, so this is the whole session length. |
-| `CORS_ALLOWED_ORIGINS` | `["http://localhost:3000"]` | JSON array. Must list the frontend's origin. |
-| `ALLOWED_HOSTS` | `["localhost","127.0.0.1","testserver","api"]` | JSON array, enforced by trusted-host middleware. |
-| `OPERATOR_DEFAULT_PASSWORD` | `floorsync-dev` | Starting password for every operator login created with a machine. |
-
-The worker also sets `GRB_LICENSE_FILE=/app/gurobi.lic` in `docker-compose.yml`; see below.
-
-## Exact solver licence
-
-The Planner offers two scheduling strategies:
-
-| Strategy | What it is | Needs |
-| --- | --- | --- |
-| **ReSched** (default) | A pretrained learned dispatching policy. Fast and approximate. | Nothing extra. |
-| **Exact** | Logic-based Benders decomposition: a Gurobi master problem with OR-Tools CP-SAT subproblems. Better makespans, up to 120 seconds per run. | A Gurobi licence. |
-
-ReSched refuses selections with fan-in or fan-out (an operation with several predecessors or
-successors), and the Planner says so before generating. Exact takes any precedence graph.
-
-To enable Exact:
-
-1. Get a Gurobi licence that works inside a container, such as a free academic
-   [Web License Service (WLS)](https://www.gurobi.com/academia/academic-program-and-licenses/)
-   licence. A named-user academic licence is tied to one host and is rejected inside Docker.
-2. Save the licence file at the repository root as `gurobi.lic`. It is gitignored; never commit it.
-3. Restart the worker: `docker compose up -d worker`.
-
-Without a licence, Exact runs are accepted but the Planner reports "The scheduling engine is
-unavailable". ReSched is unaffected either way.
+Stop the stack with `docker compose stop`; the data is kept for next time.
 
 ## Demonstrating the prototype
 
@@ -198,6 +189,30 @@ To show authorization rather than the UI: signed in as an operator, `GET /api/v1
 `403`. [docs/accounts.md](../docs/accounts.md#verify-an-account) has the curl commands, and
 <http://localhost:8002/docs> can do the same through **Authorize**.
 
+## Exact solver licence
+
+The Planner offers two scheduling strategies:
+
+| Strategy | What it is | Needs |
+| --- | --- | --- |
+| **ReSched** (default) | A pretrained learned dispatching policy. Fast and approximate. | Nothing extra. |
+| **Exact** | Logic-based Benders decomposition: a Gurobi master problem with OR-Tools CP-SAT subproblems. Better makespans, up to 120 seconds per run. | A Gurobi licence. |
+
+ReSched refuses selections with fan-in or fan-out (an operation with several predecessors or
+successors), and the Planner says so before generating. Exact takes any precedence graph.
+
+To enable Exact:
+
+1. Get a Gurobi licence that works inside a container, such as a free academic
+   [Web License Service (WLS)](https://www.gurobi.com/academia/academic-program-and-licenses/)
+   licence. A named-user academic licence is tied to one host and is rejected inside Docker.
+2. Save the licence file at the repository root as `gurobi.lic`. It is gitignored; never commit it.
+   The worker finds it through `GRB_LICENSE_FILE=/app/gurobi.lic`, set in `docker-compose.yml`.
+3. Restart the worker: `docker compose up -d worker`.
+
+Without a licence, Exact runs are accepted but the Planner reports "The scheduling engine is
+unavailable". ReSched is unaffected either way.
+
 ## Running tests
 
 ```bash
@@ -222,8 +237,8 @@ request, plus the integration tests when database code changes. `make install-ho
 
 **`address already in use` on port 3000 or 6379.** The frontend and Redis host ports are fixed in
 `docker-compose.yml`. Something else is using them, most often a `pnpm dev` server or a local Redis.
-Find it with `lsof -i :3000` (macOS) or `ss -ltnp | grep :3000` (Linux) and stop it, or edit the port
-mapping.
+Find it with `lsof -i :3000` (macOS), `ss -ltnp | grep :3000` (Linux) or
+`netstat -ano | findstr :3000` (Windows) and stop it, or edit the port mapping.
 
 **`address already in use` on 5433 or 8002.** Set `POSTGRES_HOST_PORT` or `API_HOST_PORT` in `.env`.
 If you change the API port, change `NEXT_PUBLIC_API_URL` to match, or the browser keeps calling the
@@ -250,15 +265,15 @@ docker compose build worker && docker compose up -d worker
 docker compose logs -f worker
 ```
 
-**Exact always reports "The scheduling engine is unavailable".** There is no usable Gurobi licence. See
-[Exact solver licence](#exact-solver-licence).
+**Exact always reports "The scheduling engine is unavailable".** There is no usable Gurobi licence.
+See [Exact solver licence](#exact-solver-licence).
 
 **`relation "users" does not exist`, or similar.** The API's migrations did not run. Check
 `docker compose logs api`, fix the reported error and restart with `docker compose up -d api`, or
-run `make db-upgrade`.
+run `make db-upgrade` (`docker compose run --rm api alembic upgrade head`).
 
 **Signed in, but the Simulation page is empty.** No confirmed schedule exists. Seed an instance that
-ships one (`make db-seed instance=abz5`), or generate and confirm one in the Planner.
+ships one (`abz5`), or generate and confirm one in the Planner.
 
 **Sign-in returns 401 with a password you are sure of.** The account may be disabled. A disabled
 account gets the same message as a wrong password, deliberately. List accounts with the command in
@@ -268,8 +283,35 @@ account gets the same message as a wrong password, deliberately. List accounts w
 logins with them. Sign in with the new machine's username, or check **Settings > Operator accounts**.
 
 **Starting over.** `docker compose down -v` removes the containers *and* the `postgres_data`
-volume, which deletes the database: every account and every scenario. The next `docker compose up`
-reapplies migrations; then reseed and recreate the manager. Without `-v` the data survives.
+volume, which deletes the database: every account and every scenario. Then run
+`deployment/run-local.sh` again. Without `-v` the data survives.
+
+## Configuration
+
+`.env` is gitignored and `.env.example` is the committed template. Copying it gives working local
+defaults for every variable, so this table is for when a default does not suit, not a list of things
+to fill in.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `floorsync` | Must agree with `DATABASE_URL` and `DATABASE_SYNC_URL`. |
+| `POSTGRES_HOST_PORT` | `5433` | Host port only. `5433` avoids a local PostgreSQL already on `5432`. |
+| `API_HOST_PORT` | `8002` | Change this **and** `NEXT_PUBLIC_API_URL` together. |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8002` | The browser's view of the API, not the container's. |
+| `DATABASE_URL` | asyncpg URL | Used by the API. Hostnames are service names (`postgres`, `redis`), not `localhost`. |
+| `DATABASE_SYNC_URL` | psycopg URL | Used by the Celery worker and Alembic. |
+| `REDIS_URL` / `CELERY_BROKER_URL` | db `0` / db `1` | Result backend and live updates / task broker. |
+| `LIVE_UPDATE_CHANNEL_PREFIX` | `floorsync.live` | Prefix of the live-update pub/sub channel; change it if environments share one Redis. |
+| `REDIS_SOCKET_TIMEOUT_SECONDS` | `2` | Connect and command timeout for live-update Redis calls, so a hanging Redis cannot hang the API. |
+| `ENVIRONMENT` | `development` | `production` enables the JWT secret check in [Secrets](#secrets). |
+| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `human` | `json` for machine-readable logs. |
+| `MAX_REQUEST_BODY_BYTES` | `1048576` (1 MiB) | Largest request the API accepts, including import uploads. |
+| `JWT_SECRET_KEY` | development placeholder | See [Secrets](#secrets). |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | `floorsync-api` / `floorsync-frontend` | Verified on every request; changing one invalidates existing tokens. |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | There is no refresh endpoint, so this is the whole session length. |
+| `CORS_ALLOWED_ORIGINS` | `["http://localhost:3000"]` | JSON array. Must list the frontend's origin. |
+| `ALLOWED_HOSTS` | `["localhost","127.0.0.1","testserver","api"]` | JSON array, enforced by trusted-host middleware. |
+| `OPERATOR_DEFAULT_PASSWORD` | `floorsync-dev` | Starting password for every operator login created with a machine. |
 
 ## Secrets
 
@@ -290,6 +332,9 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 - **No hosted deployment.** [`docker-compose.yml`](../docker-compose.yml) is for local development
   only. Production infrastructure, credentials and configuration must be supplied separately.
+- **The containers run in development mode.** The frontend image runs the Next.js dev server
+  (`pnpm dev`), not a production build, and Compose runs the API with auto-reload and the source
+  mounted in. Pages compile on first visit, so the first load of each is slower.
 - **Manager accounts are created from the command line.** There is no sign-up page or manager
   admin screen, and a manager's password is reset by editing the database
   ([docs/accounts.md](../docs/accounts.md)). Operator accounts are managed in Settings.
@@ -305,7 +350,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## Related documents
 
-- [Repository README](../README.md): the short version of this setup.
+- [Repository README](../README.md): project overview and repository map.
 - [Accounts and signing in](../docs/accounts.md): creating and managing logins.
 - [Importing production data](../docs/importing.md): the import file format and endpoint.
 - [Scheduling](../docs/scheduling.md): the scheduling strategies.
