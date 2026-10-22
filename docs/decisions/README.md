@@ -1,8 +1,6 @@
 # Decisions
 
-Use this folder to record important project decisions.
-
-Decision records help explain why the team made particular design, technical, scope, or evaluation choices.
+Architecture decision records (ADRs): each records the context, the decision, the alternatives considered and the consequences. Changes to scope and requirements are recorded separately in [spec/requirements/requirement-changes.md](../../spec/requirements/requirement-changes.md).
 
 ## Decision index
 

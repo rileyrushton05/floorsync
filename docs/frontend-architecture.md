@@ -80,6 +80,8 @@ never to `core/`.
 
 ## Backend and TanStack Query policy
 
+The [event-sourced playback diagram](diagrams/patterns/event-sourced-playback.png) shows the server/browser clock boundary. The [live-update sequence](diagrams/sequences/simulation-live-updates.png) shows notifications, REST refreshes and recovery.
+
 There is one browser transport: `core/http/client.ts`. It owns the API base URL,
 JSON headers, problem-detail errors, authenticated 401 handling, and crucially
 rethrows aborted requests. Cancellation is normal TanStack Query control flow;

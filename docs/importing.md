@@ -206,4 +206,4 @@ Warnings never stop an import:
 - **Machine downtime**: `unavailabilities` has no API yet.
 - **Schedules**: only the seed loader writes a pre-solved schedule.
 - **Recognising a job imported before**: importing the same file twice adds its jobs twice. Check
-  the dry run first; order numbers and duplicate detection are #299.
+  the dry run first. Order numbers and duplicate detection are out of scope (#299, closed as not planned).

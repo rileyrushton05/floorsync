@@ -6,7 +6,7 @@
 
 ## Status
 
-Accepted. Recognising a job imported before is deferred to #299.
+Accepted. Recognising a job imported before was deferred to #299, which was closed as not planned on 22 Oct 2026: it is out of scope for this project.
 
 ## Context
 

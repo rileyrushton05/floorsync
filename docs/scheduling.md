@@ -22,6 +22,14 @@ assignment and stored for reporting, but they do not influence it
 it is not part of `SchedulingInput`, and no engine reads it
 ([decision 0021](decisions/0021-cp-lbbd-exact-solver.md), point 5).
 
+## Generation flow
+
+Generation runs asynchronously and creates a draft for review. The worker loads an input snapshot, runs the chosen solver outside a database transaction, then saves the result in a new transaction. Confirmation is a separate manager action.
+
+![Schedule generation, draft review and confirmation](diagrams/sequences/schedule-generation.png)
+
+[Editable Mermaid source](diagrams/sources/schedule-generation.mmd).
+
 ## Scheduling contract
 
 The engine receives an immutable `SchedulingInput`, assembled in one database transaction from:
