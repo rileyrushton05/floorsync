@@ -14,13 +14,13 @@ All tables get `id` (UUID v4, `UUIDPrimaryKeyMixin`) and `created_at` / `updated
 
 ![Production and account entity relationships](diagrams/data/production-data-erd.png)
 
-[SVG export](diagrams/data/production-data-erd.svg) · [Editable Mermaid source](diagrams/sources/production-data-erd.mmd).
+[Editable Mermaid source](diagrams/sources/production-data-erd.mmd).
 
 ### Schedules, simulation and delivery
 
 ![Schedule, simulation and outbox entity relationships](diagrams/data/schedule-simulation-erd.png)
 
-[SVG export](diagrams/data/schedule-simulation-erd.svg) · [Editable Mermaid source](diagrams/sources/schedule-simulation-erd.mmd).
+[Editable Mermaid source](diagrams/sources/schedule-simulation-erd.mmd).
 
 The earlier [physical schema image](diagrams/data/physical-schema.png) and [schedule-storage design](diagrams/data/schedule-storage-design.png) remain available as detailed supporting references. The table-by-table definitions follow.
 

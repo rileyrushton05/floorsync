@@ -1,6 +1,6 @@
 # FloorSync system diagrams
 
-8 diagrams cover the system architecture, backend components, reliability and playback patterns, data model and key runtime flows. Final PNG images are embedded in the relevant documentation; SVG exports and editable sources are kept alongside this catalogue.
+8 diagrams cover the system architecture, backend components, reliability and playback patterns, data model and key runtime flows. Final PNG images are embedded in the relevant documentation; Editable sources are kept alongside this catalogue.
 
 ## Organisation
 
@@ -45,7 +45,7 @@ A closer view of the FastAPI container: REST and WebSocket entry points, product
 
 ![Backend components](architecture/backend-components.png)
 
-[PNG](architecture/backend-components.png) · [SVG](architecture/backend-components.svg) · [Editable draw.io source](sources/backend-components.drawio)
+[PNG](architecture/backend-components.png) · [Editable draw.io source](sources/backend-components.drawio)
 
 <a id="floorsync-transactional-outbox"></a>
 
@@ -57,7 +57,7 @@ Decision: [ADR 0017 · Transactional outbox and versioned notifications](../deci
 
 ![Transactional outbox](patterns/transactional-outbox.png)
 
-[PNG](patterns/transactional-outbox.png) · [SVG](patterns/transactional-outbox.svg) · [Editable draw.io source](sources/transactional-outbox.drawio)
+[PNG](patterns/transactional-outbox.png) · [Editable draw.io source](sources/transactional-outbox.drawio)
 
 <a id="floorsync-event-sourced-playback"></a>
 
@@ -69,7 +69,7 @@ Decision: [ADR 0010 · Event-sourced simulated time](../decisions/0010-event-sou
 
 ![Event-sourced playback](patterns/event-sourced-playback.png)
 
-[PNG](patterns/event-sourced-playback.png) · [SVG](patterns/event-sourced-playback.svg) · [Editable draw.io source](sources/event-sourced-playback.drawio)
+[PNG](patterns/event-sourced-playback.png) · [Editable draw.io source](sources/event-sourced-playback.drawio)
 
 <a id="production-data-erd"></a>
 
@@ -79,7 +79,7 @@ Key fields are shown; all tables also have UUID identifiers and timestamp mixins
 
 ![Production and account data](data/production-data-erd.png)
 
-[PNG](data/production-data-erd.png) · [SVG](data/production-data-erd.svg) · [Editable Mermaid source](sources/production-data-erd.mmd)
+[PNG](data/production-data-erd.png) · [Editable Mermaid source](sources/production-data-erd.mmd)
 
 <a id="schedule-simulation-erd"></a>
 
@@ -89,7 +89,7 @@ Key fields are shown; dashed associations to the outbox are intentionally absent
 
 ![Schedules, simulation and delivery data](data/schedule-simulation-erd.png)
 
-[PNG](data/schedule-simulation-erd.png) · [SVG](data/schedule-simulation-erd.svg) · [Editable Mermaid source](sources/schedule-simulation-erd.mmd)
+[PNG](data/schedule-simulation-erd.png) · [Editable Mermaid source](sources/schedule-simulation-erd.mmd)
 
 <a id="schedule-generation-sequence"></a>
 
@@ -99,7 +99,7 @@ The API returns before solving. Each worker read/write transaction is short; inf
 
 ![Generate and review a schedule](sequences/schedule-generation.png)
 
-[PNG](sequences/schedule-generation.png) · [SVG](sequences/schedule-generation.svg) · [Editable Mermaid source](sources/schedule-generation.mmd)
+[PNG](sequences/schedule-generation.png) · [Editable Mermaid source](sources/schedule-generation.mmd)
 
 <a id="simulation-live-updates-sequence"></a>
 
@@ -109,7 +109,7 @@ Shows the shared control/outbox commit, a best-effort immediate publication, ind
 
 ![Simulation control and durable live updates](sequences/simulation-live-updates.png)
 
-[PNG](sequences/simulation-live-updates.png) · [SVG](sequences/simulation-live-updates.svg) · [Editable Mermaid source](sources/simulation-live-updates.mmd)
+[PNG](sequences/simulation-live-updates.png) · [Editable Mermaid source](sources/simulation-live-updates.mmd)
 
 ## Detailed schema references
 
@@ -117,4 +117,4 @@ The earlier [physical schema](data/physical-schema.png) and [schedule-storage de
 
 ## Maintenance
 
-Edit draw.io files in `sources/` and export the corresponding PNG and SVG into the diagram's category folder. Edit Mermaid files in `sources/` and regenerate their PNG/SVG exports. Keep the PNGs committed so Markdown viewers do not need a diagram renderer. The supplied architecture is available as a PNG only.
+Edit draw.io files in `sources/` and export the corresponding PNG into the diagram's category folder. Edit Mermaid files in `sources/` and regenerate their PNG exports. Keep the PNGs committed so Markdown viewers do not need a diagram renderer. The supplied architecture is available as a PNG only.

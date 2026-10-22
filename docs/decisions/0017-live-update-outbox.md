@@ -14,7 +14,7 @@ against it and recorded under Consequences.
 
 ![Transactional outbox and delivery path](../diagrams/patterns/transactional-outbox.png)
 
-[Editable draw.io source](../diagrams/sources/transactional-outbox.drawio) · [SVG export](../diagrams/patterns/transactional-outbox.svg).
+[Editable draw.io source](../diagrams/sources/transactional-outbox.drawio).
 
 For request ordering and retry failures, see the [simulation/live-update sequence](../diagrams/sequences/simulation-live-updates.png).
 

@@ -18,7 +18,7 @@ The component view looks inside the FastAPI application container. The web appli
 
 ![FloorSync backend components](diagrams/architecture/backend-components.png)
 
-[Editable draw.io source](diagrams/sources/backend-components.drawio) · [SVG export](diagrams/architecture/backend-components.svg).
+[Editable draw.io source](diagrams/sources/backend-components.drawio).
 
 ## Reliability and playback
 

@@ -12,7 +12,7 @@ Accepted
 
 ![Event-sourced playback and browser synchronisation](../diagrams/patterns/event-sourced-playback.png)
 
-[Editable draw.io source](../diagrams/sources/event-sourced-playback.drawio) · [SVG export](../diagrams/patterns/event-sourced-playback.svg).
+[Editable draw.io source](../diagrams/sources/event-sourced-playback.drawio).
 
 The [simulation/live-update sequence](../diagrams/sequences/simulation-live-updates.png) shows how notifications cause clients to reload this authoritative position.
 

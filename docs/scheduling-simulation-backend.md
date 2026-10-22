@@ -95,7 +95,7 @@ The API intentionally does not run inference. The worker reads input in a short 
 
 ![Schedule-generation sequence](diagrams/sequences/schedule-generation.png)
 
-[SVG export](diagrams/sequences/schedule-generation.svg) · [Editable sequence source](diagrams/sources/schedule-generation.mmd).
+[Editable sequence source](diagrams/sources/schedule-generation.mmd).
 
 Data coherence is checked once, in `scheduling/input_checks.py`, before either engine runs: positive durations, non-negative energy, unique IDs/routes/dependencies, known references, a timezone-aware start, at least one operation, an active compatible route for each operation, and no cycle (each operation in a cycle is named). The ReSched adapter additionally supports conventional flexible job-shop chains only, so it rejects downtime windows, fan-in/fan-out, and any dependency graph that is not disjoint linear chains; the exact solver rejects downtime windows only. Both worker tasks apply their strategy's limits through `validate_for_strategy` before adapting the input, so the exact task refuses downtime windows rather than silently dropping them. No partial schedule is persisted on rejection. `GET /api/v1/schedules/validation` runs the same checks on demand and reports, per strategy, whether a generation would succeed (#133).
 
@@ -132,7 +132,7 @@ The event, readable projection and outbox notification commit together. Immediat
 
 ![Simulation control, outbox delivery, retries and client recovery](diagrams/sequences/simulation-live-updates.png)
 
-[SVG export](diagrams/sequences/simulation-live-updates.svg) · [Editable sequence source](diagrams/sources/simulation-live-updates.mmd) · [Outbox pattern](diagrams/patterns/transactional-outbox.png) · [Delivery decision](decisions/0017-live-update-outbox.md).
+[Editable sequence source](diagrams/sources/simulation-live-updates.mmd) · [Outbox pattern](diagrams/patterns/transactional-outbox.png) · [Delivery decision](decisions/0017-live-update-outbox.md).
 
 Client rules:
 

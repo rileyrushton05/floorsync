@@ -17,7 +17,7 @@ Generation runs asynchronously and creates a draft for review. The worker loads 
 
 ![Schedule generation, draft review and confirmation](diagrams/sequences/schedule-generation.png)
 
-[SVG export](diagrams/sequences/schedule-generation.svg) · [Editable Mermaid source](diagrams/sources/schedule-generation.mmd).
+[Editable Mermaid source](diagrams/sources/schedule-generation.mmd).
 
 ## Scheduling contract
 
