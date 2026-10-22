@@ -8,6 +8,7 @@ before anything else may rely on it. Nothing here touches the database.
 from __future__ import annotations
 
 import json
+import re
 from decimal import Decimal, DecimalException
 from typing import NoReturn, assert_never
 
@@ -37,6 +38,10 @@ class ImportParsingService:
         except UnicodeDecodeError:
             return _unreadable(ImportIssueCode.NOT_UTF8, "The file is not UTF-8 text.")
 
+        if _nests_deeper_than(text, _MAX_NESTING):
+            return _unreadable(
+                ImportIssueCode.TOO_DEEPLY_NESTED, "The file nests too deeply to read."
+            )
         try:
             document = json.loads(
                 text,
@@ -109,6 +114,28 @@ class ImportParsingService:
                 return read
             case _:
                 assert_never(read)
+
+
+# Checked before decoding rather than left to `json.loads` raising RecursionError: whether and
+# where that happens depends on the Python version (3.14 bounds C recursion by stack size, so a
+# deep file can decode fully and surface as plain invalid JSON). 1000 is the default recursion
+# limit, and no real import nests more than a handful of levels.
+_MAX_NESTING = 1000
+# A whole string literal (so brackets inside it are skipped), or one bracket.
+_STRING_OR_BRACKET = re.compile(r'"(?:\\.|[^"\\])*"|[\[\]{}]')
+
+
+def _nests_deeper_than(text: str, limit: int) -> bool:
+    depth = 0
+    for match in _STRING_OR_BRACKET.finditer(text):
+        token = match.group()[0]
+        if token in "[{":
+            depth += 1
+            if depth > limit:
+                return True
+        elif token in "]}":
+            depth -= 1
+    return False
 
 
 def _unreadable(code: ImportIssueCode, message: str) -> FileUnreadable:
