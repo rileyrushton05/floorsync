@@ -10,10 +10,11 @@ How FloorSync is built, how the team worked, and why it was built this way. Setu
 
 ## Design and architecture
 
-- [Architecture](architecture.md): the containers, code boundaries and local development
+- [Architecture](architecture.md): the C4 container and component diagrams, code boundaries and local development
+- [System diagrams](diagrams/README.md): every diagram with its editable source: architecture, outbox and playback patterns, ERDs and sequences
 - [Scheduling](scheduling.md): the scheduling problem, input validation and the ReSched adapter (the Exact strategy is described in [ADR 0014](decisions/0014-fajsp_milp_formulation.md) and its code)
 - [Scheduling and simulation backend](scheduling-simulation-backend.md): request flows and sequence diagrams from generation to simulation
-- [Database schema](database-schema.md), with the [ER diagram](diagrams/database-schema.png) and the [schedule storage ERD](diagrams/schedule-storage-erd.png)
+- [Database schema](database-schema.md), with the production and schedule ERDs and the [physical schema](diagrams/data/physical-schema.png)
 - [Frontend architecture](frontend-architecture.md): TanStack Query, feature boundaries and UI to API integration
 - [OpenAPI contract](openapi.json): generated with `make openapi`; CI fails if it is out of date
 

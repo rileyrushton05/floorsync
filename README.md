@@ -65,9 +65,13 @@ walkthrough, the licence, configuration, troubleshooting and known limitations.
 
 ## Architecture
 
-![C4 system context diagram](docs/diagrams/c4-context.png)
+Containers (C4 level 2):
 
-![C4 container diagram](docs/diagrams/c4-container.png)
+![FloorSync system architecture](docs/diagrams/architecture/system-architecture.png)
+
+Inside the FastAPI application (C4 level 3):
+
+![FloorSync backend components](docs/diagrams/architecture/backend-components.png)
 
 | Container | Technology | Role |
 | --- | --- | --- |
@@ -75,7 +79,7 @@ walkthrough, the licence, configuration, troubleshooting and known limitations.
 | API | FastAPI, SQLAlchemy (async), Alembic | REST API, WebSocket live updates, simulation clock, outbox relay |
 | Worker | Celery | Generates schedules with ReSched (learned policy) or Exact (Gurobi with OR-Tools CP-SAT) |
 | PostgreSQL | PostgreSQL 16 | Production data, schedules, simulations, accounts, live-update outbox |
-| Redis | Redis 7 | Celery broker and live-update publish and subscribe |
+| Redis | Redis 7 | Celery broker, live-update publish and subscribe, one-time WebSocket tickets |
 
 How a schedule moves through the system, from the brief's pipeline:
 
@@ -90,9 +94,10 @@ flowchart LR
     simulate --> operator["Operator view<br/>(one per machine)"]
 ```
 
-The database schema is in [docs/database-schema.md](docs/database-schema.md), with the
-[ER diagram](docs/diagrams/database-schema.png). [docs/architecture.md](docs/architecture.md)
-covers code boundaries and the [decision records](docs/decisions/README.md) explain the main
+Every diagram, including the outbox and playback patterns, the ERDs and the runtime sequences, is
+in the [diagram catalogue](docs/diagrams/README.md) with its editable source. The database schema is
+in [docs/database-schema.md](docs/database-schema.md), [docs/architecture.md](docs/architecture.md)
+covers code boundaries, and the [decision records](docs/decisions/README.md) explain the main
 choices.
 
 ## Repository map
@@ -103,7 +108,7 @@ choices.
 ├── design/              inspiration, wireframes and UI evolution
 ├── docs/                architecture, conventions, decisions, risks, meeting notes
 │   ├── decisions/       architecture decision records (ADRs)
-│   ├── diagrams/        architecture and schema diagrams
+│   ├── diagrams/        architecture, pattern, data and sequence diagrams
 │   ├── meeting-notes/   team and client meeting minutes
 │   └── risks/           risk register
 ├── evidence/            evaluation and contribution evidence
@@ -143,6 +148,7 @@ gate on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 ## Documentation and evidence
 
+- [System diagrams](docs/diagrams/README.md): architecture, components, outbox and playback patterns, ERDs and runtime sequences
 - [Specification](spec/README.md): requirements, success criteria, changes and user stories
 - [Design](design/README.md): inspiration, wireframes and how the UI evolved
 - [Scheduling](docs/scheduling.md) and [the scheduling and simulation backend](docs/scheduling-simulation-backend.md)

@@ -1,0 +1,67 @@
+erDiagram
+    categories {
+      uuid id PK
+      text name UK "case-insensitive unique"
+    }
+    machines {
+      uuid id PK
+      uuid category_id FK "nullable"
+      text name UK
+      numeric salary "nullable"
+      boolean active
+    }
+    jobs {
+      uuid id PK
+      text name
+      text priority "high / med / low"
+      datetime archived_at "nullable"
+    }
+    operations {
+      uuid id PK
+      uuid job_id FK
+      text name
+      int position "unique within job"
+    }
+    compatibilities {
+      uuid id PK
+      uuid operation_id FK
+      uuid machine_id FK
+      int duration "minutes; unique operation-machine pair"
+      numeric energy "nullable"
+    }
+    dependencies {
+      uuid id PK
+      uuid before_operation_id FK
+      uuid after_operation_id FK
+      text origin "external / builder_sequence"
+    }
+    unavailabilities {
+      uuid id PK
+      uuid machine_id FK
+      datetime starts_at
+      datetime ends_at
+      text reason
+    }
+    users {
+      uuid id PK
+      text name
+      text role "manager / operator"
+      uuid machine_id FK,UK "nullable for managers"
+    }
+    user_credentials {
+      uuid id PK
+      uuid user_id FK,UK
+      text username UK "lowercase"
+      text password_hash
+      boolean active
+      datetime last_authenticated_at "nullable"
+    }
+    categories o|--o{ machines : groups
+    jobs ||--o{ operations : contains
+    operations ||--o{ compatibilities : supports
+    machines ||--o{ compatibilities : runs
+    operations ||--o{ dependencies : prerequisite
+    operations ||--o{ dependencies : successor
+    machines ||--o{ unavailabilities : has
+    machines o|--o| users : binds_operator
+    users ||--o| user_credentials : authenticates_with

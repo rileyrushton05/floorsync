@@ -4,37 +4,31 @@
 
 This document describes the FloorSync development foundation: the services that run locally, their code boundaries and the interfaces used to connect them.
 
-## Current architecture
+See the [core system diagrams](diagrams/README.md) for the architecture, data model and key runtime flows.
 
-```mermaid
-flowchart TB
-    browser["Browser<br/>Next.js frontend"]
-    subgraph api["FastAPI API"]
-        rest["REST API /api/v1"]
-        ws["WebSocket /ws"]
-        relay["Outbox relay"]
-        sub["Redis subscriber"]
-    end
-    worker["Celery worker<br/>ReSched or Exact (Gurobi + CP-SAT)"]
-    redis[("Redis<br/>task queue, live-update pub/sub")]
-    postgres[("PostgreSQL<br/>data, schedules, simulations, outbox")]
+## System architecture
 
-    browser -->|"HTTP"| rest
-    browser <-->|"live updates"| ws
-    rest -->|"SQLAlchemy asyncpg"| postgres
-    rest -->|"enqueue generation"| redis
-    redis -->|"generation task"| worker
-    worker -->|"SQLAlchemy psycopg: draft schedule"| postgres
-    rest -->|"publish change"| redis
-    relay -->|"retry unsent outbox rows"| postgres
-    relay --> redis
-    redis --> sub --> ws
-```
+The container view shows the built system. The FastAPI application derives simulation position by replaying persisted events ([ADR 0010](decisions/0010-event-sourced-simulated-time.md)) and hosts WebSocket delivery and outbox retries ([ADR 0017](decisions/0017-live-update-outbox.md)). Celery workers execute scheduling tasks.
 
-A change that dashboards must see (for example a simulation control) is written to the outbox in
-the same transaction as the change, then published to Redis. Every API instance's subscriber
-forwards it to its connected WebSocket clients, and the relay retries any row that was not
-published ([ADR 0017](decisions/0017-live-update-outbox.md)).
+![FloorSync system architecture](diagrams/architecture/system-architecture.png)
+
+[Open the full-size architecture diagram](diagrams/architecture/system-architecture.png) · [Editable draw.io source](diagrams/sources/system-architecture.drawio).
+
+## Backend components
+
+The component view looks inside the FastAPI application container. The web application, PostgreSQL and Redis remain outside this boundary.
+
+![FloorSync backend components](diagrams/architecture/backend-components.png)
+
+[Editable draw.io source](diagrams/sources/backend-components.drawio).
+
+## Reliability and playback
+
+The [transactional outbox](diagrams/patterns/transactional-outbox.png) makes the simulation change and its notification atomic; publication and retries happen after commit. [Decision 0017](decisions/0017-live-update-outbox.md) contains the diagram and its delivery guarantees.
+
+The [event-sourced playback diagram](diagrams/patterns/event-sourced-playback.png) separates authoritative event replay from local animation. [Decision 0010](decisions/0010-event-sourced-simulated-time.md) contains the diagram and the clock-authority rationale.
+
+For request ordering, see the [schedule-generation sequence](diagrams/sequences/schedule-generation.png) and [simulation/live-update sequence](diagrams/sequences/simulation-live-updates.png).
 
 ## Component responsibilities
 
@@ -43,9 +37,9 @@ published ([ADR 0017](decisions/0017-live-update-outbox.md)).
 | `src/frontend/` | Next.js/TypeScript UI. Add application routes, reusable components and API/WebSocket clients here. |
 | `src/backend/api/` | FastAPI HTTP and WebSocket transport. Add request validation, API routes and connection handling here. |
 | `src/backend/common/` | Code shared by API and workers: settings, SQLAlchemy models, async sessions, typed contracts and domain utilities. |
-| `src/backend/workers/` | Celery tasks that generate schedules with ReSched or Exact. Workers consume tasks from Redis. |
+| `src/backend/workers/` | Celery application and asynchronous task modules. Workers consume jobs from Redis. |
 | `src/database/` | Alembic migrations and seed data. This is the database workstream’s ownership area. |
-| Redis | Celery broker and result backend, and publish and subscribe for live updates. |
+| Redis | Celery broker and result backend. It also carries live-update publication and one-time WebSocket tickets. |
 | PostgreSQL | Relational data store for application data. |
 
 Product API code is organised by feature, while shared database infrastructure and ORM models remain
@@ -57,15 +51,15 @@ The scheduling adapter is a pure shared-domain module so the API, worker and ben
 the same ReSched input/output translation. Its supported input contract and persistence boundary are
 documented in [scheduling.md](scheduling.md).
 
-## Interfaces
+## Interfaces available today
 
 | Interface | Purpose |
 | --- | --- |
-| `/api/v1/...` | The REST API, documented at `/docs` and in [openapi.json](openapi.json) |
-| `POST /api/v1/live-updates/tickets` | Issues a one-time ticket for opening the WebSocket |
-| `WS /ws` | Authenticates with a ticket, then streams the changes the client subscribed to |
-| `GET /health`, `/health/live`, `/health/ready`, `/health/live-updates` | Liveness and readiness checks; Compose waits on `/health/live` before starting the frontend and worker |
-| Celery `scheduling` queue | Schedule generation tasks, run by the worker |
+| `GET /health` | Confirms that the FastAPI service is running. |
+| `WS /ws` | Authenticates using a single-use ticket, authorises simulation subscriptions, and sends snapshot/change notifications. |
+| Celery worker | Runs asynchronous task modules with Redis connectivity. |
+| API database session | Provides request-scoped async database access to API routes. |
+| Worker database scope | Provides a synchronous, process-local transaction for Celery tasks. |
 
 ## Dependency rule
 

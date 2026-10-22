@@ -8,8 +8,8 @@ The schema is not kept as a separate SQL file. It is defined in two places, and
 - **How it got there:** the Alembic migrations in [`../migrations/`](../migrations/README.md)
 
 The tables, relationships and the reasons behind them are described in
-[docs/database-schema.md](../../../docs/database-schema.md), with the
-[ER diagram](../../../docs/diagrams/database-schema.png).
+[docs/database-schema.md](../../../docs/database-schema.md), with the production and schedule ERDs
+and the [physical schema diagram](../../../docs/diagrams/data/physical-schema.png).
 
 To print the full schema as SQL from a running stack:
 

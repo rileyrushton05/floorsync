@@ -1,0 +1,48 @@
+sequenceDiagram
+    autonumber
+    actor M as Manager
+    participant UI as Browser
+    participant API as FastAPI
+    participant R as Redis / Celery
+    participant W as Scheduling worker
+    participant DB as PostgreSQL
+    participant S as Selected solver
+    M->>UI: Select jobs, strategy and planning start
+    UI->>API: POST /api/v1/schedules
+    API->>API: Authenticate manager and validate body
+    API->>R: Enqueue strategy-specific task
+    API-->>UI: 202 generation ID + status URL
+    R->>W: Deliver task
+    W->>DB: Read selected jobs and floor in short transaction
+    DB-->>W: Input snapshot / selection issues
+    W->>W: Validate selection and strategy support
+    alt Invalid input or unsupported shape
+      W-->>R: invalid + structured issues
+    else Valid input
+      W->>S: Solve outside transaction
+      alt Runtime or licence unavailable
+        S-->>W: Unavailable
+        W-->>R: unavailable
+      else Feasible plan
+        S-->>W: Assignments, timing, dependencies, metrics
+        W->>DB: Write draft, entries and selections, commit
+        DB-->>W: Schedule ID
+        W-->>R: stored + schedule ID
+      end
+    end
+    loop Until terminal status
+      UI->>API: GET /api/v1/schedules/generations/{id}
+      API->>R: Read AsyncResult
+      R-->>API: Task state / result
+      API-->>UI: pending / running / completed / rejected / unavailable / failed
+    end
+    opt Completed generation
+      UI->>API: GET /api/v1/schedules/{id}
+      API->>DB: Read saved draft
+      DB-->>API: Schedule and assignments
+      API-->>UI: Draft for review
+      M->>UI: Confirm reviewed schedule
+      UI->>API: PATCH /api/v1/schedules/{id} status=confirmed
+      API->>DB: Check lifecycle and job conflicts, commit confirmation
+      API-->>UI: Confirmed schedule or conflict
+    end
