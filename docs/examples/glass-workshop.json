@@ -1,0 +1,671 @@
+{
+  "format": "floorsync",
+  "version": 1,
+  "machines": [
+    {
+      "name": "Cutting Table 1",
+      "category": "Cutting",
+      "salary": 38.5
+    },
+    {
+      "name": "Cutting Table 2",
+      "category": "Cutting",
+      "salary": 38.5
+    },
+    {
+      "name": "Edge Polisher 1",
+      "category": "Polishing",
+      "salary": 34
+    },
+    {
+      "name": "Edge Polisher 2",
+      "category": "Polishing",
+      "salary": 34
+    },
+    {
+      "name": "Drilling Station",
+      "category": "Drilling",
+      "salary": 35
+    },
+    {
+      "name": "Tempering Furnace",
+      "category": "Tempering",
+      "salary": 42
+    },
+    {
+      "name": "Laminating Press",
+      "category": "Laminating",
+      "salary": 41.25
+    },
+    {
+      "name": "Inspection Bench",
+      "category": "Quality",
+      "salary": 32
+    },
+    {
+      "name": "Packing Station",
+      "category": "Dispatch",
+      "salary": 30
+    }
+  ],
+  "jobs": [
+    {
+      "name": "Shower screen 1200x800",
+      "priority": "high",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 20,
+              "energy": 3.4
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 25,
+              "energy": 3.75
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 35,
+              "energy": 2.8
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 40,
+              "energy": 2.8
+            }
+          ]
+        },
+        {
+          "name": "Drill holes",
+          "routes": [
+            {
+              "machine": "Drilling Station",
+              "duration": 15,
+              "energy": 1.5
+            }
+          ]
+        },
+        {
+          "name": "Temper",
+          "routes": [
+            {
+              "machine": "Tempering Furnace",
+              "duration": 60,
+              "energy": 18.0
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 10
+            }
+          ]
+        },
+        {
+          "name": "Pack",
+          "routes": [
+            {
+              "machine": "Packing Station",
+              "duration": 10
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Splashback 900x600",
+      "priority": "med",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 15,
+              "energy": 2.55
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 20,
+              "energy": 3.0
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 25,
+              "energy": 2.0
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 30,
+              "energy": 2.1
+            }
+          ]
+        },
+        {
+          "name": "Temper",
+          "routes": [
+            {
+              "machine": "Tempering Furnace",
+              "duration": 45,
+              "energy": 13.5
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Balustrade panel 1000x1100",
+      "priority": "high",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 25,
+              "energy": 4.25
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 30,
+              "energy": 4.5
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 40,
+              "energy": 3.2
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 45,
+              "energy": 3.15
+            }
+          ]
+        },
+        {
+          "name": "Drill holes",
+          "routes": [
+            {
+              "machine": "Drilling Station",
+              "duration": 20,
+              "energy": 2.0
+            }
+          ]
+        },
+        {
+          "name": "Temper",
+          "routes": [
+            {
+              "machine": "Tempering Furnace",
+              "duration": 70,
+              "energy": 21.0
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 12
+            }
+          ]
+        },
+        {
+          "name": "Pack",
+          "routes": [
+            {
+              "machine": "Packing Station",
+              "duration": 15
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Laminated door panel",
+      "priority": "low",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 18,
+              "energy": 3.06
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 23,
+              "energy": 3.45
+            }
+          ]
+        },
+        {
+          "name": "Laminate",
+          "routes": [
+            {
+              "machine": "Laminating Press",
+              "duration": 50,
+              "energy": 12.5
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 30,
+              "energy": 2.4
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 35,
+              "energy": 2.45
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 10
+            }
+          ]
+        },
+        {
+          "name": "Pack",
+          "routes": [
+            {
+              "machine": "Packing Station",
+              "duration": 10
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Shopfront window 2400x1800",
+      "priority": "high",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 35,
+              "energy": 5.95
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 40,
+              "energy": 6.0
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 45,
+              "energy": 3.6
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 50,
+              "energy": 3.5
+            }
+          ]
+        },
+        {
+          "name": "Temper",
+          "routes": [
+            {
+              "machine": "Tempering Furnace",
+              "duration": 90,
+              "energy": 27.0
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 15
+            }
+          ]
+        },
+        {
+          "name": "Pack",
+          "routes": [
+            {
+              "machine": "Packing Station",
+              "duration": 20
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Table top 1500x900",
+      "priority": "med",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 22,
+              "energy": 3.74
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 27,
+              "energy": 4.05
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 40,
+              "energy": 3.2
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 45,
+              "energy": 3.15
+            }
+          ]
+        },
+        {
+          "name": "Temper",
+          "routes": [
+            {
+              "machine": "Tempering Furnace",
+              "duration": 55,
+              "energy": 16.5
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 10
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Mirror 600x900",
+      "priority": "low",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 12,
+              "energy": 2.04
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 17,
+              "energy": 2.55
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 20,
+              "energy": 1.6
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 25,
+              "energy": 1.75
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 6
+            }
+          ]
+        },
+        {
+          "name": "Pack",
+          "routes": [
+            {
+              "machine": "Packing Station",
+              "duration": 8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Pool fence panel",
+      "priority": "med",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 20,
+              "energy": 3.4
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 25,
+              "energy": 3.75
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 30,
+              "energy": 2.4
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 35,
+              "energy": 2.45
+            }
+          ]
+        },
+        {
+          "name": "Drill holes",
+          "routes": [
+            {
+              "machine": "Drilling Station",
+              "duration": 18,
+              "energy": 1.8
+            }
+          ]
+        },
+        {
+          "name": "Temper",
+          "routes": [
+            {
+              "machine": "Tempering Furnace",
+              "duration": 60,
+              "energy": 18.0
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 10
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Skylight pane",
+      "priority": "med",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 16,
+              "energy": 2.72
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 21,
+              "energy": 3.15
+            }
+          ]
+        },
+        {
+          "name": "Laminate",
+          "routes": [
+            {
+              "machine": "Laminating Press",
+              "duration": 45,
+              "energy": 11.25
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 10
+            }
+          ]
+        },
+        {
+          "name": "Pack",
+          "routes": [
+            {
+              "machine": "Packing Station",
+              "duration": 12
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Kitchen cabinet doors x4",
+      "priority": "low",
+      "operations": [
+        {
+          "name": "Cut",
+          "routes": [
+            {
+              "machine": "Cutting Table 1",
+              "duration": 14,
+              "energy": 2.38
+            },
+            {
+              "machine": "Cutting Table 2",
+              "duration": 19,
+              "energy": 2.85
+            }
+          ]
+        },
+        {
+          "name": "Polish edges",
+          "routes": [
+            {
+              "machine": "Edge Polisher 1",
+              "duration": 22,
+              "energy": 1.76
+            },
+            {
+              "machine": "Edge Polisher 2",
+              "duration": 27,
+              "energy": 1.89
+            }
+          ]
+        },
+        {
+          "name": "Drill holes",
+          "routes": [
+            {
+              "machine": "Drilling Station",
+              "duration": 12,
+              "energy": 1.2
+            }
+          ]
+        },
+        {
+          "name": "Inspect",
+          "routes": [
+            {
+              "machine": "Inspection Bench",
+              "duration": 8
+            }
+          ]
+        },
+        {
+          "name": "Pack",
+          "routes": [
+            {
+              "machine": "Packing Station",
+              "duration": 10
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
