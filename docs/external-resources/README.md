@@ -85,8 +85,7 @@ FloorSync calls no external web APIs of its own. The one outside service is Guro
 
 ## Design references
 
-Screenshots of Freshdesk, Qual and Asana in [design/01_inspiration/](../../design/README.md) were
-used as visual references only. No assets from them appear in the product.
+Freshdesk, Qual and Asana were used as visual references only ([design/README.md](../../design/README.md)). No assets from them appear in the product.
 
 ## AI use
 
