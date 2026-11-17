@@ -1,5 +1,7 @@
 # FloorSync
 
+[![CI](https://github.com/rileyrushton05/floorsync/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rileyrushton05/floorsync/actions/workflows/ci.yml)
+
 Flexible job shop scheduling, simulation and live operations management. Built over 12 weeks
 (August to October 2026) by a team of six for the University of Queensland course DECO3801, project
 13, with an industry client.
@@ -9,27 +11,71 @@ compatible machine with start and end times. The schedule then plays out in a ti
 simulation, while the manager watches every machine and job on a live overview and each operator
 follows their own machine's queue.
 
+![The simulation page two hours into a shift: the play head on the schedule timeline, with operations done, running and still to come](design/03_ui_evolution/03_final/final-manager-simulation.png)
+
+<sub>Screenshots use the glass workshop demo data in
+[docs/examples/glass-workshop.json](docs/examples/glass-workshop.json): 10 jobs on 9 machines,
+loaded through the import page and scheduled with ReSched.</sub>
+
+## Highlights
+
+- **Two scheduling strategies, measured against each other.** Exact, our implementation of
+  logic-based Benders decomposition (Gurobi with OR-Tools CP-SAT), beat the learned ReSched
+  baseline on 22 of 23 standard benchmark instances and tied the other, with a 14.9% shorter
+  makespan on average (up to 45%) and a mean gap of 0.11% to the best known results. ReSched
+  answers in under 0.6 s. ([Results](evidence/README.md#headline-results))
+- **One clock for every screen.** The simulation clock runs on the server and reaches every manager
+  and operator screen over WebSockets, through a transactional outbox, so no screen shows a change
+  that was never committed.
+- **Tested against real infrastructure.** All 829 backend tests pass, with 84% coverage, and the
+  integration tests run against real PostgreSQL and Redis. CI also runs lint, strict type checks
+  and an OpenAPI contract check. ([Testing evidence](evidence/testing/README.md))
+- **Usability tested.** In four moderated sessions, 17 of 18 recorded tasks were completed without
+  help (mean ease rating 5.7 out of 7).
+
+## Screenshots
+
+| Planner | Overview |
+| --- | --- |
+| [![Planner: jobs ticked on the left, the generated plan as a timeline per machine, and the plan summary](design/03_ui_evolution/03_final/final-manager-planner.png)](design/03_ui_evolution/03_final/final-manager-planner.png) | [![Overview: live counts, backlog, machine utilisation and where each job is now](design/03_ui_evolution/03_final/final-manager-overview.png)](design/03_ui_evolution/03_final/final-manager-overview.png) |
+| Pick jobs, generate a plan with ReSched or Exact, then save it | Live status of every machine and job while the schedule runs |
+| **Operator view** | **Import** |
+| [![Operator view: the current operation, time left in the plan and the queue that follows](design/03_ui_evolution/03_final/final-operator.png)](design/03_ui_evolution/03_final/final-operator.png) | [![Import: a file checked with a dry run, ready to import, with the jobs it contains](design/03_ui_evolution/03_final/final-manager-import.png)](design/03_ui_evolution/03_final/final-manager-import.png) |
+| Each machine's operator sees their current job, the time left and how long until their next break | Upload a file, check it with a dry run, then import it all at once |
+
 ## My contributions (Riley Rushton)
 
 I owned the domain models and data: the database, the data APIs, the schedule lifecycle and file
-import. Pull request numbers refer to the original course repository, which is private.
+import.
 
 - **Database schema and migrations:** designed the relational model for jobs, operations, machine
-  compatibilities, dependencies, schedules and simulations, with Alembic migrations (#201, #239),
-  including a forward-only fix for schema drift between upgraded and fresh databases (#252).
+  compatibilities, dependencies, schedules and simulations ([models](src/backend/common/floorsync_common/database/models/),
+  [migrations](src/database/migrations/versions/)), including a forward-only fix for schema drift
+  between upgraded and fresh databases
+  ([migration](src/database/migrations/versions/20260914_0001_drop_legacy_schedule_entry_timing.py)).
 - **Benchmark seeding:** loaded classic and flexible job shop instances from ScheduleOpt, with their
-  pre-solved schedules, so the simulation had realistic data from the start (#205, #213).
-- **Data APIs:** machines, capabilities, categories, jobs, operations and their ordering, with cycle
-  detection and cursor pagination (#215, #232, #309, #324).
+  pre-solved schedules, so the simulation had realistic data from the start ([seed/](src/backend/common/floorsync_common/seed/)).
+- **Data APIs:** machines, capabilities, categories, jobs, operations and their ordering, with cursor
+  pagination and cycle detection ([machines](src/backend/api/floorsync_api/features/machines/), [jobs](src/backend/api/floorsync_api/features/jobs/),
+  [cycle detection](src/backend/common/floorsync_common/operations/graph.py)).
 - **Schedule lifecycle:** scheduling a chosen set of jobs, validating data before generation,
   confirming and discarding schedules, archiving finished jobs and deriving each job's backlog
-  status (#257, #261, #262, #267, #272, #273, #313).
-- **Live-update outbox:** recorded simulation changes in a transactional outbox, with integration
-  tests against real PostgreSQL and a CI gate that runs them when database code changes (#288,
-  #289, #291).
+  status ([schedules API](src/backend/api/floorsync_api/features/schedules/), [job selection](src/backend/common/floorsync_common/scheduling/selection.py)).
+- **Live-update outbox and integration tests:** recorded simulation changes in a transactional
+  outbox ([outbox](src/backend/common/floorsync_common/live_updates/service.py)), and built the test harness that runs integration
+  tests against real PostgreSQL, with a CI gate that starts it when database code changes
+  ([tests/integration/](tests/integration/)).
 - **File import:** `POST /api/v1/imports` reads FloorSync JSON or benchmark files, reports every
   problem at once with a dry run, and writes everything in one transaction, safe under concurrent
-  imports (#300).
+  imports ([imports/](src/backend/common/floorsync_common/imports/), [format guide](docs/importing.md)).
+- **Design decisions:** wrote 7 of the 20 decision records:
+  [0013](docs/decisions/0013-scoped-schedule-generation.md) scoped generation,
+  [0015](docs/decisions/0015-schedule-lifecycle-and-job-archival.md) schedule lifecycle,
+  [0016](docs/decisions/0016-shared-input-validation.md) shared validation,
+  [0017](docs/decisions/0017-live-update-outbox.md) the outbox,
+  [0018](docs/decisions/0018-archived-jobs-are-read-only.md) read-only archived jobs,
+  [0019](docs/decisions/0019-derived-backlog-status.md) derived backlog status and
+  [0020](docs/decisions/0020-file-import-into-the-floor.md) file import.
 - **Code review:** reviewed 42 of the team's merged pull requests, running each against a real
   database.
 
@@ -62,6 +108,10 @@ minutes. Later runs start in seconds.
 Then open <http://localhost:3000> and sign in as `manager` / `floorsync-dev`. Operators sign in
 with their machine's name, for example `abz5-m0` / `floorsync-dev`. The API documentation is at
 <http://localhost:8002/docs>.
+
+To load the glass workshop from the screenshots, open **Import**, upload
+[docs/examples/glass-workshop.json](docs/examples/glass-workshop.json) and press Import. Its
+operators sign in the same way, for example `edge-polisher-1` / `floorsync-dev`.
 
 Without the script, the same steps by hand:
 
@@ -167,7 +217,7 @@ instance themselves. Every change was reviewed, tested and committed by a team m
 ```text
 .
 ├── deployment/          setup guide and run-local.sh
-├── design/              inspiration, wireframes and UI evolution
+├── design/              wireframes, UI evolution and final screenshots
 ├── docs/                architecture, conventions, decisions, risks
 │   ├── decisions/       architecture decision records (ADRs)
 │   ├── diagrams/        architecture, pattern, data and sequence diagrams
@@ -209,7 +259,7 @@ gate on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 - [System diagrams](docs/diagrams/README.md): architecture, components, outbox and playback patterns, ERDs and runtime sequences
 - [Specification](spec/README.md): requirements, success criteria, changes and user stories
-- [Design](design/README.md): inspiration, wireframes and how the UI evolved
+- [Design](design/README.md): wireframes and how the UI evolved
 - [Scheduling](docs/scheduling.md) and [the scheduling and simulation backend](docs/scheduling-simulation-backend.md)
 - [Importing production data](docs/importing.md) and [accounts and signing in](docs/accounts.md)
 - [Decision records](docs/decisions/README.md) and the [risk register](docs/risks/README.md)
