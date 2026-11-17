@@ -1,29 +1,42 @@
 # FloorSync
 
-Flexible job shop scheduling, simulation and live operations management. DECO3801 project 13, Team 61
-(Cuffington & Co).
+Flexible job shop scheduling, simulation and live operations management. Built over 12 weeks
+(August to October 2026) by a team of six for the University of Queensland course DECO3801, project
+13, with an industry client.
 
 A production manager selects jobs and generates a schedule that assigns every operation to a
 compatible machine with start and end times. The schedule then plays out in a time-driven
 simulation, while the manager watches every machine and job on a live overview and each operator
 follows their own machine's queue.
 
-## Submission documents
+## My contributions (Riley Rushton)
 
-| Document | Location |
-| --- | --- |
-| Signed team cover sheet | [Signed Team Cover Sheet.pdf](Signed%20Team%20Cover%20Sheet.pdf) |
-| Original contribution statement | [Below](#original-contribution-statement) |
-| AI-use declarations | [ai-declarations.md](ai-declarations.md) |
-| Project brief | [spec/project-brief.png](spec/project-brief.png) |
-| Statement of Work and Team Charter | [spec/statement-of-work/](spec/statement-of-work/summary.md) |
+I owned the domain models and data: the database, the data APIs, the schedule lifecycle and file
+import. Pull request numbers refer to the original course repository, which is private.
+
+- **Database schema and migrations:** designed the relational model for jobs, operations, machine
+  compatibilities, dependencies, schedules and simulations, with Alembic migrations (#201, #239),
+  including a forward-only fix for schema drift between upgraded and fresh databases (#252).
+- **Benchmark seeding:** loaded classic and flexible job shop instances from ScheduleOpt, with their
+  pre-solved schedules, so the simulation had realistic data from the start (#205, #213).
+- **Data APIs:** machines, capabilities, categories, jobs, operations and their ordering, with cycle
+  detection and cursor pagination (#215, #232, #309, #324).
+- **Schedule lifecycle:** scheduling a chosen set of jobs, validating data before generation,
+  confirming and discarding schedules, archiving finished jobs and deriving each job's backlog
+  status (#257, #261, #262, #267, #272, #273, #313).
+- **Live-update outbox:** recorded simulation changes in a transactional outbox, with integration
+  tests against real PostgreSQL and a CI gate that runs them when database code changes (#288,
+  #289, #291).
+- **File import:** `POST /api/v1/imports` reads FloorSync JSON or benchmark files, reports every
+  problem at once with a dry run, and writes everything in one transaction, safe under concurrent
+  imports (#300).
+- **Code review:** reviewed 42 of the team's merged pull requests, running each against a real
+  database.
 
 ## Links
 
 | What | Where |
 | --- | --- |
-| Repository | <https://github.com/Studio3Build-2026s2/team-61-cuffington-and-co> |
-| Project board (epics, features, user stories) | <https://github.com/orgs/Studio3Build-2026s2/projects/64> (course organisation members only) |
 | Deployment | None hosted: FloorSync runs locally with Docker Compose ([why](spec/requirements/requirement-changes.md), CHG-10) |
 | Benchmark instances | [ScheduleOpt benchmarks](https://github.com/ScheduleOpt/benchmarks), vendored in [src/database/seed-data/](src/database/seed-data/README.md) |
 | ReSched (baseline scheduler) | [XiangjieXiao/ReSched](https://github.com/XiangjieXiao/ReSched), included as a git submodule |
@@ -36,8 +49,8 @@ You need [Git](https://git-scm.com/downloads) and [Docker Desktop](https://docs.
 script.
 
 ```bash
-git clone --recurse-submodules https://github.com/Studio3Build-2026s2/team-61-cuffington-and-co.git
-cd team-61-cuffington-and-co
+git clone --recurse-submodules https://github.com/rileyrushton05/floorsync.git
+cd floorsync
 deployment/run-local.sh
 ```
 
@@ -101,7 +114,7 @@ in [docs/database-schema.md](docs/database-schema.md), [docs/architecture.md](do
 covers code boundaries, and the [decision records](docs/decisions/README.md) explain the main
 choices.
 
-## Original contribution statement
+## Credits
 
 **Developed by the team**
 
@@ -147,8 +160,7 @@ Every dependency and its licence is in [docs/external-resources/](docs/external-
 Claude Code (five members) and Codex (one member) were used to explain concepts, weigh design
 options, debug, and help implement small parts of features step by step. They also generated code:
 mostly boilerplate, and close variations of a pattern after a member had implemented the first
-instance themselves. Every change was reviewed, tested and committed by a team member. Details and prompt logs are in
-[ai-declarations.md](ai-declarations.md).
+instance themselves. Every change was reviewed, tested and committed by a team member.
 
 ## Repository map
 
@@ -156,20 +168,16 @@ instance themselves. Every change was reviewed, tested and committed by a team m
 .
 ├── deployment/          setup guide and run-local.sh
 ├── design/              inspiration, wireframes and UI evolution
-├── docs/                architecture, conventions, decisions, risks, meeting notes
+├── docs/                architecture, conventions, decisions, risks
 │   ├── decisions/       architecture decision records (ADRs)
 │   ├── diagrams/        architecture, pattern, data and sequence diagrams
-│   ├── meeting-notes/   team and client meeting minutes
 │   └── risks/           risk register
-├── evidence/            evaluation and contribution evidence
-│   ├── ai-prompts/      each member's AI prompt log
+├── evidence/            evaluation evidence
 │   ├── benchmarks/      ReSched against Exact results and charts
 │   ├── testing/         backend test and coverage evidence
-│   ├── user-testing/    usability test plan, script and results
-│   ├── weekly-contribution/  weekly contribution reviews
 │   └── traceability.md  testing findings traced to fixes and tests
 ├── scripts/             create_manager.py, OpenAPI export, benchmark script
-├── spec/                requirements, statement of work and team charter, user stories
+├── spec/                requirements and user stories
 ├── src/
 │   ├── frontend/        Next.js app (features/, core/, components/)
 │   ├── backend/
@@ -204,9 +212,8 @@ gate on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) and
 - [Design](design/README.md): inspiration, wireframes and how the UI evolved
 - [Scheduling](docs/scheduling.md) and [the scheduling and simulation backend](docs/scheduling-simulation-backend.md)
 - [Importing production data](docs/importing.md) and [accounts and signing in](docs/accounts.md)
-- [Decision records](docs/decisions/README.md), [risk register](docs/risks/README.md) and [meeting notes](docs/meeting-notes/README.md)
-- [Benchmarks](evidence/benchmarks/), [testing](evidence/testing/README.md), [user testing](evidence/user-testing/README.md) and [traceability](evidence/traceability.md)
-- [Weekly contribution reviews](evidence/weekly-contribution/README.md)
+- [Decision records](docs/decisions/README.md) and the [risk register](docs/risks/README.md)
+- [Evaluation results](evidence/README.md): benchmarks, testing, usability and [traceability](evidence/traceability.md)
 - [All documentation](docs/README.md)
 
 ## Team
