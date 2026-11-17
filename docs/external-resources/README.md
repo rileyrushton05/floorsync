@@ -81,7 +81,7 @@ FloorSync calls no external web APIs of its own. The one outside service is Guro
 | Paper | How it is used |
 | --- | --- |
 | Naderi, B. and Roshanaei, V. (2022), critical-path-search logic-based Benders decomposition for the flexible job shop, *INFORMS Journal on Optimization* 4(1) | The algorithm behind the Exact strategy (`scheduling/FJSP_lbbd.py`). Deliberate deviations from the paper are listed at the top of that file. |
-| Dauzère-Pérès et al. | The MILP formulation used for the first Exact solver (`scheduling/gurobi_exact_solver.py`, ADR 0014), as recorded in the [week 7 contribution review](../../evidence/weekly-contribution/week-07.pdf) |
+| Dauzère-Pérès et al. | The MILP formulation used for the first Exact solver (`scheduling/gurobi_exact_solver.py`, [ADR 0014](../decisions/0014-fajsp_milp_formulation.md)) |
 
 ## Design references
 
@@ -90,5 +90,5 @@ used as visual references only. No assets from them appear in the product.
 
 ## AI use
 
-The Team Charter allowed AI use with full disclosure. Each member's declaration, covering what was
-used and for what, is in [ai-declarations.md](../../ai-declarations.md).
+The team allowed AI use with full disclosure. How AI tools were used is summarised under
+[Credits](../../README.md#credits) in the README.

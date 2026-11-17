@@ -7,9 +7,9 @@ and assumptions. Checked against the code on `main` for the final submission (23
 
 The Source column in the requirement tables uses these abbreviations:
 
-- **Brief:** the [course brief](../project-brief.png) for project 13.
-- **SoW:** the [Statement of Work](../statement-of-work/statement-of-work-and-team-charter.pdf) (14 Aug).
-- **CM1, CM2:** [client meetings](../../docs/meeting-notes/client-meetings.md) with Pasindu Priyashan (27 Aug, 9 Oct).
+- **Brief:** the course brief for project 13 (summarised in the [README](../../README.md)).
+- **SoW:** the team's Statement of Work (14 Aug).
+- **CM1, CM2:** client meetings with Pasindu Priyashan (27 Aug, 9 Oct).
 - **CP1, CP2:** the Checkpoint 1 and 2 reports (31 Aug, 6 Oct).
 - **Team:** a team decision recorded on the board or in an ADR.
 

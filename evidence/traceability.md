@@ -1,12 +1,12 @@
 # Traceability: testing findings to changes and tests
 
-This table follows each finding from where it was found, to the ticket and change that dealt with it, to the evidence that the change works. A finding with no automated test says so. Participants are identified by ID only. Test method and results are in `user-testing/`, and the technical test run is in `testing/`.
+This table follows each finding from where it was found, to the ticket and change that dealt with it, to the evidence that the change works. A finding with no automated test says so. Participants are identified by ID only. The session records are not included in this repository; the technical test run is in `testing/`.
 
 Status key: **Fixed** (change merged), **Open** (not done yet), **Descoped** (decided not to build, with the reason recorded on the ticket).
 
 ## Usability testing findings
 
-Source: four moderated sessions (P1 group, P2 to P4 individual), recorded in `user-testing/user-testing-results.md`.
+Source: four moderated sessions (P1 group, P2 to P4 individual).
 
 | Finding | Found by | Ticket | Change | Automated test | Status |
 |---|---|---|---|---|---|

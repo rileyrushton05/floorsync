@@ -11,7 +11,7 @@ Automated tests for the backend. Results, coverage and the usability evaluation 
 There are deliberately no automated frontend tests. The rules that matter (validation, scheduling,
 the schedule lifecycle and the simulation clock) live in the backend and are tested there, so the
 frontend is mostly presentation. It is checked by lint, strict type checks and a production build
-on every pull request, and was evaluated through [usability testing](../evidence/user-testing/README.md).
+on every pull request, and was evaluated through usability testing ([results](../evidence/README.md#headline-results)).
 
 Convention tests in `backend/` also enforce the architecture rules (`test_api_conventions.py`,
 `test_database_conventions.py`), for example that no route runs SQL directly.

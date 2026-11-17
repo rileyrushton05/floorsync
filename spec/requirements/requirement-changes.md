@@ -5,14 +5,14 @@ delivered (23 Oct 2026). Every change that added, altered or dropped a requireme
 when it happened, why, who decided and where it is recorded.
 
 **Who decided:**
-- **Client:** agreed with Pasindu Priyashan at a [client meeting](../../docs/meeting-notes/client-meetings.md) (CM1 on 27 Aug, CM2 on 9 Oct).
+- **Client:** agreed with Pasindu Priyashan at a client meeting (CM1 on 27 Aug, CM2 on 9 Oct).
 - **Team:** decided in a team meeting or on the board, and recorded in an ADR or a checkpoint report.
 
 ## Timeline
 
 | Date | Milestone | Effect on scope |
 | --- | --- | --- |
-| 14 Aug | [Statement of Work](../statement-of-work/statement-of-work-and-team-charter.pdf) | Proposed a four-part MVP: scheduler, simulation, operator and manager dashboards, coordinator workflow; two strategies (a heuristic and a metaheuristic) benchmarked against a naive baseline |
+| 14 Aug | Statement of Work | Proposed a four-part MVP: scheduler, simulation, operator and manager dashboards, coordinator workflow; two strategies (a heuristic and a metaheuristic) benchmarked against a naive baseline |
 | 27 Aug | Client meeting 1 | Fixed the scope boundaries: static day-before schedules, makespan first, categories, import, one operator per machine (CHG-01 to CHG-03, CHG-05 to CHG-07) |
 | 31 Aug | Checkpoint 1 report | Recorded the changes from the Statement of Work and set the backlog |
 | Sep | Build | Data-model and lifecycle decisions (CHG-12 to CHG-15); the second strategy came back (CHG-04) |

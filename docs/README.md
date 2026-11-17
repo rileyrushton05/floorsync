@@ -27,5 +27,4 @@ How FloorSync is built, how the team worked, and why it was built this way. Setu
 
 - [Decision records](decisions/README.md): 20 ADRs with context, decision and alternatives
 - [Risk register](risks/README.md): each risk with mitigation, owner and outcome
-- [Meeting notes](meeting-notes/README.md): client and team meetings
 - [External resources and AI use](external-resources/README.md): third-party code, data, papers and tools
